@@ -2,6 +2,10 @@
 
 > *Carve decisions as they're made, traceable ever after.*
 
+> **Status: alpha snapshot release** — API may shift, not yet
+> semver-stable. Pinned to the `snapshot` dist-tag on npm; install
+> explicitly with `npm install -g stele-mcp@snapshot`.
+
 A local decision-provenance store for Claude Code. When a decision
 crystallizes in conversation — what you chose, what you rejected, what
 you deferred, what's still open — type `/decision` and the agent carves
@@ -20,12 +24,17 @@ a frozen snapshot.
 Requires **Node ≥ 22.6** (any modern Node works; no Python, no Docker).
 
 ```bash
-npm install -g stele-mcp
+npm install -g stele-mcp@snapshot
 ```
 
 This puts two commands on your PATH:
 - `stele` — CLI for inspecting and editing the decision store
 - `stele-mcp` — the MCP server that Claude Code talks to
+
+> **Windows users**: the Stop hook that auto-detects decisions is a
+> bash script. Install WSL to use it, or pass `--skip-hooks` to
+> `stele init` and use `/decision` manually instead. (Native Windows
+> support is on the roadmap.)
 
 ## Bootstrap a project
 

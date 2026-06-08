@@ -1,3 +1,4 @@
+#!/usr/bin/env -S node --no-warnings
 // stdio MCP server. Primary interface for Claude Code per ProductDesign.md §86.
 //
 // Wire-shape discipline: stdout is RESERVED for the MCP protocol. Any
@@ -102,7 +103,7 @@ try {
   throw e;
 }
 const store = new Store(db);
-const server = new McpServer({ name: "stele", version: "0.5.0" });
+const server = new McpServer({ name: "stele", version: "0.0.1-snapshot" });
 
 server.registerTool(
   "decision_capture",

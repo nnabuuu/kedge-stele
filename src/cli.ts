@@ -1,3 +1,4 @@
+#!/usr/bin/env -S node --no-warnings
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { Store } from "./store.ts";

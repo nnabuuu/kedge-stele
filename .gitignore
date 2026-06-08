@@ -1,8 +1,10 @@
 node_modules/
+dist/
 prov.db
 resume.html
 .stele/
 .DS_Store
+*.tgz
 
 # Per-machine `stele init` artifacts — leave .claude/commands/ tracked
 # (the /decision command is part of the project), but everything else

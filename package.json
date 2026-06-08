@@ -1,6 +1,6 @@
 {
   "name": "stele-mcp",
-  "version": "0.5.0",
+  "version": "0.0.1-snapshot",
   "description": "实录 / Stele — carve decisions as they're made, traceable ever after. Local MCP server + SQLite decision-provenance store; primary client is Claude Code.",
   "keywords": [
     "mcp",
@@ -11,18 +11,26 @@
     "provenance",
     "sqlite"
   ],
+  "author": "Xiaochen Nie <zjsnxc@gmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nnabuuu/kedge-stele.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nnabuuu/kedge-stele/issues"
+  },
+  "homepage": "https://github.com/nnabuuu/kedge-stele#readme",
   "type": "module",
   "engines": {
     "node": ">=22.6"
   },
   "bin": {
-    "stele": "./bin/stele.js",
-    "stele-mcp": "./bin/stele-mcp.js"
+    "stele": "./dist/cli.js",
+    "stele-mcp": "./dist/mcp.js"
   },
   "files": [
-    "src/",
-    "bin/",
+    "dist/",
     "web/",
     "README.md",
     "DEVELOPING.md",
@@ -32,6 +40,8 @@
   ],
   "scripts": {
     "_node": "node --experimental-strip-types --no-warnings",
+    "build": "node scripts/build.mjs",
+    "prepublishOnly": "npm run build",
     "seed": "npm run _node -- src/cli.ts seed",
     "list": "npm run _node -- src/cli.ts list",
     "resume": "npm run _node -- src/cli.ts resume",
@@ -44,5 +54,9 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "typescript": "^5.9.3"
   }
 }

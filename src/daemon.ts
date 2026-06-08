@@ -56,16 +56,21 @@ function logPaths(projectRoot: string): { out: string; err: string } {
 // -----------------------------------------------------------------------------
 
 // Resolve the exact invocation launchd/systemd should use. We can't rely on
-// the `stele` bin shim because it uses `#!/usr/bin/env node` — daemon
-// environments have a stripped-down PATH (no asdf/nvm), so the shebang fails.
-// Instead, write absolute node + script path with the TypeScript-strip flags
-// inline. process.execPath is the live node binary; process.argv[1] is the
-// src/cli.ts the current invocation resolved to.
+// the bin shim because daemon environments have a stripped-down PATH (no
+// asdf/nvm), so a `#!/usr/bin/env node` shebang may fail. Instead, write
+// absolute node + script path inline. process.execPath is the live node
+// binary; process.argv[1] is the script we resolved to at startup.
+//
+// Auto-detect dev vs production mode by the script's extension:
+//   - dev:     src/cli.ts  → needs --experimental-strip-types --no-warnings
+//   - prod:    dist/cli.js → plain JS, no flags
 function resolveLaunchInvocation(): { node: string; nodeFlags: string[]; script: string } {
+  const script = process.argv[1] || "stele";
+  const isTypescript = script.endsWith(".ts");
   return {
     node: process.execPath,
-    nodeFlags: ["--experimental-strip-types", "--no-warnings"],
-    script: process.argv[1] || "src/cli.ts",
+    nodeFlags: isTypescript ? ["--experimental-strip-types", "--no-warnings"] : [],
+    script,
   };
 }
 

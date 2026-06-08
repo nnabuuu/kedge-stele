@@ -15,7 +15,7 @@ for contributors running stele from source or making changes.
 ## Layout
 
 ```
-src/             core (store, projections, consolidate, render, seed, resolver, paths, types)
+src/             core TypeScript source (store, projections, consolidate, render, seed, resolver, paths, types)
 src/cli.ts       CLI subcommands incl. `stele init`, `stele serve`, `stele daemon`, `stele hooks`
 src/mcp.ts       stdio MCP server
 src/serve.ts     HTTP server + JSON API for the web UI
@@ -23,11 +23,38 @@ src/schemas.ts   Zod schemas shared by mcp.ts and serve.ts
 src/daemon.ts    launchd (macOS) / systemd (Linux) installer for always-on `stele serve`
 src/hooks.ts     installer for the Stop hook + stele-capture skill
 src/templates/   source-of-truth for installed templates (decision-command.md, skill, hook)
-bin/             JS wrappers that npm publishes as `stele` and `stele-mcp` bins
+dist/            build output (gitignored) — `npm run build` produces this; the npm package ships dist/, not src/
 web/             single-page web UI — index.html / styles.css / app.js (vanilla)
+tsconfig.json    tsc config (rewriteRelativeImportExtensions, target ES2022)
 .claude/commands/decision.md   the /decision slash command (reference copy of the template)
 sample-report.html             seed fixture for the cold-start acceptance scenario
 ```
+
+## Build
+
+The npm package ships **transpiled JavaScript**, not TypeScript source.
+This is required because Node ≥22 refuses to type-strip `.ts` files under
+`node_modules/` (security policy), and any `npm install`'d package lives
+in node_modules.
+
+```bash
+npm run build
+```
+
+does three things:
+
+1. `tsc` — transpiles `src/*.ts` → `dist/*.js`, rewriting `.ts` import
+   extensions to `.js` via `rewriteRelativeImportExtensions: true`
+2. Copies `src/templates/` → `dist/templates/` (tsc doesn't carry
+   non-TS files; `hooks.ts` resolves the templates dir via
+   `import.meta.url`, so the relative layout matters)
+3. `chmod +x dist/cli.js dist/mcp.js` (shebangs need exec permission)
+
+`prepublishOnly` runs `build` automatically before `npm publish`, so you
+don't have to remember to rebuild.
+
+Dev work continues to run TypeScript directly via the `npm run` scripts —
+no build needed for editing, only for shipping.
 
 ## Run from source
 
