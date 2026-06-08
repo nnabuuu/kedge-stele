@@ -1,0 +1,47 @@
+{
+  "name": "stele-mcp",
+  "version": "0.3.0",
+  "description": "实录 / Stele — carve decisions as they're made, traceable ever after. Local MCP server + SQLite decision-provenance store; primary client is Claude Code.",
+  "keywords": [
+    "mcp",
+    "claude",
+    "claude-code",
+    "decision-log",
+    "adr",
+    "provenance",
+    "sqlite"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "bin": {
+    "stele": "./bin/stele.js",
+    "stele-mcp": "./bin/stele-mcp.js"
+  },
+  "files": [
+    "src/",
+    "bin/",
+    "README.md",
+    "DEVELOPING.md",
+    "ProductDesign.md",
+    "naming-stele.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "_node": "node --experimental-strip-types --no-warnings",
+    "seed": "npm run _node -- src/cli.ts seed",
+    "list": "npm run _node -- src/cli.ts list",
+    "resume": "npm run _node -- src/cli.ts resume",
+    "trace": "npm run _node -- src/cli.ts trace",
+    "add": "npm run _node -- src/cli.ts add",
+    "resolve": "npm run _node -- src/cli.ts resolve",
+    "relate": "npm run _node -- src/cli.ts relate",
+    "mcp": "npm run _node -- src/mcp.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  }
+}

@@ -1,0 +1,5 @@
+node_modules/
+prov.db
+resume.html
+.stele/
+.DS_Store

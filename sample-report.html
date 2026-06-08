@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>ccaas Bootstrap Materialization · Decision Archive · 2026-06-03</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,400;9..144,500&family=JetBrains+Mono:wght@400;600&display=swap');
+:root{
+  --bg:#f4f3ef; --surface:#fbfaf7; --surface2:#edece7;
+  --t1:#1c1c1a; --t2:#5c5b56; --t3:#9c9a92;
+  --border:rgba(28,28,26,.07); --border-strong:rgba(28,28,26,.14);
+  --teal:#0d5245; --teal-bg:#dfece8;
+  --purple:#3a3185; --purple-bg:#e9e7f3;
+  --amber:#7a4d0e; --amber-bg:#f6edda;
+  --red:#942929; --red-bg:#f6dada;
+  --green:#2d6612; --green-bg:#e6f2dc;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Plus Jakarta Sans",-apple-system,"PingFang SC",sans-serif;background:var(--bg);color:var(--t1);min-height:100vh;-webkit-font-smoothing:antialiased}
+code{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:.88em}
+.wrap{max-width:1080px;margin:0 auto;padding:48px 48px 80px}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:36px}
+.brand{display:flex;align-items:center;gap:12px}
+.brand-mk{width:42px;height:42px;border-radius:9px;background:var(--t1);color:#f0efe8;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;letter-spacing:-.4px}
+.brand-tx{display:flex;flex-direction:column;gap:2px}
+.brand-a{font-size:13px;font-weight:700;letter-spacing:-.1px}
+.brand-b{font-size:11px;color:var(--t3);font-weight:500}
+.meta{display:flex;gap:28px;align-items:center}
+.meta-pair{display:flex;flex-direction:column;gap:3px;text-align:right}
+.meta-lb{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.meta-v{font-size:12px;color:var(--t1);font-weight:600}
+.status-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.3px}
+.status-pill.shipped{background:var(--green-bg);color:var(--green)}
+.status-pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+.hero{margin-bottom:24px}
+.hero-eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:.6px;margin-bottom:12px}
+.hero-eyebrow .pill{background:var(--teal-bg);color:var(--teal);padding:3px 9px;border-radius:4px;font-size:10px;letter-spacing:.4px}
+.hero h1{font-family:"Fraunces",Georgia,serif;font-size:38px;font-weight:500;line-height:1.15;letter-spacing:-1.2px}
+.hero h1 em{font-style:italic;color:var(--teal);font-weight:500}
+.hero h1 code{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.78em;background:var(--surface);padding:2px 8px;border-radius:5px;font-weight:500}
+
+.context{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px 30px;margin-bottom:48px;border-left:3px solid var(--teal)}
+.context p{font-size:14px;color:var(--t2);line-height:1.7;margin-bottom:10px}
+.context p:last-child{margin-bottom:0}
+.context p strong{color:var(--t1);font-weight:600}
+.context p em{color:var(--teal);font-style:italic;font-weight:500}
+.context code{font-size:12px;background:var(--bg);padding:1px 5px;border-radius:3px;color:var(--t1)}
+
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:20px;margin-top:8px}
+.sec-h-l{display:flex;align-items:baseline;gap:12px}
+.sec-h .num{font-family:"Fraunces",Georgia,serif;font-size:13px;color:var(--t3);font-weight:500;font-style:italic}
+.sec-h h2{font-size:22px;font-weight:700;letter-spacing:-.4px;color:var(--t1)}
+.sec-h .en{font-size:12px;color:var(--t3);font-weight:500;margin-left:4px}
+.sec-h .hint{font-size:12px;color:var(--t3);font-weight:500}
+
+.decisions{display:flex;flex-direction:column;gap:22px;margin-bottom:56px}
+.d-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px 32px;display:flex;flex-direction:column;gap:20px}
+.d-head{display:flex;align-items:flex-start;gap:14px;padding-bottom:18px;border-bottom:1px solid var(--border)}
+.d-num{font-family:"Fraunces",Georgia,serif;font-size:13px;font-weight:500;color:var(--t3);font-style:italic;letter-spacing:-.1px;min-width:46px;padding-top:5px}
+.d-title{flex:1}
+.d-title h3{font-size:18px;font-weight:700;letter-spacing:-.3px;line-height:1.3;margin-bottom:4px}
+.d-title h3 .q{color:var(--t3);font-weight:500;font-style:italic}
+.d-scope{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:3px 8px;border-radius:3px;background:var(--surface2);color:var(--t2);align-self:flex-start;margin-top:5px}
+.d-scope.runtime{background:var(--teal-bg);color:var(--teal)}
+.d-scope.backend{background:var(--purple-bg);color:var(--purple)}
+.d-scope.design{background:var(--amber-bg);color:var(--amber)}
+.d-scope.security{background:var(--red-bg);color:var(--red)}
+
+.d-frame{display:grid;grid-template-columns:auto 1fr;gap:10px 16px;font-size:13px;line-height:1.6;color:var(--t2)}
+.d-frame .lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--t3);padding-top:3px;white-space:nowrap}
+.d-frame .val strong{color:var(--t1);font-weight:600}
+.d-frame .val code{font-size:11px;background:var(--bg);padding:1px 5px;border-radius:3px;color:var(--t1)}
+
+.d-options{border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.d-options-h{display:grid;grid-template-columns:90px 1fr 140px;gap:14px;padding:9px 16px;font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;background:var(--bg);border-bottom:1px solid var(--border)}
+.d-option{display:grid;grid-template-columns:90px 1fr 140px;gap:14px;padding:13px 16px;border-bottom:1px solid var(--border);font-size:13px;line-height:1.55;align-items:start}
+.d-option:last-child{border-bottom:none}
+.d-option .opt-name{font-weight:600;color:var(--t2);position:relative}
+.d-option .opt-desc{color:var(--t2)}
+.d-option .opt-desc code{font-size:11px;background:var(--bg);padding:1px 5px;border-radius:3px;color:var(--t1)}
+.d-option .opt-verdict{font-size:11px;color:var(--t3);line-height:1.5}
+.d-option.chosen{background:#f6f9f5}
+.d-option.chosen .opt-name{color:var(--green)}
+.d-option.chosen .opt-name::before{content:'▸ ';color:var(--green);font-weight:700}
+.d-option.chosen .opt-verdict{color:var(--green);font-weight:600}
+
+.d-why{background:var(--bg);border-left:3px solid var(--t1);border-radius:0 8px 8px 0;padding:18px 22px}
+.d-why-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--t1);margin-bottom:8px}
+.d-why p{font-family:"Fraunces",Georgia,serif;font-size:15px;font-weight:400;line-height:1.65;color:var(--t1);margin-bottom:10px}
+.d-why p:last-child{margin-bottom:0}
+.d-why p strong{font-weight:600;font-style:italic;color:var(--teal)}
+.d-why p code{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:13px;background:var(--surface);padding:1px 5px;border-radius:3px;font-style:normal;font-weight:500}
+
+.d-locks{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.d-lock{padding:14px 16px;border-radius:8px;background:var(--surface2);font-size:12.5px;line-height:1.55;color:var(--t2)}
+.d-lock-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.d-lock.in{background:#eef3eb;border-left:2px solid var(--green)}
+.d-lock.in .d-lock-lbl{color:var(--green)}
+.d-lock.out{background:#f4ece4;border-left:2px solid var(--amber)}
+.d-lock.out .d-lock-lbl{color:var(--amber)}
+.d-lock code{font-size:11px;background:rgba(255,255,255,.5);padding:1px 5px;border-radius:3px;color:var(--t1)}
+
+.d-artifact{font-size:11px;color:var(--t3);font-weight:500;padding-top:14px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:14px}
+.d-artifact .lbl{font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-size:9px}
+.d-artifact code{font-size:10.5px;color:var(--t2);background:var(--bg);padding:1px 5px;border-radius:3px;font-weight:500}
+
+.dq-grid{display:flex;flex-direction:column;gap:12px;margin-bottom:48px}
+.dq-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 22px;display:grid;grid-template-columns:60px 1fr;gap:18px;align-items:start}
+.dq-num{font-family:"Fraunces",Georgia,serif;font-size:12px;font-style:italic;color:var(--t3);font-weight:500;padding-top:3px}
+.dq-body h4{font-size:14px;font-weight:600;margin-bottom:6px;letter-spacing:-.2px;color:var(--t1)}
+.dq-body h4 .q{color:var(--t3);font-weight:500;font-style:italic}
+.dq-body p{font-size:12.5px;color:var(--t2);line-height:1.6;margin-bottom:5px}
+.dq-body p:last-child{margin-bottom:0}
+.dq-body p strong{color:var(--t1);font-weight:600}
+.dq-body p code{font-size:11px;background:var(--bg);padding:1px 5px;border-radius:3px;color:var(--t1)}
+.dq-body p .lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--t3);margin-right:6px}
+.dq-card.deferred{border-left:3px solid var(--amber)}
+.dq-card.open{border-left:3px solid var(--purple)}
+
+details.change-surface{background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:36px}
+details.change-surface > summary{list-style:none;cursor:pointer;padding:16px 22px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;font-weight:700;color:var(--t1)}
+details.change-surface > summary::-webkit-details-marker{display:none}
+details.change-surface > summary .lead{display:flex;align-items:center;gap:10px}
+details.change-surface > summary .lead .ic{font-family:"Fraunces",Georgia,serif;font-size:13px;font-style:italic;color:var(--t3);font-weight:500}
+details.change-surface > summary .hint{font-size:10px;color:var(--t3);font-weight:500;text-transform:uppercase;letter-spacing:.4px}
+details.change-surface > summary .chev{font-size:16px;color:var(--t3);transition:transform .2s}
+details.change-surface[open] > summary .chev{transform:rotate(90deg)}
+.cs-body{padding:0 22px 20px;border-top:1px solid var(--border);padding-top:18px}
+.cs-stat-row{display:flex;gap:24px;margin-bottom:18px;flex-wrap:wrap}
+.cs-stat{display:flex;flex-direction:column;gap:2px}
+.cs-stat-n{font-size:15px;font-weight:700;color:var(--t1)}
+.cs-stat-l{font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.cs-files{display:flex;flex-direction:column;gap:5px}
+.cs-row{display:grid;grid-template-columns:82px 1fr;gap:12px;align-items:center;padding:7px 10px;border-radius:5px;background:var(--bg);font-size:11.5px}
+.cs-row .tag{font-size:9px;font-weight:700;text-align:center;padding:2px 6px;border-radius:3px}
+.cs-row .tag.new{background:var(--teal-bg);color:var(--teal)}
+.cs-row .tag.mod{background:var(--purple-bg);color:var(--purple)}
+.cs-row .path{color:var(--t1);font-weight:500;line-height:1.4;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:10.5px}
+
+footer{text-align:center;color:var(--t3);font-size:10px;padding:32px 0 0;letter-spacing:.3px}
+
+@media (max-width:760px){
+  .wrap{padding:32px 20px}
+  .hero h1{font-size:30px}
+  .d-card{padding:22px}
+  .d-options-h,.d-option{grid-template-columns:1fr;gap:6px}
+  .d-locks{grid-template-columns:1fr}
+  .cs-row{grid-template-columns:1fr;gap:3px}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <!-- HEADER -->
+  <header>
+    <div class="brand">
+      <div class="brand-mk">D</div>
+      <div class="brand-tx">
+        <div class="brand-a">ccaas · 决定档案 / Decision Archive</div>
+        <div class="brand-b">platform · session bootstrap · entity-scoped files · 2026-06-03</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="meta-pair"><span class="meta-lb">提交</span><span class="meta-v">44ec973a</span></div>
+      <span class="status-pill shipped"><span class="dot"></span>SHIPPED</span>
+    </div>
+  </header>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-eyebrow">
+      <span class="pill">Decision Archive</span>
+      <span style="color:var(--t3)">·</span>
+      <span style="color:var(--t3)">ccaas runtime · agent_files bootstrap · 2026-06-03</span>
+    </div>
+    <h1>ccaas session bootstrap 接上 entity-scoped <code>agent_files</code> — <em>新 session bind 同一 sourceIdentity 后,agent fs 里能直接 Read/Edit 历史附件</em>。</h1>
+  </section>
+
+  <!-- CONTEXT -->
+  <div class="context">
+    <p>
+      <strong>这是什么。</strong>
+      Session bootstrap 阶段新加一道 <code>SessionFileMaterializer</code>:把 <code>agent_files</code> 表里属于当前 session 所绑 entity 的文件,按 <code>file.originalPath</code> 复制进 session 的 workspace。
+      调用走 <code>MessageWorker</code> 的直接调用链(在 <code>assetSyncer.sync</code> 之后,<code>orchestrateMessage</code> 之前),同时挂 <code>@OnEvent('session.bound')</code> 作 safety net。
+    </p>
+    <p>
+      <strong>为什么做。</strong>
+      上一轮 PR (<code>6eacf156</code>) 把 <code>agent_files</code> 升级到了 entity-scoped: 文件能跨 session 通过 entity 关联了。但<em>"entity 的存在感"只到了 DB + REST 层</em>——
+      新建 session bind 同一个 sourceIdentity 时,agent 的 fs 里依旧是空的,只能通过 <code>/api/v1/files/:id/download</code> 拿。这跟用户心智模型 ("这个课程项目的所有内容") 不一致。
+      用户原话: "workspace 下面所有的内容都要被一起导入 reconstruct 成为 claude 的 fs 的一部分可以供修改,对吧?" —— 这次 PR 把"对吧"变成"是"。
+    </p>
+    <p>
+      <strong>范围。</strong>
+      <strong>In</strong>: <code>SessionFileMaterializer</code> service + <code>MessageWorker</code> 直接调用 + 事件 safety net + idempotency (metadata flag + in-flight Promise dedup) + caps (500 文件 / 50 MB) + <code>path-safety.ts</code> helper 抽取。
+      <strong>Out</strong>: agentfs base 扩出 entity 共享层 (多 session 重复占 delta 空间)、cascade DELETE on entity removal、Prometheus metrics、cap 命中后的 UX 信号。
+    </p>
+  </div>
+
+  <!-- DECISIONS -->
+  <div class="sec-h">
+    <div class="sec-h-l">
+      <span class="num">01 —</span>
+      <h2>Decisions <span class="en">这次想清楚了的</span></h2>
+    </div>
+    <span class="hint">6 项 · 按对话出现顺序</span>
+  </div>
+
+  <div class="decisions">
+
+    <!-- D-01 -->
+    <div class="d-card">
+      <div class="d-head">
+        <div class="d-num">D-01</div>
+        <div class="d-title">
+          <h3><span class="q">问:</span> 给 <code>agent_files</code> 也加 bootstrap,还是接受 gap?</h3>
+        </div>
+        <span class="d-scope runtime">Runtime · Scope</span>
+      </div>
+
+      <div class="d-frame">
+        <span class="lbl">触发</span>
+        <span class="val">用户直接点出: <em>"workspace 下面所有的内容都要被一起导入 reconstruct 成为 claude 的 fs 的一部分可以供修改,对吧?"</em> —— 调研发现 artifact bootstrap 已完整,<code>agent_files</code> 这一侧没接上。</span>
+        <span class="lbl">约束</span>
+        <span class="val">ccaas 现有的 bootstrap 链路 (<code>SessionAssetSyncer</code>) 只覆盖 <strong>solution 拥有的 artifacts</strong>; <code>agent_files</code> 是<strong>平台拥有的</strong>,没人来塞进 fs。</span>
+      </div>
+
+      <div class="d-options">
+        <div class="d-options-h"><span>Option</span><span>方案</span><span>Verdict</span></div>
+        <div class="d-option">
+          <span class="opt-name">A</span>
+          <span class="opt-desc">接受 gap — 历史 entity files 只能通过 <code>/files/:id/download</code> 拿到,agent 在 fs 里看不见</span>
+          <span class="opt-verdict">❌ 拒 — entity-scoped 的语义不完整,只有 DB 层的存在感。</span>
+        </div>
+        <div class="d-option chosen">
+          <span class="opt-name">B</span>
+          <span class="opt-desc">新增 <code>SessionFileMaterializer</code>,session bootstrap 时按 <code>originalPath</code> 复制进 workspace</span>
+          <span class="opt-verdict">✓ 选 — entity 的"存在感"延伸到 fs 层。</span>
+        </div>
+      </div>
+
+      <div class="d-why">
+        <div class="d-why-lbl">为什么这么选</div>
+        <p>
+          上一轮 PR 让 ccaas <em>知道</em>文件属于谁,但 agent 在自己的 fs 里依然看不见 —— <strong>"知道"和"能用"在 agent runtime 这个语境里是两件事</strong>。
+          DB-only 的 entity 关系只对 ccaas 的<em>记账</em>有用,对 agent 没有用 —— agent 不会主动调 <code>/files/...</code> download API,它读 fs。
+        </p>
+        <p>
+          要让 entity-scoped 真正生效,必须把内容投影回 agent 看得到的世界。这件事 ccaas 已经为 solution-owned artifacts 做了,
+          直接<em>沿用同一套架构 hook 一遍</em>而不是另发明体系,是成本最低的对齐方式。
+        </p>
+      </div>
+
+      <div class="d-locks">
+        <div class="d-lock in"><div class="d-lock-lbl">Locked in</div>双触发(worker 直接调用 + event safety net);<code>session.bound</code> 后 entity files 必须在 agent 看见之前就位。</div>
+        <div class="d-lock out"><div class="d-lock-lbl">Locked out</div>"cross-session 文件复用"现在是 expectation —— 下游 lifecycle (entity cascade delete) 必须跟着 entity 走,session 单独清掉对 entity 影响为 0。</div>
+      </div>
+
+      <div class="d-artifact">
+        <span class="lbl">file</span><code>packages/apps/platform/src/sessions/services/session-file-materializer.service.ts</code>
+        <span class="lbl">commit</span><code>44ec973a</code>
+      </div>
+    </div>
+
+    <!-- D-02 -->
+    <div class="d-card">
+      <div class="d-head">
+        <div class="d-num">D-02</div>
+        <div class="d-title">
+          <h3><span class="q">问:</span> 触发点是 <code>session.bound</code> 事件,还是 <code>MessageWorker</code> 直接调用链?</h3>
+        </div>
+        <span class="d-scope backend">Backend · Timing</span>
+      </div>
+
+      <div class="d-frame">
+        <span class="lbl">触发</span>
+        <span class="val">第一版 plan 写"挂 <code>@OnEvent('session.bound')</code>",用户反应"还是有点不保险",要求再深挖。Deep-dig 发现事件派发是 fire-and-forget microtask,跟 worker 的<code>sync → spawn CLI</code>同步链时序<strong>不可控</strong>: 事件 handler 可能 spawn 之后才跑完,导致 agent 第一轮看到空 fs。</span>
+        <span class="lbl">约束</span>
+        <span class="val"><code>SessionAssetSyncer</code> 已经踩过这个坑 (G4 fix); 它现在的解法是 worker <code>await assetSyncer.sync(sessionId)</code> 直接调用,不依赖事件。新的 materializer 应当跟进。</span>
+      </div>
+
+      <div class="d-options">
+        <div class="d-options-h"><span>Option</span><span>方案</span><span>Verdict</span></div>
+        <div class="d-option">
+          <span class="opt-name">A</span>
+          <span class="opt-desc">只挂 <code>@OnEvent('session.bound')</code> 事件 handler</span>
+          <span class="opt-verdict">❌ 拒 — agent 可能在 fs 物化完成前就 spawn 跑。</span>
+        </div>
+        <div class="d-option chosen">
+          <span class="opt-name">B</span>
+          <span class="opt-desc"><code>MessageWorker</code> 直接调用 <code>await materialize()</code> + 事件 handler 作 safety net</span>
+          <span class="opt-verdict">✓ 选 — 主路径同步保序,事件兜底非 worker 路径。</span>
+        </div>
+        <div class="d-option">
+          <span class="opt-name">C</span>
+          <span class="opt-desc">只直接调,完全不挂事件</span>
+          <span class="opt-verdict">❌ 拒 — admin 工具/未来路径不走 worker 时漏掉。</span>
+        </div>
+      </div>
+
+      <div class="d-why">
+        <div class="d-why-lbl">为什么这么选</div>
+        <p>
+          NestJS <code>EventEmitter2.emit</code> 是<em>同步 return + 异步派发</em>: emit 调用立即返回,handler 走 microtask queue,跟 worker 的下一行同步代码(<code>orchestrateMessage</code>)<strong>赛跑</strong>。
+          microtask 的赢面看 V8 调度细节,不能假定。<em>这是一类整个 ccaas 都已经遇到过的问题</em>——
+          <code>SessionAssetSyncer</code> 当时的 G4 fix 已经把"关键路径不依赖事件"立成了 ccaas 的范式。
+        </p>
+        <p>
+          但完全不挂事件又会漏掉非 worker 路径 (admin 调试、未来其他流程) 的 attach。所以选 <strong>双触发</strong>:
+          主路径直接 <code>await</code> 保证正确性,事件作为兜底。
+          代价是同一个 session 可能被两条路径同时打到 —— 这是后面 D-04 idempotency 要解决的问题。
+        </p>
+      </div>
+
+      <div class="d-locks">
+        <div class="d-lock in"><div class="d-lock-lbl">Locked in</div><code>MessageWorker</code> 显式注入 <code>SessionFileMaterializer</code> 依赖;关键路径不再相信 event 派发顺序。</div>
+        <div class="d-lock out"><div class="d-lock-lbl">Locked out</div>"事件丢了不影响功能"成为 ccaas 的契约 —— 将来不能用事件作为唯一的状态机驱动力。</div>
+      </div>
+
+      <div class="d-artifact">
+        <span class="lbl">file</span><code>packages/apps/platform/src/sessions/services/message-worker.service.ts</code>
+      </div>
+    </div>
+
+    <!-- D-03 -->
+    <div class="d-card">
+      <div class="d-head">
+        <div class="d-num">D-03</div>
+        <div class="d-title">
+          <h3><span class="q">问:</span> Agent 改了一个物化进来的文件,语义是什么?</h3>
+        </div>
+        <span class="d-scope design">Design · Semantics</span>
+      </div>
+
+      <div class="d-frame">
+        <span class="lbl">触发</span>
+        <span class="val">Plan 阶段问"agent 改了物化文件怎么办",用户答: <em>"这里我们不是用 agentFS 直接完成的吗?"</em></span>
+        <span class="lbl">约束</span>
+        <span class="val">反向 sync(改了就写回原 <code>storedPath</code>)需要一整套 syncer 架构 + 冲突解决,工作量与 <code>WorkspaceArtifactSource</code> 相当;<strong>但 agentfs 已经提供了 delta overlay</strong>。</span>
+      </div>
+
+      <div class="d-options">
+        <div class="d-options-h"><span>Option</span><span>方案</span><span>Verdict</span></div>
+        <div class="d-option">
+          <span class="opt-name">A</span>
+          <span class="opt-desc">反向 sync,agent 改 → 写回 <code>file.storedPath</code></span>
+          <span class="opt-verdict">❌ 拒 — 跨进程 + 冲突,工程量大。</span>
+        </div>
+        <div class="d-option chosen">
+          <span class="opt-name">B</span>
+          <span class="opt-desc">进来只读,修改只生新行 — 复用 agentfs delta + write-file-tracker</span>
+          <span class="opt-verdict">✓ 选 — 零新代码,语义跟现有 agent_files 一致。</span>
+        </div>
+        <div class="d-option">
+          <span class="opt-name">C</span>
+          <span class="opt-desc">不物化,只在 system prompt 提示 "用 download tool 拿"</span>
+          <span class="opt-verdict">❌ 拒 — agent 不能 grep/edit,功能上残废。</span>
+        </div>
+      </div>
+
+      <div class="d-why">
+        <div class="d-why-lbl">为什么这么选</div>
+        <p>
+          这个决定<strong>整个由 ccaas 既有的两件事拼起来,没有新代码</strong>:
+        </p>
+        <p>
+          (1) <em>agentfs delta overlay</em>: NestJS service 在 mount 点 <code>fs.copyFile</code> 写入的字节落进<strong>per-session SQLite delta</strong>(deep-dig 确认过),
+          agent 之后 <code>Edit</code> 这个文件也落进同一个 delta —— 原 <code>storedPath</code>(持久化目录)永不被动。
+        </p>
+        <p>
+          (2) <em>local provider 上的 write-file-tracker</em>: agent 改文件会被 hook 捕获,创建<strong>新的 agent_file 行</strong>,继承相同的 sourceIdentity。
+          原行 + 持久化副本也是不被动。
+        </p>
+        <p>
+          两个 provider 上的语义都自然满足"进来只读 + 修改只生新行" —— <em>语义不需要我设计,既有 invariants 自动提供</em>。
+        </p>
+      </div>
+
+      <div class="d-locks">
+        <div class="d-lock in"><div class="d-lock-lbl">Locked in</div>"agent_files 只增不改"成为 ccaas 的不变量,后续 versioning / audit 设计都可以依赖。</div>
+        <div class="d-lock out"><div class="d-lock-lbl">Locked out</div>agentfs delta 占用按 session 累积 —— 多 session 同 entity 时每个都复制一份;DEF-01 留作 Phase 2 优化。</div>
+      </div>
+
+      <div class="d-artifact">
+        <span class="lbl">ref</span><code>docs/gitbook/zh/platform/runtime-architecture.md</code>
+      </div>
+    </div>
+
+    <!-- D-04 -->
+    <div class="d-card">
+      <div class="d-head">
+        <div class="d-num">D-04</div>
+        <div class="d-title">
+          <h3><span class="q">问:</span> Worker 直接调用 + 事件 handler 同 session 跑 → race 怎么挡?</h3>
+        </div>
+        <span class="d-scope security">Concurrency · Race</span>
+      </div>
+
+      <div class="d-frame">
+        <span class="lbl">触发</span>
+        <span class="val">Round-1 code review 找到: <code>attachWorkspaceSource</code> 同步 emit <code>session.bound</code>,worker 的 <code>await</code> 接着跑 — emit 返回后 event handler 还没跑完。Worker 直接调和 event handler 都能通过 <code>files.bootstrapped</code> metadata flag 检查 → 双方都开始 copy → 双倍 IO,可能虚假触发 cap。</span>
+        <span class="lbl">约束</span>
+        <span class="val">metadata flag 是 <code>await</code> 异步写,从读到写之间有窗口 — flag 单独防不住 intra-process race。</span>
+      </div>
+
+      <div class="d-options">
+        <div class="d-options-h"><span>Option</span><span>方案</span><span>Verdict</span></div>
+        <div class="d-option">
+          <span class="opt-name">A</span>
+          <span class="opt-desc">只 metadata flag (round-1 版本)</span>
+          <span class="opt-verdict">❌ 拒 — race window 真实存在。</span>
+        </div>
+        <div class="d-option chosen">
+          <span class="opt-name">B</span>
+          <span class="opt-desc">metadata flag (跨重启) + 进程内 <code>Map&lt;sessionId, Promise&gt;</code> single-flight</span>
+          <span class="opt-verdict">✓ 选 — 两个层次互补。</span>
+        </div>
+        <div class="d-option">
+          <span class="opt-name">C</span>
+          <span class="opt-desc">DB-level lock (advisory lock / row lock)</span>
+          <span class="opt-verdict">❌ 拒 — 大锤,跨进程在 ccaas 不需要(SQLite + single instance)。</span>
+        </div>
+      </div>
+
+      <div class="d-why">
+        <div class="d-why-lbl">为什么这么选</div>
+        <p>
+          关键洞察: <strong>race 不是跨进程的,是同进程的</strong>。ccaas 当前是 single-replica;worker 和 event handler 是同一个 Node 实例的两个调用链。
+          这种 race 用<em>进程内的 Promise Map</em> 就能干净挡住 —— <code>map.get</code> + <code>map.set</code> 在 V8 里是<strong>同步的、原子的</strong>,
+          两个调用链中后到的一个看到的就是前者放进去的 Promise,直接 await 同一个执行结果。
+        </p>
+        <p>
+          metadata flag 留着是为了<em>跨重启 idempotency</em> —— 进程挂了重起来,之前已经 bootstrap 过的 session 不要再 bootstrap。两个层次解决两个问题,各司其职。
+        </p>
+        <p>
+          DB lock 会拉起 cross-process 的复杂度 —— 当前 ccaas 没这个 scenario,把锁机制画得太大反而是 over-design。当多实例真出现时再加 (OQ-01)。
+        </p>
+      </div>
+
+      <div class="d-locks">
+        <div class="d-lock in"><div class="d-lock-lbl">Locked in</div>"single-process race 用 Promise Map 解决"成为 ccaas 范式;后续类似 race 可以同样套。</div>
+        <div class="d-lock out"><div class="d-lock-lbl">Locked out</div>多实例部署时需要重新审视 race protection(OQ-01)。</div>
+      </div>
+
+      <div class="d-artifact">
+        <span class="lbl">file</span><code>packages/apps/platform/src/sessions/services/session-file-materializer.service.ts</code> · <code>inFlight</code> Map
+      </div>
+    </div>
+
+    <!-- D-05 -->
+    <div class="d-card">
+      <div class="d-head">
+        <div class="d-num">D-05</div>
+        <div class="d-title">
+          <h3><span class="q">问:</span> 物化进 workspace 时放哪个路径?</h3>
+        </div>
+        <span class="d-scope design">Design · Layout</span>
+      </div>
+
+      <div class="d-frame">
+        <span class="lbl">触发</span>
+        <span class="val">Plan 决策点。Upload 时是 <code>images/cover.png</code>,物化时也要放在那个语义点上,不然 agent 拿不准位置。</span>
+        <span class="lbl">约束</span>
+        <span class="val"><code>&lt;workspace&gt;/artifacts/</code> 已经被 solution-owned 内容占了;路径冲突时要有规则。</span>
+      </div>
+
+      <div class="d-options">
+        <div class="d-options-h"><span>Option</span><span>方案</span><span>Verdict</span></div>
+        <div class="d-option chosen">
+          <span class="opt-name">A</span>
+          <span class="opt-desc">按 <code>file.originalPath</code> 原路径还原 — 冲突时 artifacts 优先</span>
+          <span class="opt-verdict">✓ 选 — agent 看到的路径跟 upload 时一致。</span>
+        </div>
+        <div class="d-option">
+          <span class="opt-name">B</span>
+          <span class="opt-desc">统一放进 <code>&lt;workspace&gt;/uploads/</code> 子目录</span>
+          <span class="opt-verdict">❌ 拒 — 跟 attach-file MCP 文档里"在 outputs/ 下拿音频"语义脱节。</span>
+        </div>
+        <div class="d-option">
+          <span class="opt-name">C</span>
+          <span class="opt-desc">同路径顺序覆盖,materializer 比 artifacts 后写</span>
+          <span class="opt-verdict">❌ 拒 — silent overwrite,solution 拥有的内容被平台拥有的覆盖,trust 反向了。</span>
+        </div>
+      </div>
+
+      <div class="d-why">
+        <div class="d-why-lbl">为什么这么选</div>
+        <p>
+          <code>originalPath</code> 是 agent <strong>当初看到的位置</strong> —— upload 时是 <code>images/x.png</code>,attach-file MCP 文档里写"agent 应当去 outputs/ 拿生成的音频",
+          这些语义都<em>预设了相对路径稳定</em>。换一个统一子目录会破坏这层契约。
+        </p>
+        <p>
+          冲突时 artifacts 赢 —— 因为<strong>solution 是 source of truth,平台是 derived</strong>: solution 拥有的内容定义了项目;<code>agent_files</code> 是基于那个项目衍生出来的产物。
+          冲突时该让"定义"覆盖"产物",反过来就是<em>derived 数据污染 source-of-truth</em>,长期会乱。
+        </p>
+      </div>
+
+      <div class="d-locks">
+        <div class="d-lock in"><div class="d-lock-lbl">Locked in</div>workspace 命名空间是共享的;artifacts vs agent_files 第一个落地的赢。</div>
+        <div class="d-lock out"><div class="d-lock-lbl">Locked out</div>完全无冲突的隔离模型做不到 —— 但实际冲突概率低(artifacts 一般是项目源文件,agent_files 是用户上传/agent 产出)。</div>
+      </div>
+
+      <div class="d-artifact">
+        <span class="lbl">file</span><code>session-file-materializer.service.ts</code> · <code>fs.access</code> → skip
+      </div>
+    </div>
+
+    <!-- D-06 -->
+    <div class="d-card">
+      <div class="d-head">
+        <div class="d-num">D-06</div>
+        <div class="d-title">
+          <h3><span class="q">问:</span> path-safety helper 怎么共享给 materializer?</h3>
+        </div>
+        <span class="d-scope backend">Backend · Refactor</span>
+      </div>
+
+      <div class="d-frame">
+        <span class="lbl">触发</span>
+        <span class="val"><code>SessionFileMaterializer</code> 也需要 <code>resolveInsideWorkspace</code> 防 <code>originalPath</code> 被改坏后逃出 workspace。这个 helper 之前是 <code>FilesService</code> 的 private method。</span>
+        <span class="lbl">约束</span>
+        <span class="val">helper 是纯函数 + 用 module-level <code>Logger</code>,本来就没 DI 依赖;不该为了共享一段 path 计算把 materializer 绑到 <code>FilesService</code> 上。</span>
+      </div>
+
+      <div class="d-options">
+        <div class="d-options-h"><span>Option</span><span>方案</span><span>Verdict</span></div>
+        <div class="d-option">
+          <span class="opt-name">A</span>
+          <span class="opt-desc"><code>FilesService.resolveInsideWorkspace</code> 改 public,materializer 注入 <code>FilesService</code></span>
+          <span class="opt-verdict">❌ 拒 — 引入一条只为 path 计算存在的 DI 依赖。</span>
+        </div>
+        <div class="d-option">
+          <span class="opt-name">B</span>
+          <span class="opt-desc">复制粘贴,两份实现</span>
+          <span class="opt-verdict">❌ 拒 — 已经被 round-1/round-2 review 锤过的安全代码,容忍不了 drift。</span>
+        </div>
+        <div class="d-option chosen">
+          <span class="opt-name">C</span>
+          <span class="opt-desc">抽到独立 <code>files/path-safety.ts</code> module — 零 DI 纯函数 + module-level Logger</span>
+          <span class="opt-verdict">✓ 选 — 第二 consumer 自然落地,既有测试一并搬到 <code>path-safety.spec.ts</code>。</span>
+        </div>
+      </div>
+
+      <div class="d-why">
+        <div class="d-why-lbl">为什么这么选</div>
+        <p>
+          这段代码已经经历了<strong>两轮 code review 的迭代</strong>(C1 path-traversal critical、round-2 item 1 symlink TOCTOU、prefix-sibling 防御),
+          是 ccaas 整个 file 流里安全最敏感的一段。<em>复制粘贴等于给 drift 开口子</em>,六个月后两份会变得不一样。
+        </p>
+        <p>
+          通过 <code>FilesService</code> 暴露(option A)又会拖来一条 DI 边 —— materializer 不需要 <code>FilesService</code> 的任何其他能力,只需要这两个工具函数。
+          对应 <strong>"DI 边应该按真实依赖画"</strong> 的原则,不该用 DI 容器传递无状态工具。
+        </p>
+        <p>
+          独立 module 是最低成本的扁平化: 19 个测试集中到一个 <code>path-safety.spec.ts</code>,后续添 consumer 不需要再决策。
+        </p>
+      </div>
+
+      <div class="d-locks">
+        <div class="d-lock in"><div class="d-lock-lbl">Locked in</div><code>resolveInsideWorkspace</code>/<code>safeFsSegment</code> 成为正式公共 surface,改它需要考虑 backwards-compat。</div>
+        <div class="d-lock out"><div class="d-lock-lbl">Locked out</div>原"就近修改"的灵活性没了 — 改 helper 要顾两个 consumer。但代价低,因为接口稳定。</div>
+      </div>
+
+      <div class="d-artifact">
+        <span class="lbl">files</span><code>packages/apps/platform/src/files/path-safety.ts</code>
+        <code>packages/apps/platform/src/files/path-safety.spec.ts</code>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- DEFERRED -->
+  <div class="sec-h">
+    <div class="sec-h-l">
+      <span class="num">02 —</span>
+      <h2>Deferred <span class="en">这次显式没做的</span></h2>
+    </div>
+    <span class="hint">5 项 · 触发条件下重新审视</span>
+  </div>
+
+  <div class="dq-grid">
+
+    <div class="dq-card deferred">
+      <div class="dq-num">DEF-01</div>
+      <div class="dq-body">
+        <h4>agentfs base 扩出 entity 共享层</h4>
+        <p><span class="lbl">现状</span>每个 session 物化时把 entity 文件复制进自己的 delta — 多 session 同 entity 时 delta 空间按 session 数线性占。一个 100 MB 课件 × 10 个并发 session = 1 GB delta。</p>
+        <p><span class="lbl">推迟理由</span>改 <code>BaseMaterializer</code> + mount 配置以支持 <code>_agentfs_base/tenants/{solutionId}/entities/{sourceIdentity}/...</code> 共享层,工作量大;当前数据量没到瓶颈。</p>
+        <p><span class="lbl">重新审视的触发</span>单 entity 并发 session 数 × 课件大小成为磁盘告警源。Profiling 显示 delta 占用是主要成本时。</p>
+      </div>
+    </div>
+
+    <div class="dq-card deferred">
+      <div class="dq-num">DEF-02</div>
+      <div class="dq-body">
+        <h4>Entity cascade DELETE</h4>
+        <p><span class="lbl">现状</span>solution backend 删 project 时 ccaas 不知道; <code>agent_files</code> 行 + 持久化副本永远留着。</p>
+        <p><span class="lbl">推迟理由</span>需要 solution 调一个新协议 <code>DELETE /workspaces/:sourceIdentity/files</code>,涉及 solution 侧改动;当前没有 solution 真的删 project + 报告 stale files。</p>
+        <p><span class="lbl">重新审视的触发</span>第一个 solution 删 project 流程上线 / storage 告警关联到孤儿文件。</p>
+      </div>
+    </div>
+
+    <div class="dq-card deferred">
+      <div class="dq-num">DEF-03</div>
+      <div class="dq-body">
+        <h4>Metrics counter for <code>materialize_event_failures_total</code></h4>
+        <p><span class="lbl">现状</span><code>@OnEvent('session.bound')</code> handler 吞错只 <code>logger.warn</code>;跟 <code>SessionAssetSyncer</code> 现有 precedent 一致。</p>
+        <p><span class="lbl">推迟理由</span>项目当前没有 Prometheus / OTel metrics infra。单加这一个 counter 不值得拉起整套 metrics 系统。</p>
+        <p><span class="lbl">重新审视的触发</span>Metrics infra 铺开后,这是第一批要补的 counter(跟 SYSTEM_USER_ID fallback counter 一起)。</p>
+      </div>
+    </div>
+
+    <div class="dq-card deferred">
+      <div class="dq-num">DEF-04</div>
+      <div class="dq-body">
+        <h4>Always-on <code>files.materializedCount</code> metadata</h4>
+        <p><span class="lbl">现状</span>只在 <code>capped=true</code> 时写一个 <code>{materialized, total, capped:true}</code> 行。</p>
+        <p><span class="lbl">推迟理由</span>没有 UI consumer。Round-2 reviewer 建议 always-on 但承认"当前没读者,defensible";所以留到有需求再扩。</p>
+        <p><span class="lbl">重新审视的触发</span>UI/dashboard 想统计 entity bootstrap 状态(物化几个、跳过几个、失败几个)。</p>
+      </div>
+    </div>
+
+    <div class="dq-card deferred">
+      <div class="dq-num">DEF-05</div>
+      <div class="dq-body">
+        <h4>Hot-loop realpath 优化</h4>
+        <p><span class="lbl">现状</span>500 文件 cap × 2 次 <code>fs.realpath</code> per file = ~1000 stat calls。</p>
+        <p><span class="lbl">推迟理由</span>实测 sub-second(tmpfs 上),不是瓶颈。Round-2 reviewer 标 "no action required"。</p>
+        <p><span class="lbl">重新审视的触发</span>Bootstrap 时间超 N 秒,或 profiling 显示这是热点。</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- OPEN QUESTIONS -->
+  <div class="sec-h">
+    <div class="sec-h-l">
+      <span class="num">03 —</span>
+      <h2>Open Questions <span class="en">真正还没答案的</span></h2>
+    </div>
+    <span class="hint">3 项 · 没 confident answer</span>
+  </div>
+
+  <div class="dq-grid">
+
+    <div class="dq-card open">
+      <div class="dq-num">OQ-01</div>
+      <div class="dq-body">
+        <h4>多 instance ccaas 部署时 in-flight Map 不够</h4>
+        <p><span class="lbl">问题</span>D-04 的 <code>inFlight</code> Map 只防同进程 race。多实例部署时,两个 ccaas 实例同时收到同一 session 的 worker job 会重复物化(还可能写穿对方 delta?)。</p>
+        <p><span class="lbl">为什么 open</span>ccaas 当前是 single-replica(SQLite + agentfs FUSE 都假设单进程),没有这个 scenario。但多实例路线在 backlog 里;到那一刻需要 DB-level advisory lock,而 agentfs FUSE 那一层根本不能跨 host —— 不止 race 一个问题。等多实例方案明朗再设计。</p>
+      </div>
+    </div>
+
+    <div class="dq-card open">
+      <div class="dq-num">OQ-02</div>
+      <div class="dq-body">
+        <h4>Cap 命中后 agent 怎么知道有"未物化的文件"?</h4>
+        <p><span class="lbl">问题</span>500 文件 / 50 MB cap 超出后,剩下的 entity files 永远不会进 agent 的 fs。agent 不知道它们存在 → 无法主动调 download tool 拿 → 等于功能缺失。</p>
+        <p><span class="lbl">为什么 open</span>可以在 system prompt 里加 hint("还有 N 个文件可以用 download_file tool 拿"),但 system prompt 是 solution 拥有的;平台越界往里写违反 phase 5.5 边界。又或者出一个 ccaas 的 tool <code>list_unmaterialized_files</code> 让 agent 自己查 —— 但 agent 凭什么知道要查?设计还没想透。</p>
+      </div>
+    </div>
+
+    <div class="dq-card open">
+      <div class="dq-num">OQ-03</div>
+      <div class="dq-body">
+        <h4>多 entity 一文件</h4>
+        <p><span class="lbl">问题</span>当前 schema 是单 <code>sourceIdentity</code>。一份课件给多个班/课程共享(教师上传一次,多个课程引用)做不到。</p>
+        <p><span class="lbl">为什么 open</span>需要 join table(<code>agent_file_entity_bindings</code>)+ guard/list 路径都得跟着改。当前没有 solution 报告这个需求,暂不设计 —— 一旦真需求来,会牵涉到 D-05 的"原路径还原"决策(同一份文件在不同 entity 里路径可能要不同?)。</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- CHANGE SURFACE -->
+  <details class="change-surface">
+    <summary>
+      <span class="lead">
+        <span class="ic">↳</span>
+        <span>Change surface · 文件 + 测试数</span>
+      </span>
+      <span class="hint">点击展开 · git 的工作,做参考</span>
+      <span class="chev">›</span>
+    </summary>
+    <div class="cs-body">
+      <div class="cs-stat-row">
+        <div class="cs-stat"><span class="cs-stat-n">8</span><span class="cs-stat-l">Files Touched</span></div>
+        <div class="cs-stat"><span class="cs-stat-n">4</span><span class="cs-stat-l">New Files</span></div>
+        <div class="cs-stat"><span class="cs-stat-n">1837</span><span class="cs-stat-l">Platform Tests Pass</span></div>
+        <div class="cs-stat"><span class="cs-stat-n">0</span><span class="cs-stat-l">Failures</span></div>
+        <div class="cs-stat"><span class="cs-stat-n">+879/-91</span><span class="cs-stat-l">LOC Δ</span></div>
+      </div>
+      <div class="cs-files">
+        <div class="cs-row"><span class="tag new">new</span><span class="path">packages/apps/platform/src/sessions/services/session-file-materializer.service.ts</span></div>
+        <div class="cs-row"><span class="tag new">new</span><span class="path">packages/apps/platform/src/sessions/services/session-file-materializer.service.spec.ts</span></div>
+        <div class="cs-row"><span class="tag new">new</span><span class="path">packages/apps/platform/src/files/path-safety.ts — extracted helpers</span></div>
+        <div class="cs-row"><span class="tag new">new</span><span class="path">packages/apps/platform/src/files/path-safety.spec.ts — 19 tests</span></div>
+        <div class="cs-row"><span class="tag mod">mod</span><span class="path">packages/apps/platform/src/sessions/services/message-worker.service.ts — inject + call materialize between sync & orchestrate</span></div>
+        <div class="cs-row"><span class="tag mod">mod</span><span class="path">packages/apps/platform/src/sessions/services/message-worker.service.spec.ts — order test ['attach','sync','materialize','orchestrate']</span></div>
+        <div class="cs-row"><span class="tag mod">mod</span><span class="path">packages/apps/platform/src/sessions/sessions.module.ts — register provider</span></div>
+        <div class="cs-row"><span class="tag mod">mod</span><span class="path">packages/apps/platform/src/files/files.service.ts — import path-safety helpers, delete inline copies</span></div>
+      </div>
+    </div>
+  </details>
+
+  <footer>
+    Generated 2026-06-03 · ccaas Decision Archive · plan at <code>~/.claude/plans/wise-splashing-feather.md</code>
+  </footer>
+
+</div>
+
+</body>
+</html>
