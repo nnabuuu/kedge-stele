@@ -103,6 +103,35 @@ test("byMilestoneStatus filters", () => {
   assert.equal(s.byMilestoneStatus("abandoned").length, 0);
 });
 
+test("nextMilestoneId allocates M-01 on empty store, then increments", () => {
+  const s = new Store(":memory:");
+  assert.equal(s.nextMilestoneId(), "M-01");
+  s.putMilestone(mkMilestone("M-01", "first"));
+  assert.equal(s.nextMilestoneId(), "M-02");
+  s.putMilestone(mkMilestone("M-02", "second"));
+  assert.equal(s.nextMilestoneId(), "M-03");
+});
+
+test("nextMilestoneId fills the largest gap (no reuse of historical ids)", () => {
+  const s = new Store(":memory:");
+  s.putMilestone(mkMilestone("M-01", "first"));
+  s.putMilestone(mkMilestone("M-07", "later"));
+  // We don't reuse M-02..M-06 even though they're free — id stays monotonic.
+  assert.equal(s.nextMilestoneId(), "M-08");
+});
+
+test("nextMilestoneId ignores non-conforming ids", () => {
+  const s = new Store(":memory:");
+  s.putMilestone({
+    id: "weird-imported-id",
+    title: "from a seed",
+    status: "active",
+    startedAt: "2026-06-01T00:00:00Z",
+  });
+  // Non-M-NN id doesn't influence the counter
+  assert.equal(s.nextMilestoneId(), "M-01");
+});
+
 // ---- Session CRUD --------------------------------------------------------
 
 test("putSession + getSession roundtrip", () => {
@@ -208,27 +237,120 @@ test("unscopedDecisions returns decisions without sessionId", () => {
 
 // ---- Schema migration ---------------------------------------------------
 
-test("opening a pre-0.0.6 DB lazily ALTERs decisions to add session_id", () => {
-  // Build a fresh DB on disk, then drop the milestones/sessions tables and
-  // session_id column to simulate a 0.0.5-shape DB. Re-open with Store and
-  // assert it succeeds + the new schema is in place.
+test("Store constructor is idempotent across re-opens (CREATE TABLE IF NOT EXISTS / ALTER swallowed)", () => {
   const tmpDir = mkdtempSync(join(tmpdir(), "stele-mig-"));
   const dbPath = join(tmpDir, "decisions.db");
   try {
-    // First open: full 0.0.6 schema lands
+    // Open through Store; populate a decision.
     const s = new Store(dbPath);
-    s.putDecision(mkDecisionWithSession("D-LEGACY", "before migration"));
+    s.putDecision(mkDecisionWithSession("D-LEGACY", "before reopen"));
 
-    // Re-open. The CREATE TABLE IF NOT EXISTS is no-op, the ALTER throws-and-
-    // is-ignored, and existing data is intact.
+    // Re-open. The CREATE TABLE IF NOT EXISTS clauses are no-ops and the
+    // ALTER throws-and-is-ignored — existing data must be intact.
     const reopened = new Store(dbPath);
     const got = reopened.getDecision("D-LEGACY");
     assert.ok(got, "decision survived reopen");
-    assert.equal(got!.title, "before migration");
+    assert.equal(got!.title, "before reopen");
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
 
-    // The new milestones table is accessible
-    reopened.putMilestone(mkMilestone("M-AFTER", "post-migration"));
-    assert.equal(reopened.getMilestone("M-AFTER")!.title, "post-migration");
+test("opening a TRUE pre-0.0.6 DB lazily migrates (milestones table + session_id column)", async () => {
+  // Build a 0.0.5-shape DB by hand using raw node:sqlite — NO milestones,
+  // NO sessions, NO session_id column on decisions. Then open it through
+  // the 0.0.6 Store and assert the new schema is in place + legacy data
+  // is intact.
+  const { DatabaseSync } = await import("node:sqlite");
+
+  const tmpDir = mkdtempSync(join(tmpdir(), "stele-mig-pre006-"));
+  const dbPath = join(tmpDir, "decisions.db");
+  try {
+    // ---- Phase 1: write a 0.0.5-shape database ---------------------------
+    {
+      const raw = new DatabaseSync(dbPath);
+      // Exactly the 0.0.5 schema — no milestones / sessions, no session_id
+      raw.exec(`
+        CREATE TABLE decisions (
+          id          TEXT PRIMARY KEY,
+          status_kind TEXT NOT NULL,
+          title       TEXT NOT NULL,
+          created_at  TEXT NOT NULL,
+          data        TEXT NOT NULL
+        );
+        CREATE TABLE edges (
+          from_id TEXT NOT NULL,
+          to_id   TEXT NOT NULL,
+          kind    TEXT NOT NULL,
+          note    TEXT,
+          UNIQUE(from_id, to_id, kind)
+        );
+        CREATE TABLE affects (
+          decision_id TEXT NOT NULL,
+          entity_kind TEXT NOT NULL,
+          entity_id   TEXT NOT NULL,
+          UNIQUE(decision_id, entity_kind, entity_id)
+        );
+      `);
+
+      // Insert a legacy Decision (no sessionId in the JSON either)
+      const legacy = {
+        id: "D-LEGACY",
+        title: "from before 0.0.6",
+        raisedBy: baseRaisedBy,
+        status: { kind: "open", question: "?" },
+        affects: [],
+      };
+      raw
+        .prepare(
+          `INSERT INTO decisions (id, status_kind, title, created_at, data)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(legacy.id, legacy.status.kind, legacy.title, legacy.raisedBy.at, JSON.stringify(legacy));
+      raw.close();
+    }
+
+    // Sanity check: the 0.0.5-shape DB really doesn't have the new tables yet
+    {
+      const raw = new DatabaseSync(dbPath);
+      const tables = raw
+        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`)
+        .all() as { name: string }[];
+      const names = tables.map((t) => t.name);
+      assert.ok(!names.includes("milestones"), "precondition: milestones table should NOT exist yet");
+      assert.ok(!names.includes("sessions"), "precondition: sessions table should NOT exist yet");
+      // decisions exists but has no session_id column
+      const cols = raw.prepare(`PRAGMA table_info(decisions)`).all() as { name: string }[];
+      assert.ok(
+        !cols.some((c) => c.name === "session_id"),
+        "precondition: decisions.session_id should NOT exist yet",
+      );
+      raw.close();
+    }
+
+    // ---- Phase 2: open with the 0.0.6 Store — migration happens here ----
+    const migrated = new Store(dbPath);
+
+    // Legacy decision intact
+    const got = migrated.getDecision("D-LEGACY");
+    assert.ok(got, "legacy decision survived migration");
+    assert.equal(got!.title, "from before 0.0.6");
+    assert.equal(got!.sessionId, undefined, "legacy decision is unscoped");
+
+    // New tables now exist + work end-to-end
+    migrated.putMilestone(mkMilestone("M-NEW", "post-migration milestone"));
+    assert.equal(migrated.getMilestone("M-NEW")!.title, "post-migration milestone");
+    migrated.putSession(mkSession("ses-new", "M-NEW", "claude-code", "new-cc-id"));
+    assert.ok(migrated.findSession("claude-code", "new-cc-id"));
+
+    // New decision can carry a sessionId (the column was added)
+    migrated.putDecision(mkDecisionWithSession("D-NEW", "post-migration", "ses-new"));
+    const inSes = migrated.decisionsInSession("ses-new");
+    assert.deepEqual(inSes.map((d) => d.id), ["D-NEW"]);
+
+    // The legacy unscoped decision is correctly classified
+    const orphans = migrated.unscopedDecisions();
+    assert.deepEqual(orphans.map((d) => d.id), ["D-LEGACY"]);
   } finally {
     rmSync(tmpDir, { recursive: true, force: true });
   }

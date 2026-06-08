@@ -11,11 +11,11 @@
 // The store/projections/consolidate modules are headless — we feed their
 // return values into MCP tool responses. No business logic added here.
 import { writeFileSync } from "node:fs";
-import { createHash } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { Store } from "./store.ts";
+import { resolveMilestoneAndSession } from "./capture.ts";
 import { proposeEdges } from "./consolidate.ts";
 import { milestoneDetail, milestoneSummary, resumeDigest, trace, traceEntity } from "./projections.ts";
 import { renderResume } from "./render.ts";
@@ -34,8 +34,6 @@ import type {
   Edge,
   EntityRef,
   Milestone,
-  Session,
-  SessionId,
 } from "./types.ts";
 
 // -----------------------------------------------------------------------------
@@ -120,113 +118,6 @@ try {
 const store = new Store(db);
 const server = new McpServer({ name: "stele", version: "0.0.6-snapshot" });
 
-// -----------------------------------------------------------------------------
-// 0.0.6 — Milestone + Session helpers shared by decision_capture and milestone_open
-// -----------------------------------------------------------------------------
-
-function nextMilestoneId(): string {
-  const pattern = /^M-(\d+)$/;
-  let max = 0;
-  for (const m of store.allMilestones()) {
-    const r = m.id.match(pattern);
-    if (r) {
-      const n = Number(r[1]);
-      if (Number.isFinite(n) && n > max) max = n;
-    }
-  }
-  return `M-${String(max + 1).padStart(2, "0")}`;
-}
-
-function newSessionId(source: string, sourceSessionId: string | undefined): string {
-  // Use a short hash of source + sourceSessionId (or random if not provided)
-  // for stable identity. The UNIQUE(source, source_sess_id) constraint at the
-  // store layer is the real dedup guarantee.
-  const seed = `${source}|${sourceSessionId ?? Math.random()}|${Date.now()}`;
-  const hash = createHash("sha256").update(seed).digest("hex").slice(0, 8);
-  return `ses-${hash}`;
-}
-
-interface ResolvedMilestoneSession {
-  milestoneId: string | null;
-  sessionId: string | null;
-  notes: string[];   // human-readable info for the capture-result text
-}
-
-// Wires the (milestone, sourceSession) input into actual rows. Returns the
-// session_id to stamp on the decision (or null if unscoped).
-function resolveMilestoneAndSession(
-  milestone: CaptureMilestoneMode | undefined,
-  sourceSession: CaptureSourceSession | undefined,
-  decisionAt: string,
-): ResolvedMilestoneSession {
-  const notes: string[] = [];
-
-  if (!milestone || milestone.mode === "unscoped") {
-    return { milestoneId: null, sessionId: null, notes };
-  }
-
-  // 1. Resolve the milestone
-  let milestoneId: string;
-  if (milestone.mode === "continue") {
-    const existing = store.getMilestone(milestone.id);
-    if (!existing) throw new Error(`milestone "${milestone.id}" does not exist`);
-    milestoneId = existing.id;
-    notes.push(`continued milestone ${existing.id} "${existing.title}"`);
-  } else {
-    // mode: "new"
-    const id = nextMilestoneId();
-    const m: Milestone = {
-      id,
-      title: milestone.draft.title,
-      intent: milestone.draft.intent,
-      status: "active",
-      startedAt: decisionAt,
-    };
-    store.putMilestone(m);
-    milestoneId = id;
-    notes.push(`opened milestone ${id} "${m.title}"`);
-  }
-
-  // 2. Resolve (or create) the session
-  if (!sourceSession) {
-    // No source identity — create an anonymous "manual" session under the milestone
-    const id = newSessionId("manual", undefined);
-    store.putSession({
-      id,
-      milestoneId,
-      source: "manual",
-      startedAt: decisionAt,
-    });
-    notes.push(`opened anonymous session ${id}`);
-    return { milestoneId, sessionId: id, notes };
-  }
-
-  // We have a sourceSession — dedup if possible
-  if (sourceSession.sourceSessionId) {
-    const existing = store.findSession(sourceSession.source, sourceSession.sourceSessionId);
-    if (existing) {
-      if (existing.milestoneId !== milestoneId) {
-        notes.push(`note: session ${existing.id} was on milestone ${existing.milestoneId}; this capture targets ${milestoneId}, leaving session attribution unchanged`);
-      } else {
-        notes.push(`reused session ${existing.id}`);
-      }
-      return { milestoneId, sessionId: existing.id, notes };
-    }
-  }
-
-  // Create a new Session
-  const id = newSessionId(sourceSession.source, sourceSession.sourceSessionId);
-  store.putSession({
-    id,
-    milestoneId,
-    source: sourceSession.source,
-    sourceSessionId: sourceSession.sourceSessionId,
-    startedAt: decisionAt,
-  });
-  notes.push(`opened session ${id} (${sourceSession.source})`);
-  return { milestoneId, sessionId: id, notes };
-}
-
 server.registerTool(
   "decision_capture",
   {
@@ -247,6 +138,7 @@ server.registerTool(
     // Wire milestone + session first; stamp the resulting session_id onto
     // the decision before persisting.
     const resolved = resolveMilestoneAndSession(
+      store,
       milestone as CaptureMilestoneMode | undefined,
       sourceSession as CaptureSourceSession | undefined,
       decision.raisedBy.at,
@@ -375,7 +267,7 @@ server.registerTool(
     },
   },
   async ({ title, intent }) => {
-    const id = nextMilestoneId();
+    const id = store.nextMilestoneId();
     const m: Milestone = {
       id,
       title,

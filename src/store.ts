@@ -212,6 +212,21 @@ export class Store {
     return rows.map((r) => JSON.parse(r.data) as Milestone);
   }
 
+  // Allocate the next free `M-NN` id. Centralised here so the MCP server,
+  // CLI, and any future call sites agree on the contract.
+  nextMilestoneId(): MilestoneId {
+    const pattern = /^M-(\d+)$/;
+    let max = 0;
+    for (const m of this.allMilestones()) {
+      const r = m.id.match(pattern);
+      if (r) {
+        const n = Number(r[1]);
+        if (Number.isFinite(n) && n > max) max = n;
+      }
+    }
+    return `M-${String(max + 1).padStart(2, "0")}`;
+  }
+
   // -------------------------------------------------------------------------
   // 0.0.6 — sessions
   // -------------------------------------------------------------------------

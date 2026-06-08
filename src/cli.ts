@@ -392,19 +392,6 @@ async function serveCommand(args: string[]): Promise<void> {
 // 0.0.6 — stele milestones {list, open, close, show}
 // -----------------------------------------------------------------------------
 
-function nextMilestoneIdFor(store: Store): string {
-  const pattern = /^M-(\d+)$/;
-  let max = 0;
-  for (const m of store.allMilestones()) {
-    const r = m.id.match(pattern);
-    if (r) {
-      const n = Number(r[1]);
-      if (Number.isFinite(n) && n > max) max = n;
-    }
-  }
-  return `M-${String(max + 1).padStart(2, "0")}`;
-}
-
 function milestonesCommand(store: Store, args: string[]): void {
   const sub = args[0];
 
@@ -461,7 +448,7 @@ function milestonesCommand(store: Store, args: string[]): void {
         process.exit(1);
       }
     }
-    const id = nextMilestoneIdFor(store);
+    const id = store.nextMilestoneId();
     const m: Milestone = {
       id, title, intent, status: "active",
       startedAt: new Date().toISOString(),
