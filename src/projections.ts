@@ -1,5 +1,13 @@
 import type { Store } from "./store.ts";
-import type { Decision, DecisionId, EntityRef, Trigger } from "./types.ts";
+import type {
+  Decision,
+  DecisionId,
+  EntityRef,
+  Milestone,
+  MilestoneId,
+  Session,
+  Trigger,
+} from "./types.ts";
 import type { EntityResolver } from "./resolver.ts";
 
 const DAY = 86_400_000;
@@ -134,4 +142,69 @@ export async function traceEntity(store: Store, ref: EntityRef, resolver: Entity
     if (t) out.push(t);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// 0.0.6 — Milestone projections
+// ---------------------------------------------------------------------------
+
+export interface MilestoneSummary {
+  milestone: Milestone;
+  sessionCount: number;
+  decisionCount: number;
+  openLoops: number;      // open + un-resolved deferred
+  lastActivity: string;   // ISO of most recent session.startedAt or milestone.startedAt
+}
+
+// One row per milestone for the list page. Sorted active-first then by
+// startedAt descending so the most recent active milestone surfaces first.
+export function milestoneSummary(store: Store): MilestoneSummary[] {
+  const out: MilestoneSummary[] = [];
+  for (const m of store.allMilestones()) {
+    const sessions = store.sessionsInMilestone(m.id);
+    const decisions = store.decisionsInMilestone(m.id);
+    let openLoops = 0;
+    for (const d of decisions) {
+      if (d.status.kind === "open") openLoops++;
+      else if (d.status.kind === "deferred" && !store.isResolved(d.id)) openLoops++;
+    }
+    const lastActivity =
+      sessions
+        .map((s) => s.startedAt)
+        .reduce((max, t) => (t > max ? t : max), m.startedAt);
+    out.push({
+      milestone: m,
+      sessionCount: sessions.length,
+      decisionCount: decisions.length,
+      openLoops,
+      lastActivity,
+    });
+  }
+  return out.sort((a, b) => {
+    if (a.milestone.status !== b.milestone.status) {
+      const order = { active: 0, shipped: 1, abandoned: 2 } as const;
+      return order[a.milestone.status] - order[b.milestone.status];
+    }
+    return b.lastActivity.localeCompare(a.lastActivity);
+  });
+}
+
+export interface MilestoneDetail {
+  milestone: Milestone;
+  sessions: Array<{
+    session: Session;
+    decisions: Decision[];
+  }>;
+  unscopedDecisions: Decision[];  // decisions on the milestone but not on a session (shouldn't happen, here for completeness)
+}
+
+export function milestoneDetail(store: Store, id: MilestoneId): MilestoneDetail | null {
+  const m = store.getMilestone(id);
+  if (!m) return null;
+  const sessions = store.sessionsInMilestone(id);
+  const buckets = sessions.map((session) => ({
+    session,
+    decisions: store.decisionsInSession(session.id),
+  }));
+  return { milestone: m, sessions: buckets, unscopedDecisions: [] };
 }

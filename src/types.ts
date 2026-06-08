@@ -52,7 +52,7 @@ export interface Decision {
     trigger: string;             // what surfaced this, in prose
     actor: string;               // ambient identity, not a parameter
     layer: GovLayer;
-    session?: string;
+    session?: string;            // legacy free-text — kept for seeded/pre-0.0.6 data
     at: string;                  // ISO timestamp
   };
   constraint?: string;           // the hard thing that made the choice non-obvious
@@ -61,6 +61,7 @@ export interface Decision {
   affects: EntityRef[];
   artifacts?: { file: string; commit?: string }[];
   sourceReport?: string;         // provenance of the provenance: which report/session it came from
+  sessionId?: SessionId;         // 0.0.6+: ties to a Session, which ties to a Milestone
 }
 
 export type EdgeKind = "resolves" | "supersedes" | "reconciles" | "relates";
@@ -71,8 +72,69 @@ export interface Edge {
   note?: string;
 }
 
-// A capture payload: the agent drafts a decision AND proposes edges in one shot.
+// ---------------------------------------------------------------------------
+// Milestone + Session — added 0.0.6.
+//
+// A Milestone is an aspirational unit ("ship the multi-tenant daemon"). It
+// groups one or more Sessions. A Session is a single tool-conversation
+// (one Claude Code session, one Codex run, etc.) that produced one or more
+// Decisions. The skill decides at capture time whether a new decision lives
+// in an existing Milestone or starts a new one.
+// ---------------------------------------------------------------------------
+
+export type MilestoneId = string;  // "M-01", "M-02", ...
+export type SessionId = string;    // "ses-<short hash>"
+
+export type MilestoneStatus = "active" | "shipped" | "abandoned";
+
+export interface Milestone {
+  id: MilestoneId;
+  title: string;
+  intent?: string;               // longer "we want X because Y"
+  status: MilestoneStatus;
+  startedAt: string;             // ISO
+  completedAt?: string;
+}
+
+export type SessionSource =
+  | "claude-code"
+  | "codex"
+  | "opencode"
+  | "cursor"
+  | "manual"
+  | "unknown";
+
+export interface Session {
+  id: SessionId;
+  milestoneId: MilestoneId;
+  source: SessionSource;
+  sourceSessionId?: string;      // the tool's native session id; lets us dedupe
+  startedAt: string;
+  endedAt?: string;
+  summary?: string;              // one-liner the agent writes when wrapping
+}
+
+// ---------------------------------------------------------------------------
+// CapturePayload — what the agent sends on /decision or the skill-triggered
+// capture path. Grew the milestone + sourceSession fields in 0.0.6 so the
+// skill can express its new-vs-continue judgment in one round-trip.
+// ---------------------------------------------------------------------------
+
+// The skill's milestone judgment. `unscoped` is the back-compat / exploration
+// escape hatch — when the conversation genuinely isn't targeted at a goal.
+export type CaptureMilestoneMode =
+  | { mode: "continue"; id: MilestoneId }
+  | { mode: "new"; draft: { title: string; intent?: string } }
+  | { mode: "unscoped" };
+
+export interface CaptureSourceSession {
+  source: SessionSource;
+  sourceSessionId?: string;
+}
+
 export interface CapturePayload {
   decision: Decision;
   edges?: Edge[];
+  milestone?: CaptureMilestoneMode;
+  sourceSession?: CaptureSourceSession;
 }

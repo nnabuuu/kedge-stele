@@ -11,17 +11,32 @@
 // The store/projections/consolidate modules are headless — we feed their
 // return values into MCP tool responses. No business logic added here.
 import { writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { Store } from "./store.ts";
 import { proposeEdges } from "./consolidate.ts";
-import { resumeDigest, trace, traceEntity } from "./projections.ts";
+import { milestoneDetail, milestoneSummary, resumeDigest, trace, traceEntity } from "./projections.ts";
 import { renderResume } from "./render.ts";
 import { stubResolver } from "./resolver.ts";
 import { resolveDbPath, SteleNotInitializedError } from "./paths.ts";
-import { DecisionSchema, EdgeSchema } from "./schemas.ts";
-import type { Decision, Edge, EntityRef } from "./types.ts";
+import {
+  CaptureMilestoneModeSchema,
+  CaptureSourceSessionSchema,
+  DecisionSchema,
+  EdgeSchema,
+} from "./schemas.ts";
+import type {
+  CaptureMilestoneMode,
+  CaptureSourceSession,
+  Decision,
+  Edge,
+  EntityRef,
+  Milestone,
+  Session,
+  SessionId,
+} from "./types.ts";
 
 // -----------------------------------------------------------------------------
 // Formatters — return plain-text bodies suitable for MCP tool content[0].text.
@@ -103,7 +118,114 @@ try {
   throw e;
 }
 const store = new Store(db);
-const server = new McpServer({ name: "stele", version: "0.0.5-snapshot" });
+const server = new McpServer({ name: "stele", version: "0.0.6-snapshot" });
+
+// -----------------------------------------------------------------------------
+// 0.0.6 — Milestone + Session helpers shared by decision_capture and milestone_open
+// -----------------------------------------------------------------------------
+
+function nextMilestoneId(): string {
+  const pattern = /^M-(\d+)$/;
+  let max = 0;
+  for (const m of store.allMilestones()) {
+    const r = m.id.match(pattern);
+    if (r) {
+      const n = Number(r[1]);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+  }
+  return `M-${String(max + 1).padStart(2, "0")}`;
+}
+
+function newSessionId(source: string, sourceSessionId: string | undefined): string {
+  // Use a short hash of source + sourceSessionId (or random if not provided)
+  // for stable identity. The UNIQUE(source, source_sess_id) constraint at the
+  // store layer is the real dedup guarantee.
+  const seed = `${source}|${sourceSessionId ?? Math.random()}|${Date.now()}`;
+  const hash = createHash("sha256").update(seed).digest("hex").slice(0, 8);
+  return `ses-${hash}`;
+}
+
+interface ResolvedMilestoneSession {
+  milestoneId: string | null;
+  sessionId: string | null;
+  notes: string[];   // human-readable info for the capture-result text
+}
+
+// Wires the (milestone, sourceSession) input into actual rows. Returns the
+// session_id to stamp on the decision (or null if unscoped).
+function resolveMilestoneAndSession(
+  milestone: CaptureMilestoneMode | undefined,
+  sourceSession: CaptureSourceSession | undefined,
+  decisionAt: string,
+): ResolvedMilestoneSession {
+  const notes: string[] = [];
+
+  if (!milestone || milestone.mode === "unscoped") {
+    return { milestoneId: null, sessionId: null, notes };
+  }
+
+  // 1. Resolve the milestone
+  let milestoneId: string;
+  if (milestone.mode === "continue") {
+    const existing = store.getMilestone(milestone.id);
+    if (!existing) throw new Error(`milestone "${milestone.id}" does not exist`);
+    milestoneId = existing.id;
+    notes.push(`continued milestone ${existing.id} "${existing.title}"`);
+  } else {
+    // mode: "new"
+    const id = nextMilestoneId();
+    const m: Milestone = {
+      id,
+      title: milestone.draft.title,
+      intent: milestone.draft.intent,
+      status: "active",
+      startedAt: decisionAt,
+    };
+    store.putMilestone(m);
+    milestoneId = id;
+    notes.push(`opened milestone ${id} "${m.title}"`);
+  }
+
+  // 2. Resolve (or create) the session
+  if (!sourceSession) {
+    // No source identity — create an anonymous "manual" session under the milestone
+    const id = newSessionId("manual", undefined);
+    store.putSession({
+      id,
+      milestoneId,
+      source: "manual",
+      startedAt: decisionAt,
+    });
+    notes.push(`opened anonymous session ${id}`);
+    return { milestoneId, sessionId: id, notes };
+  }
+
+  // We have a sourceSession — dedup if possible
+  if (sourceSession.sourceSessionId) {
+    const existing = store.findSession(sourceSession.source, sourceSession.sourceSessionId);
+    if (existing) {
+      if (existing.milestoneId !== milestoneId) {
+        notes.push(`note: session ${existing.id} was on milestone ${existing.milestoneId}; this capture targets ${milestoneId}, leaving session attribution unchanged`);
+      } else {
+        notes.push(`reused session ${existing.id}`);
+      }
+      return { milestoneId, sessionId: existing.id, notes };
+    }
+  }
+
+  // Create a new Session
+  const id = newSessionId(sourceSession.source, sourceSession.sourceSessionId);
+  store.putSession({
+    id,
+    milestoneId,
+    source: sourceSession.source,
+    sourceSessionId: sourceSession.sourceSessionId,
+    startedAt: decisionAt,
+  });
+  notes.push(`opened session ${id} (${sourceSession.source})`);
+  return { milestoneId, sessionId: id, notes };
+}
 
 server.registerTool(
   "decision_capture",
@@ -111,16 +233,37 @@ server.registerTool(
     description:
       "Carve a decision drafted from conversation context as a node in the stele graph. " +
       "Pass `decision` (full Decision shape per src/types.ts) and optional `edges` you authored. " +
+      "0.0.6+: also pass `milestone` (your judgment: continue an existing milestone, open a new one, or leave unscoped) " +
+      "and `sourceSession` (the tool's native session id so we dedup across captures in the same conversation). " +
       "The consolidate layer will propose additional edges; review them and confirm via decision_resolve.",
-    inputSchema: { decision: DecisionSchema, edges: z.array(EdgeSchema).optional() },
+    inputSchema: {
+      decision: DecisionSchema,
+      edges: z.array(EdgeSchema).optional(),
+      milestone: CaptureMilestoneModeSchema.optional(),
+      sourceSession: CaptureSourceSessionSchema.optional(),
+    },
   },
-  async ({ decision, edges }) => {
-    const candidates = proposeEdges(store, decision as Decision);
-    store.putDecision(decision as Decision);
-    for (const e of edges ?? []) store.addEdge(e as Edge);
-    return {
-      content: [{ type: "text", text: fmtCaptureResult(decision.id, edges?.length ?? 0, candidates) }],
+  async ({ decision, edges, milestone, sourceSession }) => {
+    // Wire milestone + session first; stamp the resulting session_id onto
+    // the decision before persisting.
+    const resolved = resolveMilestoneAndSession(
+      milestone as CaptureMilestoneMode | undefined,
+      sourceSession as CaptureSourceSession | undefined,
+      decision.raisedBy.at,
+    );
+
+    const decisionWithSession: Decision = {
+      ...(decision as Decision),
+      ...(resolved.sessionId ? { sessionId: resolved.sessionId } : {}),
     };
+
+    const candidates = proposeEdges(store, decisionWithSession);
+    store.putDecision(decisionWithSession);
+    for (const e of edges ?? []) store.addEdge(e as Edge);
+
+    const lines = [fmtCaptureResult(decision.id, edges?.length ?? 0, candidates)];
+    for (const n of resolved.notes) lines.push(`  · ${n}`);
+    return { content: [{ type: "text", text: lines.join("\n") }] };
   },
 );
 
@@ -185,6 +328,92 @@ server.registerTool(
   async ({ kind, from, to, note }) => {
     store.addEdge({ kind, from, to, note });
     return { content: [{ type: "text", text: `${from} —${kind}→ ${to}${note ? "  (" + note + ")" : ""}` }] };
+  },
+);
+
+// -----------------------------------------------------------------------------
+// 0.0.6 — milestone_list / milestone_open / milestone_close
+// -----------------------------------------------------------------------------
+
+server.registerTool(
+  "milestone_list",
+  {
+    description:
+      "List all milestones. Returns active-first by default. Pass `status` to filter. " +
+      "Each entry includes session count + decision count + open-loop count so the calling agent " +
+      "can pick which to 'continue' on capture.",
+    inputSchema: {
+      status: z.enum(["active", "shipped", "abandoned"]).optional(),
+    },
+  },
+  async ({ status }) => {
+    const all = milestoneSummary(store);
+    const filtered = status ? all.filter((m) => m.milestone.status === status) : all;
+    if (filtered.length === 0) {
+      return { content: [{ type: "text", text: "no milestones" }] };
+    }
+    const lines = [`${filtered.length} milestone(s):`];
+    for (const m of filtered) {
+      lines.push(
+        `  ${m.milestone.id}  [${m.milestone.status}]  "${m.milestone.title}"  ${m.sessionCount} session(s), ${m.openLoops} open loop(s), last activity ${m.lastActivity.slice(0, 10)}`,
+      );
+    }
+    return { content: [{ type: "text", text: lines.join("\n") }] };
+  },
+);
+
+server.registerTool(
+  "milestone_open",
+  {
+    description:
+      "Explicitly open a new milestone. Returns the assigned id. Usually the agent passes " +
+      "milestone:{mode:'new', draft:{...}} on decision_capture instead — this tool is for the " +
+      "rare case where you want to declare the milestone before any decision crystallises.",
+    inputSchema: {
+      title: z.string(),
+      intent: z.string().optional(),
+    },
+  },
+  async ({ title, intent }) => {
+    const id = nextMilestoneId();
+    const m: Milestone = {
+      id,
+      title,
+      intent,
+      status: "active",
+      startedAt: new Date().toISOString(),
+    };
+    store.putMilestone(m);
+    return { content: [{ type: "text", text: `opened ${id} "${title}"` }] };
+  },
+);
+
+server.registerTool(
+  "milestone_close",
+  {
+    description:
+      "Close a milestone — mark it shipped (success) or abandoned (gave up). " +
+      "Open decisions inside it stay visible; they don't get cascade-closed.",
+    inputSchema: {
+      id: z.string(),
+      verdict: z.enum(["shipped", "abandoned"]),
+      summary: z.string().optional(),
+    },
+  },
+  async ({ id, verdict, summary }) => {
+    const existing = store.getMilestone(id);
+    if (!existing) {
+      return { content: [{ type: "text", text: `no such milestone: ${id}` }] };
+    }
+    const updated: Milestone = {
+      ...existing,
+      status: verdict,
+      completedAt: new Date().toISOString(),
+    };
+    store.putMilestone(updated);
+    return {
+      content: [{ type: "text", text: `${id} → ${verdict}${summary ? `  (${summary})` : ""}` }],
+    };
   },
 );
 

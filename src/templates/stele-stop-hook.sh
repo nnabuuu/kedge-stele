@@ -60,10 +60,44 @@ if printf '%s' "$response_text" | grep -qE "$joined"; then
       >> "$cwd/.stele/hooks.log" 2>/dev/null || true
   fi
 
-  jq -n '{
+  # 0.0.6 — fetch active milestones so the skill can make a continue-vs-new
+  # judgment without doing a separate MCP roundtrip first. Best-effort:
+  # if stele isn't on PATH or the project isn't initialized, skip.
+  milestones_block=""
+  if command -v stele >/dev/null 2>&1 && [ -n "$cwd" ] && [ -d "$cwd/.stele" ]; then
+    milestones_json="$(cd "$cwd" && stele milestones list --status active --json 2>/dev/null)"
+    if [ -n "$milestones_json" ] && [ "$milestones_json" != "[]" ]; then
+      # Inline a compact summary so the skill sees it as one block in additionalContext.
+      milestones_block="$(printf '%s' "$milestones_json" | jq -r '.[] | "  - \(.milestone.id) \"\(.milestone.title)\" (started \(.milestone.startedAt[:10]), \(.openLoops) open loops)"' 2>/dev/null)"
+    fi
+  fi
+
+  # Pull Claude Code's native session_id from the payload so the skill can
+  # pass it through as sourceSessionId — keeps multiple captures in one
+  # conversation glued to one Session.
+  claude_sid="$(printf '%s' "$payload" | jq -r '.session_id // empty')"
+
+  context="stele decision detector: 上一轮检测到决策迹象。
+
+如果对话中刚刚有一个决策 crystallize (an option chosen over alternatives, something explicitly deferred, a constraint locked in), 请加载 stele-capture skill 并按它的剧本起草 CapturePayload, 然后调用 decision_capture MCP 工具记录到 stele decision store。如果没真正定下来 (只是讨论选项), 忽略本提醒, 不要打扰用户。"
+
+  if [ -n "$milestones_block" ]; then
+    context="$context
+
+Active milestones (consult before deciding milestone.mode):
+$milestones_block"
+  fi
+
+  if [ -n "$claude_sid" ]; then
+    context="$context
+
+When you call decision_capture, also pass sourceSession: { source: \"claude-code\", sourceSessionId: \"$claude_sid\" } — multiple captures in this same conversation should land on one Session."
+  fi
+
+  jq -n --arg ctx "$context" '{
     hookSpecificOutput: {
       hookEventName: "Stop",
-      additionalContext: "stele decision detector: 上一轮检测到决策迹象。如果对话中刚刚有一个决策 crystallize (an option chosen over alternatives, something explicitly deferred, a constraint locked in), 请加载 stele-capture skill 并按它的剧本起草 CapturePayload, 然后调用 decision_capture MCP 工具记录到 stele decision store。如果没真正定下来 (只是讨论选项), 忽略本提醒, 不要打扰用户。"
+      additionalContext: $ctx
     }
   }'
   exit 0

@@ -21,7 +21,13 @@ import { spawn } from "node:child_process";
 import { z } from "zod";
 import { Store } from "./store.ts";
 import { proposeEdges } from "./consolidate.ts";
-import { resumeDigest, trace, traceEntity } from "./projections.ts";
+import {
+  milestoneDetail,
+  milestoneSummary,
+  resumeDigest,
+  trace,
+  traceEntity,
+} from "./projections.ts";
 import { stubResolver } from "./resolver.ts";
 import { CapturePayloadSchema, EdgeSchema } from "./schemas.ts";
 import {
@@ -271,6 +277,13 @@ async function dispatchApi(
     if (apiPath === "/api/decisions") return json(res, 200, store.allDecisions());
     if (apiPath === "/api/next-id") {
       return handleNextId(store, searchParams.get("prefix") ?? "D", res);
+    }
+    // 0.0.6 — milestones
+    if (apiPath === "/api/milestones") return json(res, 200, milestoneSummary(store));
+    const mMilestone = apiPath.match(/^\/api\/milestones\/([^/]+)$/);
+    if (mMilestone) {
+      const detail = milestoneDetail(store, decodeURIComponent(mMilestone[1]));
+      return detail ? json(res, 200, detail) : notFound(res);
     }
     const mDecision = apiPath.match(/^\/api\/decisions\/([^/]+)$/);
     if (mDecision) return await handleDecision(store, decodeURIComponent(mDecision[1]), res);

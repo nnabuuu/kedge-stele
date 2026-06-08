@@ -260,6 +260,10 @@ document.addEventListener("keydown", (e) => {
     } else if (e.key === "a") {
       e.preventDefault();
       if (currentSlug) navigate(slugUrl("/decisions"));
+    } else if (e.key === "m") {
+      e.preventDefault();
+      // g m → milestones (0.0.6+) — needs a slug
+      if (currentSlug) navigate(slugUrl("/milestones"));
     } else if (e.key === "p") {
       e.preventDefault();
       navigate("/");  // g p → overview (projects)
@@ -620,6 +624,11 @@ async function viewDecision(root, id) {
     metaRow("Trigger", d.raisedBy.trigger),
     metaRow("Layer", d.raisedBy.layer),
     metaRow("Status", t.statusLine),
+    // 0.0.6 — show session/milestone provenance when present
+    d.sessionId && h("div", { class: "row" },
+      h("div", { class: "k" }, "Session"),
+      h("div", { class: "v" }, d.sessionId),
+    ),
     d.sourceReport && metaRow("Source", d.sourceReport),
   );
 
@@ -1504,10 +1513,11 @@ function syncTopbar() {
   if (nav) {
     clear(nav);
     if (currentSlug) {
-      // Per-project nav: resume + all decisions
+      // Per-project nav: resume + all decisions + milestones (0.0.6+)
       const a1 = h("a", { href: slugUrl("/"), "data-route": "", "data-nav": "resume" }, "什么在等我");
       const a2 = h("a", { href: slugUrl("/decisions"), "data-route": "", "data-nav": "decisions" }, "全部决策");
-      nav.append(a1, a2);
+      const a3 = h("a", { href: slugUrl("/milestones"), "data-route": "", "data-nav": "milestones" }, "milestones");
+      nav.append(a1, a2, a3);
     }
     // On the overview, nav is empty (the cards are the content)
   }
@@ -1594,6 +1604,125 @@ document.addEventListener("click", (e) => {
 });
 
 // ============================================================================
+// View · /milestones  (0.0.6 — list of milestones)
+// ============================================================================
+
+async function viewMilestones(root) {
+  const summaries = await apiGet("/api/milestones");
+
+  root.append(setHead("Milestones · 你的工作单元", "Milestones",
+    summaries.length === 0
+      ? "no milestones yet — agents open them automatically when planning new directions"
+      : `${summaries.length} milestone${summaries.length === 1 ? "" : "s"}`,
+  ));
+
+  if (summaries.length === 0) {
+    root.append(h("div", { class: "empty" },
+      "When the stele-capture skill recognises that a conversation just started a new direction, it'll open a milestone here. ",
+      "Or open one manually: ", h("code", null, "stele milestones open \"...\""),
+    ));
+    return;
+  }
+
+  // Group by status
+  const active = summaries.filter((s) => s.milestone.status === "active");
+  const shipped = summaries.filter((s) => s.milestone.status === "shipped");
+  const abandoned = summaries.filter((s) => s.milestone.status === "abandoned");
+
+  const renderMilestoneCard = (m) => {
+    const dueClass = m.openLoops > 0 ? "" : " decided";
+    return h("a", {
+      class: `card ${m.milestone.status}${dueClass}`,
+      href: slugUrl(`/milestones/${m.milestone.id}`),
+      "data-route": "",
+    },
+      h("div", { class: "top" },
+        h("span", { class: "id" }, m.milestone.id),
+        h("span", { class: `bucket ${m.milestone.status}` }, m.milestone.status),
+        m.openLoops > 0 && h("span", { class: "age" }, `${m.openLoops} open loop${m.openLoops === 1 ? "" : "s"}`),
+      ),
+      h("div", { class: "title" }, m.milestone.title),
+      m.milestone.intent && h("div", { class: "detail" }, m.milestone.intent),
+      h("div", { class: "trig" },
+        h("span", { class: "lbl" }, m.sessionCount > 0 ? `${m.sessionCount} session${m.sessionCount === 1 ? "" : "s"}` : "no sessions"),
+        ` last active ${m.lastActivity.slice(0, 10)}`,
+      ),
+    );
+  };
+
+  const renderGroup = (label, list) => {
+    if (list.length === 0) return null;
+    return h("div", null,
+      h("div", { class: "sec-h" },
+        h("h2", null, label, h("span", { class: "en" }, `· ${list.length}`)),
+      ),
+      h("div", { class: "grid" }, list.map(renderMilestoneCard)),
+    );
+  };
+
+  root.append(
+    renderGroup("Active", active),
+    renderGroup("Shipped", shipped),
+    renderGroup("Abandoned", abandoned),
+  );
+}
+
+// ============================================================================
+// View · /milestones/:id  (detail with sessions + decisions)
+// ============================================================================
+
+async function viewMilestone(root, id) {
+  const detail = await apiGet(`/api/milestones/${encodeURIComponent(id)}`);
+  const m = detail.milestone;
+
+  root.append(h("div", { class: "detail-head" },
+    h("div", { class: "id-row" },
+      h("span", { class: "id" }, m.id),
+      h("span", { class: `badge ${m.status}` }, m.status.toUpperCase()),
+    ),
+    h("h1", null, m.title),
+    m.intent && h("div", { class: "sub", style: "margin-top:8px" },
+      h("strong", null, "intent: "), m.intent),
+  ));
+
+  root.append(h("div", { class: "meta-table" },
+    h("div", { class: "row" }, h("div", { class: "k" }, "started"), h("div", { class: "v" }, m.startedAt.slice(0, 10))),
+    m.completedAt && h("div", { class: "row" }, h("div", { class: "k" }, "completed"), h("div", { class: "v" }, m.completedAt.slice(0, 10))),
+    h("div", { class: "row" }, h("div", { class: "k" }, "sessions"), h("div", { class: "v" }, String(detail.sessions.length))),
+    h("div", { class: "row" }, h("div", { class: "k" }, "decisions"),
+      h("div", { class: "v" }, String(detail.sessions.reduce((n, b) => n + b.decisions.length, 0)))),
+  ));
+
+  if (detail.sessions.length === 0) {
+    root.append(h("div", { class: "empty" }, "No sessions yet under this milestone."));
+    return;
+  }
+
+  for (const { session, decisions } of detail.sessions) {
+    root.append(h("div", { class: "section" },
+      h("h3", null,
+        `${session.source} · ${session.startedAt.slice(0, 10)}`,
+        session.sourceSessionId && h("span", { class: "id", style: "margin-left:8px" },
+          session.sourceSessionId.slice(0, 8)),
+      ),
+      h("div", { class: "edges-list" },
+        decisions.length === 0
+          ? h("div", { class: "loading" }, "(no decisions)")
+          : decisions.map((d) => h("a", {
+              class: "edge-row",
+              href: slugUrl(`/decisions/${d.id}`),
+              "data-route": "",
+            },
+              h("span", { class: "other-id" }, d.id),
+              h("span", { class: `badge ${d.status.kind}` }, d.status.kind),
+              h("span", { class: "other-title" }, d.title),
+            )),
+      ),
+    ));
+  }
+}
+
+// ============================================================================
 // Registration + boot
 // ============================================================================
 
@@ -1607,6 +1736,9 @@ route(/^\/decisions$/, viewAllDecisions, { mode: "project", nav: "decisions" });
 route(/^\/decisions\/([^/]+)$/, viewDecision, { mode: "project" });
 route(/^\/entities\/([^/]+)\/([^/]+)$/, viewEntity, { mode: "project" });
 route(/^\/new$/, viewNew, { mode: "project", nav: "new" });
+// 0.0.6 — milestones
+route(/^\/milestones$/, viewMilestones, { mode: "project", nav: "milestones" });
+route(/^\/milestones\/([^/]+)$/, viewMilestone, { mode: "project" });
 
 // Expose for debugging
 window.__stele = { apiGet, apiGetGlobal, apiPost, navigate, toast };

@@ -16,6 +16,59 @@ npm install -g stele-mcp@snapshot
 
 — nothing yet —
 
+## [0.0.6-snapshot] · 2026-06-09
+
+### Added
+- **Two-level grouping over the decision graph.** New entities:
+  - `Milestone` — aspirational unit ("ship the multi-tenant daemon")
+    with status (`active` / `shipped` / `abandoned`).
+  - `Session` — one tool-conversation (Claude Code session, Codex run,
+    OpenCode chat, ...) belonging to a milestone. Multiple sessions per
+    milestone are common; each new decision capture from the same Claude
+    Code session collapses to the same Session entity via
+    `UNIQUE(source, sourceSessionId)`.
+  - `Decision.sessionId` — optional foreign key to a Session. Decisions
+    on pre-0.0.6 databases stay unscoped; the column is added lazily
+    via `ALTER TABLE` on first open.
+- New MCP tools: `milestone_list`, `milestone_open`, `milestone_close`.
+- `decision_capture` grew two optional fields — `milestone` (continue
+  an existing milestone, open a new one, or unscoped) and `sourceSession`
+  (source tool + native session id). The MCP server wires up the
+  Milestone + Session + Decision relationship in one round-trip.
+- `stele milestones {list,open,close,show}` CLI subcommand.
+  `--json` output on `list` is what the Stop hook consumes.
+- Stop hook injects the **active milestones list** and the Claude Code
+  session id into `additionalContext` so the skill can make the
+  continue-vs-new judgment without a separate MCP roundtrip.
+- The `stele-capture` skill (and `/decision` slash command) grew a
+  **Step 0: milestone judgment**: pick `continue` if the conversation
+  topically matches an active milestone (the safer default), `new` if
+  the user just kicked off a fresh direction, or `unscoped` for
+  exploration. Always pass `sourceSession` so multi-capture sessions
+  collapse cleanly.
+- Web UI: new `/<slug>/milestones` list page + `/<slug>/milestones/:id`
+  detail (shows milestone metadata + sessions + decisions grouped by
+  session). Topbar nav adds "milestones" link, `g m` keyboard shortcut.
+  Decision detail page now shows the session id when present.
+- 15 new tests in `src/milestones.test.ts` covering milestone/session
+  CRUD, dedup, decisionsInMilestone aggregation, and the lazy schema
+  migration on pre-0.0.6 databases. Total now **124 tests**.
+
+### Changed
+- `Decision.raisedBy.session` (free-text) is now legacy — the new
+  `sessionId` field is the canonical link. Existing data is preserved
+  unchanged.
+- The `stele-capture` skill's `description` keeps the same wording the
+  hook semantically activates against; only the body gained Step 0.
+
+### Coming in 0.0.7
+- Overview at `/` rewritten to be milestone-grouped (currently the
+  per-project overview is still the resume digest).
+- Capture form at `/<slug>/new` gets a milestone picker (continue / new
+  / unscoped radio). Currently captures from the browser are unscoped.
+
+
+
 ## [0.0.5-snapshot] · 2026-06-08
 
 ### Added

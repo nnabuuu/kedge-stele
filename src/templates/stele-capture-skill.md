@@ -17,7 +17,35 @@ type fields. They confirm or correct.
 > are registered in the project's `.mcp.json`. If they're not visible,
 > remind the user to run `stele init` in the project root.
 
-## First, decide whether a real decision was made
+## Step 0 — Milestone judgment (NEW in 0.0.6)
+
+The Stop hook injects the current **Active milestones** list and your Claude
+Code **session_id** into your context before this skill activates. You'll be
+populating these fields on the `decision_capture` call:
+
+- `milestone`: one of three modes
+  - `{ mode: "continue", id: "M-04" }` — the conversation has been working
+    toward an existing active milestone. Pick its id.
+  - `{ mode: "new", draft: { title: "...", intent?: "..." } }` — the user
+    just started a new direction (planned a new feature, kicked off a new
+    refactor). Draft a short title (≤6 words) and an optional intent line.
+  - `{ mode: "unscoped" }` — genuinely no targeted goal (debugging,
+    exploration). Use sparingly; most captures should belong somewhere.
+- `sourceSession`: `{ source: "claude-code", sourceSessionId: "<the id the
+  hook gave you>" }`. Always pass this so multiple captures in the same
+  conversation share one Session entity.
+
+Heuristics:
+- **Continue** is the safer default if any active milestone topically matches
+  the conversation. Don't open new milestones for incremental progress.
+- **New** is right when the user explicitly planned something fresh:
+  "let me plan X", "I want to build Y", "we're going to refactor Z" — and
+  none of the active milestones match.
+- Picking the wrong mode is recoverable; the user can `stele milestones close`
+  or reassign later. But default toward continuing — proliferation is the
+  larger risk.
+
+## Step 1 — Decide whether a real decision was made
 
 Before drafting anything, ask yourself: **did a decision actually crystallize?**
 

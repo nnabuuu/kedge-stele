@@ -43,9 +43,9 @@ Status flips happen inside `Store.addEdge` (`src/store.ts`): a `resolves` edge m
 
 ### Module layout (everything is headless except the two adapters)
 
-- `src/types.ts` — schema. If you change `Status` or `EdgeKind`, `src/schemas.ts` (Zod) AND the capture form in `web/app.js` (`viewNew` / `buildDecision`) must be updated in lockstep — three places, no exceptions.
+- `src/types.ts` — schema source of truth. `Decision`, `Edge`, `Milestone`, `Session`, `CapturePayload`. If you change `Status`, `EdgeKind`, `MilestoneStatus`, or `SessionSource`, `src/schemas.ts` (Zod) AND the capture form in `web/app.js` (`viewNew` / `buildDecision`) must be updated in lockstep — three places, no exceptions.
 - `src/schemas.ts` — Zod schemas mirroring `types.ts`. Imported by both `mcp.ts` (MCP tool input validation) and `serve.ts` (HTTP POST validation) so the two adapters can't drift.
-- `src/store.ts` — SQLite-backed graph. Owns three tables (`decisions`, `edges`, `affects`) and answers entity-anchored queries (`decisionsAffecting`) without any ontology — it keeps its own reverse index.
+- `src/store.ts` — SQLite-backed graph. Owns five tables: `decisions`, `edges`, `affects` (the decision graph), plus `milestones` and `sessions` (0.0.6+ grouping). Answers entity-anchored queries (`decisionsAffecting`) without any ontology — it keeps its own reverse index. The 0.0.6 schema migration adds `decisions.session_id` lazily via `ALTER TABLE` in a try/catch on every connect — pre-0.0.6 databases upgrade silently on first open. Session dedup is enforced by `UNIQUE(source, source_sess_id)`.
 - `src/projections.ts` — read-only views: `resumeDigest` (what's waiting), `trace` (node neighbourhood), `traceEntity` (everything touching a file/feature/skill). These return plain data; formatting lives in the adapters.
 - `src/consolidate.ts` — on capture, proposes `resolves` / `relates` edges against every still-pending node via token-jaccard + shared-entity heuristic. This is the "Evaluator agent's seat" — the human (via `decision_resolve`) confirms.
 - `src/render.ts` — HTML rendering for the resume digest (self-contained CSS, no framework).

@@ -17,6 +17,12 @@ three weeks ago that a later decision resolves updates everywhere
 automatically, because every view is a live query over the graph, never
 a frozen snapshot.
 
+Decisions roll up into **sessions** (one Claude Code / Codex / OpenCode
+conversation) which roll up into **milestones** (an aspirational goal
+like "ship multi-tenant daemon"). The stele-capture skill decides at
+each capture whether you're continuing an active milestone or kicking
+off a new one — you don't manage this manually.
+
 ---
 
 ## Install
@@ -210,6 +216,7 @@ stele init [--port N] [--skip-daemon] [--skip-hooks]
                                     bootstrap a project: .stele/, .mcp.json, register, daemon, hooks
 stele daemon <install|uninstall|status>  always-on multi-tenant serve via launchd / systemd
 stele projects <list|remove <slug>>      view/manage the global project registry
+stele milestones <list|open|close|show>  0.0.6+: group decisions by milestone + session
 stele hooks <install|uninstall|status>   Stop hook + stele-capture skill
 stele serve [--multi] [--port N] [--open]   browser UI (default http://127.0.0.1:3939)
 stele resume [--html out.html]      what's waiting on me — open loops, needs-check first

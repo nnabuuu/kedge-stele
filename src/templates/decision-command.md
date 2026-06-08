@@ -19,12 +19,14 @@ the user should not type fields. They confirm or correct.
 
 ## Steps
 
-1. **Read the current store** so you can propose consolidation edges. Call the
-   MCP tool:
+1. **Read the current store** so you can propose consolidation edges and
+   pick the right milestone bucket. Call the MCP tools:
    ```
    decision_resume                # what's open/deferred right now
+   milestone_list                 # 0.0.6+: active milestones to consider
    ```
-   Note the existing nodes — the new decision may resolve one.
+   Note the existing nodes — the new decision may resolve one, and probably
+   belongs to an existing active milestone (continue) rather than a new one.
 
 2. **Draft a `CapturePayload`** (see `src/types.ts` in the stele repo)
    from the conversation. Fill *every* field you can infer — do NOT reduce it
@@ -60,7 +62,15 @@ the user should not type fields. They confirm or correct.
    decision_capture
      decision: <the Decision object you drafted>
      edges:    <your authored Edge[] (optional)>
+     milestone: <0.0.6+: continue an existing milestone, open new, or unscoped>
+     sourceSession: <0.0.6+: { source: "claude-code", sourceSessionId: <session id> }>
    ```
+   For milestone:
+   - `{ mode: "continue", id: "M-04" }` if the conversation has been working
+     toward an existing active milestone
+   - `{ mode: "new", draft: { title, intent? } }` if the user just planned
+     something fresh and none of the active milestones match
+   - `{ mode: "unscoped" }` for genuine exploration with no goal (rare)
 
 5. **Confirm** to the user: the id captured, your authored edges, and any
    *additional* edges the consolidate layer proposed. For each proposed edge

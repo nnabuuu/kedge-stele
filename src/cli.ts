@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { Store } from "./store.ts";
 import { parseReport } from "./seed.ts";
 import { proposeEdges } from "./consolidate.ts";
-import { resumeDigest, trace, traceEntity } from "./projections.ts";
+import { milestoneDetail, milestoneSummary, resumeDigest, trace, traceEntity } from "./projections.ts";
 import { renderResume } from "./render.ts";
 import { stubResolver } from "./resolver.ts";
 import { resolveDbPath, SteleNotInitializedError } from "./paths.ts";
@@ -16,7 +16,8 @@ import {
   register as registerProject,
   unregister as unregisterProject,
 } from "./registry.ts";
-import type { CapturePayload, EntityRef } from "./types.ts";
+import { createHash } from "node:crypto";
+import type { CapturePayload, EntityRef, Milestone } from "./types.ts";
 
 function readStdin(): string {
   try { return readFileSync(0, "utf8"); } catch { return ""; }
@@ -387,6 +388,143 @@ async function serveCommand(args: string[]): Promise<void> {
   await startServerForeground({ store, port, host, open });
 }
 
+// -----------------------------------------------------------------------------
+// 0.0.6 — stele milestones {list, open, close, show}
+// -----------------------------------------------------------------------------
+
+function nextMilestoneIdFor(store: Store): string {
+  const pattern = /^M-(\d+)$/;
+  let max = 0;
+  for (const m of store.allMilestones()) {
+    const r = m.id.match(pattern);
+    if (r) {
+      const n = Number(r[1]);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+  }
+  return `M-${String(max + 1).padStart(2, "0")}`;
+}
+
+function milestonesCommand(store: Store, args: string[]): void {
+  const sub = args[0];
+
+  if (sub === undefined || sub === "list") {
+    // parse flags
+    let json = false;
+    let status: "active" | "shipped" | "abandoned" | undefined;
+    for (let i = 1; i < args.length; i++) {
+      const a = args[i];
+      if (a === "--json") json = true;
+      else if (a === "--status") {
+        const v = args[++i];
+        if (v !== "active" && v !== "shipped" && v !== "abandoned") {
+          console.error(`invalid --status: ${v}`);
+          process.exit(1);
+        }
+        status = v;
+      } else {
+        console.error(`unknown flag: ${a}`);
+        process.exit(1);
+      }
+    }
+    const summary = milestoneSummary(store);
+    const filtered = status ? summary.filter((m) => m.milestone.status === status) : summary;
+    if (json) {
+      process.stdout.write(JSON.stringify(filtered, null, 2) + "\n");
+      return;
+    }
+    if (filtered.length === 0) {
+      console.log("no milestones");
+      return;
+    }
+    for (const m of filtered) {
+      const lo = m.openLoops > 0 ? ` · ${m.openLoops} open loop${m.openLoops === 1 ? "" : "s"}` : "";
+      console.log(
+        `  ${m.milestone.id}  [${m.milestone.status.padEnd(9)}]  ${m.milestone.title}  (${m.sessionCount} session${m.sessionCount === 1 ? "" : "s"}${lo})`,
+      );
+    }
+    return;
+  }
+
+  if (sub === "open") {
+    const title = args[1];
+    if (!title) {
+      console.error(`stele milestones open "title" [--intent "..."]`);
+      process.exit(1);
+    }
+    let intent: string | undefined;
+    for (let i = 2; i < args.length; i++) {
+      const a = args[i];
+      if (a === "--intent") intent = args[++i];
+      else {
+        console.error(`unknown flag: ${a}`);
+        process.exit(1);
+      }
+    }
+    const id = nextMilestoneIdFor(store);
+    const m: Milestone = {
+      id, title, intent, status: "active",
+      startedAt: new Date().toISOString(),
+    };
+    store.putMilestone(m);
+    console.log(`opened ${id} "${title}"`);
+    return;
+  }
+
+  if (sub === "close") {
+    const id = args[1];
+    if (!id) {
+      console.error(`stele milestones close <id> [--shipped|--abandoned]`);
+      process.exit(1);
+    }
+    let verdict: "shipped" | "abandoned" = "shipped";
+    for (let i = 2; i < args.length; i++) {
+      if (args[i] === "--shipped") verdict = "shipped";
+      else if (args[i] === "--abandoned") verdict = "abandoned";
+      else {
+        console.error(`unknown flag: ${args[i]}`);
+        process.exit(1);
+      }
+    }
+    const existing = store.getMilestone(id);
+    if (!existing) {
+      console.error(`no such milestone: ${id}`);
+      process.exit(1);
+    }
+    store.putMilestone({ ...existing, status: verdict, completedAt: new Date().toISOString() });
+    console.log(`${id} → ${verdict}`);
+    return;
+  }
+
+  if (sub === "show") {
+    const id = args[1];
+    if (!id) {
+      console.error(`stele milestones show <id>`);
+      process.exit(1);
+    }
+    const detail = milestoneDetail(store, id);
+    if (!detail) {
+      console.error(`no such milestone: ${id}`);
+      process.exit(1);
+    }
+    console.log(`${detail.milestone.id}  ${detail.milestone.title}  [${detail.milestone.status}]`);
+    if (detail.milestone.intent) console.log(`  intent: ${detail.milestone.intent}`);
+    console.log(`  started: ${detail.milestone.startedAt}`);
+    if (detail.milestone.completedAt) console.log(`  completed: ${detail.milestone.completedAt}`);
+    console.log();
+    for (const { session, decisions } of detail.sessions) {
+      console.log(`  ${session.id}  (${session.source}${session.sourceSessionId ? `, ${session.sourceSessionId.slice(0, 8)}` : ""})  ${decisions.length} decision${decisions.length === 1 ? "" : "s"}`);
+      for (const d of decisions) {
+        console.log(`    ${d.id.padEnd(7)} ${d.status.kind.padEnd(11)} ${d.title}`);
+      }
+    }
+    return;
+  }
+
+  console.error(`unknown milestones subcommand: ${sub} — try list / open / close / show`);
+  process.exit(1);
+}
+
 async function main() {
   const [cmd, ...args] = process.argv.slice(2);
 
@@ -408,6 +546,10 @@ async function main() {
     }
     throw e;
   }
+
+  // milestones is per-project (needs the store) but doesn't fit the switch
+  // pattern (has nested subcommands).
+  if (cmd === "milestones") return milestonesCommand(store, args);
 
   switch (cmd) {
     // ----- seed from an existing feature-report HTML --------------------------
@@ -507,6 +649,7 @@ async function main() {
   hooks <install|uninstall|status>     manage Stop hook + stele-capture skill
   daemon <install|uninstall|status>    multi-tenant always-on serve (launchd / systemd)
   projects <list|remove <slug>>        view/manage the global project registry
+  milestones <list|open|close|show>    0.0.6+ — group decisions by milestone / session
   serve [--multi] [--port N] [--open]  browser UI (default http://127.0.0.1:3939)
   resume [--html out.html]      "什么在等我" — open loops, needs-check first
   trace <id>                    "怎么发生的" — node + its graph neighbourhood
