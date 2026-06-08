@@ -3,3 +3,11 @@ prov.db
 resume.html
 .stele/
 .DS_Store
+
+# Per-machine `stele init` artifacts — leave .claude/commands/ tracked
+# (the /decision command is part of the project), but everything else
+# is local config.
+.mcp.json
+.claude/settings.json
+.claude/hooks/
+.claude/skills/
