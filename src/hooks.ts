@@ -40,21 +40,37 @@ function ensureDir(path: string): void {
 // settings.json merge
 // -----------------------------------------------------------------------------
 
+type StopHookCommand = { type?: string; command?: string };
+type StopHookEntry = { matcher?: string; hooks?: StopHookCommand[] };
+
 type SettingsShape = {
-  hooks?: { Stop?: Array<{ type?: string; command?: string; matcher?: string }> } & Record<
-    string,
-    unknown
-  >;
+  hooks?: { Stop?: Array<StopHookEntry & StopHookCommand> } & Record<string, unknown>;
 } & Record<string, unknown>;
 
-const STELE_HOOK_ENTRY = {
-  type: "command" as const,
-  command: HOOK_PATH_REL,
+// Claude Code's Stop hook schema is { matcher, hooks: [{ type, command }, ...] }.
+// 0.0.1-snapshot shipped a broken shape that put { type, command } directly into
+// the Stop array, which /doctor catches as "hooks.Stop.0.hooks: expected array".
+const STELE_HOOK_ENTRY: StopHookEntry = {
+  matcher: "",
+  hooks: [{ type: "command", command: HOOK_PATH_REL }],
 };
 
-function isOurHookEntry(entry: { command?: string } | null | undefined): boolean {
-  if (!entry || typeof entry.command !== "string") return false;
-  return entry.command.endsWith("stele-stop.sh");
+// Detect both the broken (0.0.1) and correct (0.0.2+) shapes so reinstall heals
+// a prior buggy install.
+function isOurHookEntry(entry: unknown): boolean {
+  if (!entry || typeof entry !== "object") return false;
+  const e = entry as StopHookEntry & StopHookCommand;
+  if (typeof e.command === "string" && e.command.endsWith("stele-stop.sh")) return true;
+  if (Array.isArray(e.hooks)) {
+    return e.hooks.some(
+      (h) =>
+        h &&
+        typeof h === "object" &&
+        typeof h.command === "string" &&
+        h.command.endsWith("stele-stop.sh"),
+    );
+  }
+  return false;
 }
 
 function mergeSettings(projectRoot: string): { note: string } {
