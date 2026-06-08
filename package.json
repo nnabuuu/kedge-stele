@@ -33,6 +33,7 @@
     "dist/",
     "web/",
     "README.md",
+    "CHANGELOG.md",
     "DEVELOPING.md",
     "ProductDesign.md",
     "naming-stele.md",
