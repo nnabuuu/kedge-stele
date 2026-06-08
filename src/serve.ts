@@ -30,7 +30,7 @@ import {
   loadRegistry,
   type ProjectEntry,
 } from "./registry.ts";
-import type { CapturePayload, Edge, EntityRef } from "./types.ts";
+import type { CapturePayload, Decision, Edge, EntityRef } from "./types.ts";
 
 export interface ServeOptions {
   store?: Store;        // single-project mode: pass a pre-resolved Store
@@ -222,8 +222,13 @@ async function handlePostDecision(
   }
   const payload = validate(CapturePayloadSchema, raw, res);
   if (!payload) return;
-  const proposed = proposeEdges(store, payload.decision);
-  store.putDecision(payload.decision as CapturePayload["decision"]);
+  // Zod 4's discriminatedUnion inference makes `revisitWhen` look optional
+  // even though the schema requires it, so the inferred type doesn't satisfy
+  // the canonical Decision shape from types.ts. The Zod safeParse already
+  // enforced the constraint at runtime; the cast just bridges the static gap.
+  const decision = payload.decision as unknown as Decision;
+  const proposed = proposeEdges(store, decision);
+  store.putDecision(decision);
   for (const e of payload.edges ?? []) store.addEdge(e as Edge);
   json(res, 200, {
     id: payload.decision.id,

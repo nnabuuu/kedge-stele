@@ -31,6 +31,23 @@ tsconfig.json    tsc config (rewriteRelativeImportExtensions, target ES2022)
 sample-report.html             seed fixture for the cold-start acceptance scenario
 ```
 
+## Tests
+
+`npm test` runs the node:test suite over `src/**/*.test.ts`. Zero
+dependencies (node 22's built-in runner + assert). Tests are excluded
+from the published tarball (via `files` in package.json and the tsconfig
+exclude).
+
+Coverage focus is on regression-prone seams: `registry.ts` (slugify +
+collision suffix), `schemas.ts` (the structured-trigger contract; the
+0.0.1 hook schema bug shape), `hooks.ts` (settings.json merge — both
+the fresh-install correct shape and the heal-from-broken-0.0.1 path).
+
+Currently un-covered (planned for follow-ups):
+- `serve.ts` HTTP roundtrips (single + multi-tenant routing)
+- `daemon.ts` install / uninstall (subprocess + launchd, hard to assert)
+- `web/app.js` (would need jsdom)
+
 ## Build
 
 The npm package ships **transpiled JavaScript**, not TypeScript source.

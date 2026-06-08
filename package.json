@@ -1,6 +1,6 @@
 {
   "name": "stele-mcp",
-  "version": "0.0.3-snapshot",
+  "version": "0.0.4-snapshot",
   "description": "实录 / Stele — carve decisions as they're made, traceable ever after. Local MCP server + SQLite decision-provenance store; primary client is Claude Code.",
   "keywords": [
     "mcp",
@@ -42,6 +42,7 @@
     "_node": "node --experimental-strip-types --no-warnings",
     "build": "node scripts/build.mjs",
     "prepublishOnly": "npm run build",
+    "test": "node --test --experimental-strip-types --no-warnings --test-reporter=spec 'src/**/*.test.ts'",
     "seed": "npm run _node -- src/cli.ts seed",
     "list": "npm run _node -- src/cli.ts list",
     "resume": "npm run _node -- src/cli.ts resume",

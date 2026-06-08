@@ -103,7 +103,7 @@ try {
   throw e;
 }
 const store = new Store(db);
-const server = new McpServer({ name: "stele", version: "0.0.3-snapshot" });
+const server = new McpServer({ name: "stele", version: "0.0.4-snapshot" });
 
 server.registerTool(
   "decision_capture",
