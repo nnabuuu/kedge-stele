@@ -1,18 +1,50 @@
 // Stele · web UI SPA. Vanilla JS, no build, no framework.
 //
-// Structure: a small history-API router dispatches to view renderers.
-// Each renderer is async, fetches from /api/*, and returns nothing — it
-// imperatively builds DOM into the #view container.
-//
-// Views are deliberately independent — they pull data fresh on each
-// navigation. No global cache; the server is the source of truth and a
-// project's decision DB is small enough that re-fetching is free.
+// Multi-tenant: the daemon at http://127.0.0.1:3939/ serves multiple
+// projects. URLs are /<slug>/... for per-project pages, / for the
+// cross-project overview. The frontend keeps a module-level `currentSlug`
+// reflecting location.pathname's first segment.
+
+// ----------------------------------------------------------------------------
+// Multi-tenant state — extracted from location.pathname on every navigation
+// ----------------------------------------------------------------------------
+
+let currentSlug = null;   // null when on the overview at "/"
+
+// Routes inside the SPA refer to paths relative to the current project
+// (e.g. "/decisions/D-04"). slugUrl prepends the slug segment when one is set,
+// so the same view code works under any project.
+function slugUrl(path) {
+  if (!currentSlug) return path;
+  if (path.startsWith(`/${currentSlug}/`) || path === `/${currentSlug}`) return path;
+  return `/${currentSlug}${path}`;
+}
+
+function parseSlug(pathname) {
+  // /<slug>/anything → slug = "<slug>", rest = "/anything"
+  // / → slug = null, rest = "/"
+  const m = pathname.match(/^\/([^/]+)(\/.*)?$/);
+  if (!m) return { slug: null, rest: "/" };
+  return { slug: m[1], rest: m[2] ?? "/" };
+}
 
 // ============================================================================
 // API client
 // ============================================================================
 
+// Per-project endpoints get auto-prefixed with /<slug>; global endpoints
+// (/api/projects) are absolute and the caller passes them unchanged via
+// apiGetGlobal.
 async function apiGet(path) {
+  const r = await fetch(slugUrl(path));
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+    throw new Error(body.error || `HTTP ${r.status}`);
+  }
+  return r.json();
+}
+
+async function apiGetGlobal(path) {
   const r = await fetch(path);
   if (!r.ok) {
     const body = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
@@ -22,7 +54,7 @@ async function apiGet(path) {
 }
 
 async function apiPost(path, body) {
-  const r = await fetch(path, {
+  const r = await fetch(slugUrl(path), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -161,7 +193,7 @@ async function openSearchOverlay() {
           else if (e.key === "Enter") {
             e.preventDefault();
             const m = filtered()[state.focused];
-            if (m) { closeOverlay(); navigate(`/decisions/${m.id}`); }
+            if (m) { closeOverlay(); navigate(slugUrl(`/decisions/${m.id}`)); }
           }
         },
       }),
@@ -182,7 +214,7 @@ async function openSearchOverlay() {
     const matches = filtered();
     matches.forEach((d, i) => list.append(h("div", {
       class: "result" + (i === state.focused ? " focused" : ""),
-      onclick: () => { closeOverlay(); navigate(`/decisions/${d.id}`); },
+      onclick: () => { closeOverlay(); navigate(slugUrl(`/decisions/${d.id}`)); },
     },
       h("span", { class: "id" }, d.id),
       h("span", null, d.title),
@@ -221,8 +253,17 @@ document.addEventListener("keydown", (e) => {
 
   // chord prefix
   if (chordState === "g") {
-    if (e.key === "r") { e.preventDefault(); navigate("/"); }
-    else if (e.key === "a") { e.preventDefault(); navigate("/decisions"); }
+    if (e.key === "r") {
+      e.preventDefault();
+      // g r → project resume if in a slug, else overview
+      navigate(currentSlug ? slugUrl("/") : "/");
+    } else if (e.key === "a") {
+      e.preventDefault();
+      if (currentSlug) navigate(slugUrl("/decisions"));
+    } else if (e.key === "p") {
+      e.preventDefault();
+      navigate("/");  // g p → overview (projects)
+    }
     chordState = null;
     clearTimeout(chordTimer);
     return;
@@ -234,7 +275,12 @@ document.addEventListener("keydown", (e) => {
     chordTimer = setTimeout(() => { chordState = null; }, 900);
     return;
   }
-  if (e.key === "c") { e.preventDefault(); navigate("/new"); return; }
+  if (e.key === "c") {
+    if (!currentSlug) return;  // can't capture from the overview
+    e.preventDefault();
+    navigate(slugUrl("/new"));
+    return;
+  }
   if (e.key === "/") { e.preventDefault(); openSearchOverlay(); return; }
 });
 
@@ -243,10 +289,16 @@ document.addEventListener("keydown", (e) => {
 // ============================================================================
 
 const routes = [];
-function route(pattern, render, opts = {}) { routes.push({ pattern, render, opts }); }
+function route(pattern, render, opts = {}) {
+  // opts.mode: "global" (overview, no slug) or "project" (per-slug page).
+  // Default is "project" for backward compat with most views.
+  if (!opts.mode) opts.mode = "project";
+  routes.push({ pattern, render, opts });
+}
 
-function matchRoute(path) {
+function matchRoute(path, mode) {
   for (const r of routes) {
+    if (r.opts.mode !== mode) continue;
     const m = path.match(r.pattern);
     if (m) return { render: r.render, params: m.slice(1), opts: r.opts };
   }
@@ -263,13 +315,23 @@ async function renderRoute() {
   const v = $view();
   clear(v);
   v.append(h("div", { class: "loading" }, "loading…"));
-  const m = matchRoute(location.pathname);
+
+  // Extract current slug from URL. If pathname is just "/", we're on the overview.
+  const { slug, rest } = parseSlug(location.pathname);
+  currentSlug = slug;
+
+  // Pick the right route for the mode:
+  //   - slug === null  → look for routes registered with mode: "global"
+  //   - slug !== null  → look for routes registered with mode: "project"
+  const mode = slug === null ? "global" : "project";
+  const m = matchRoute(rest, mode);
   if (!m) {
     clear(v);
     v.append(setHead(null, "Not found", `no view for ${location.pathname}`));
     return;
   }
   setActiveNav(m.opts.nav);
+  syncTopbar();
   try {
     const fragment = document.createDocumentFragment();
     await m.render(fragment, ...m.params);
@@ -296,7 +358,12 @@ document.addEventListener("click", (e) => {
   // Allow modifier-clicks to do their thing (new tab etc.)
   if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
   e.preventDefault();
-  navigate(a.getAttribute("href"));
+  // href in views is project-relative; slugUrl prepends the current slug.
+  // Anchors with data-route="absolute" stay verbatim (used for the overview
+  // and project switcher).
+  let href = a.getAttribute("href");
+  if (a.dataset.route !== "absolute") href = slugUrl(href);
+  navigate(href);
 });
 window.addEventListener("popstate", renderRoute);
 
@@ -347,7 +414,7 @@ function statusLine(d) {
 function resumeCard(item) {
   const isDeferred = item.bucket === "deferred";
   const cls = `card ${isDeferred ? "deferred" : "open"}${item.needsCheck ? " due" : ""}`;
-  return h("a", { class: cls, href: `/decisions/${item.id}`, "data-route": "" },
+  return h("a", { class: cls, href: slugUrl(`/decisions/${item.id}`), "data-route": "" },
     h("div", { class: "top" },
       h("span", { class: "id" }, item.id),
       h("span", { class: `bucket ${isDeferred ? "deferred" : "open"}` },
@@ -401,7 +468,7 @@ async function viewResume(root) {
 // ============================================================================
 
 function decisionRow(d) {
-  return h("a", { class: `card ${d.status.kind}`, href: `/decisions/${d.id}`, "data-route": "" },
+  return h("a", { class: `card ${d.status.kind}`, href: slugUrl(`/decisions/${d.id}`), "data-route": "" },
     h("div", { class: "top" },
       h("span", { class: "id" }, d.id),
       h("span", { class: `bucket ${d.status.kind}` }, STATUS_LABEL[d.status.kind] || d.status.kind),
@@ -446,7 +513,7 @@ function affectsList(refs) {
   return h("div", { class: "affects-list" },
     refs.map((a) => h("a", {
       class: "ref",
-      href: `/entities/${encodeURIComponent(a.ref.kind)}/${encodeURIComponent(a.ref.id)}`,
+      href: slugUrl(`/entities/${encodeURIComponent(a.ref.kind)}/${encodeURIComponent(a.ref.id)}`),
       "data-route": "",
     },
       h("span", { class: "kind" }, `${a.ref.kind}:`),
@@ -458,7 +525,7 @@ function affectsList(refs) {
 function edgeRow(e) {
   const dirCls = e.direction === "out" ? "out" : "in";
   const arrow = e.direction === "out" ? `—${e.kind}→` : `←${e.kind}—`;
-  return h("a", { class: "edge-row", href: `/decisions/${e.otherId}`, "data-route": "" },
+  return h("a", { class: "edge-row", href: slugUrl(`/decisions/${e.otherId}`), "data-route": "" },
     h("span", { class: `arrow ${dirCls}` }, arrow),
     h("span", { class: "other-id" }, e.otherId),
     h("span", { class: "other-title" }, e.otherTitle),
@@ -506,7 +573,7 @@ function statusSection(d) {
   if (s.kind === "resolved") {
     return h("div", { class: "section" },
       h("h3", null, "Resolved by"),
-      h("a", { class: "edge-row", href: `/decisions/${s.by}`, "data-route": "" },
+      h("a", { class: "edge-row", href: slugUrl(`/decisions/${s.by}`), "data-route": "" },
         h("span", { class: "arrow in" }, "←resolved by—"),
         h("span", { class: "other-id" }, s.by),
       ),
@@ -515,7 +582,7 @@ function statusSection(d) {
   if (s.kind === "superseded") {
     return h("div", { class: "section" },
       h("h3", null, "Superseded by"),
-      h("a", { class: "edge-row", href: `/decisions/${s.by}`, "data-route": "" },
+      h("a", { class: "edge-row", href: slugUrl(`/decisions/${s.by}`), "data-route": "" },
         h("span", { class: "arrow in" }, "←superseded by—"),
         h("span", { class: "other-id" }, s.by),
       ),
@@ -875,7 +942,7 @@ async function viewEntity(root, kind, id) {
   root.append(h("div", { class: "grid" },
     data.traces.map((t) => h("a", {
       class: `card ${t.decision.status.kind}`,
-      href: `/decisions/${t.decision.id}`, "data-route": "",
+      href: slugUrl(`/decisions/${t.decision.id}`), "data-route": "",
     },
       h("div", { class: "top" },
         h("span", { class: "id" }, t.decision.id),
@@ -1286,7 +1353,7 @@ async function viewNew(root) {
       if (result.proposed && result.proposed.length > 0) {
         openOverlay(buildProposedEdgesModal(result.id, result.proposed));
       } else {
-        navigate(`/decisions/${result.id}`);
+        navigate(slugUrl(`/decisions/${result.id}`));
       }
     } catch (e) {
       const err = h("div", { class: "error" }, e.message || "capture failed");
@@ -1361,7 +1428,7 @@ function buildProposedEdgesModal(newId, proposals) {
 
   function goNext() {
     closeOverlay();
-    navigate(`/decisions/${newId}`);
+    navigate(slugUrl(`/decisions/${newId}`));
   }
 
   rerender();
@@ -1369,16 +1436,179 @@ function buildProposedEdgesModal(newId, proposals) {
 }
 
 // ============================================================================
+// View · /  (Overview — all projects)
+// ============================================================================
+
+async function viewOverview(root) {
+  const projects = await apiGetGlobal("/api/projects");
+
+  root.append(setHead(
+    "Stele · multi-project overview",
+    "什么在等我",
+    projects.length === 0
+      ? "no projects registered yet — `stele init` in any project root"
+      : `${projects.length} project${projects.length === 1 ? "" : "s"} registered`,
+  ));
+
+  if (projects.length === 0) {
+    root.append(h("div", { class: "empty" },
+      "Open a terminal, ", h("code", null, "cd"), " into your project, and run ",
+      h("code", null, "stele init"), ". It'll register here automatically."));
+    return;
+  }
+
+  root.append(h("div", { class: "grid" },
+    projects.map((p) => {
+      const dueBadge = p.needsCheck > 0
+        ? h("span", { class: "flag" }, `${p.needsCheck} due`)
+        : null;
+      const loopsText = p.openLoops === 0 ? "all clear" :
+        `${p.openLoops} open loop${p.openLoops === 1 ? "" : "s"}`;
+      const cls = `card ${p.openLoops > 0 ? "open" : "decided"}${p.needsCheck > 0 ? " due" : ""}`;
+      return h("a", {
+        class: cls,
+        href: `/${p.slug}/`,
+        "data-route": "absolute",
+      },
+        h("div", { class: "top" },
+          h("span", { class: "id" }, p.slug),
+          h("span", { class: `bucket ${p.openLoops > 0 ? "open" : "decided"}` }, loopsText),
+          dueBadge,
+        ),
+        h("div", { class: "title" }, p.path.replace(/^\/Users\/[^/]+/, "~")),
+        p.missing && h("div", { class: "detail" },
+          h("span", { style: "color:var(--red)" }, "⚠ .stele/decisions.db missing — was the project moved or deleted?")),
+      );
+    }),
+  ));
+
+  root.append(h("footer", { class: "page-foot" },
+    "the daemon watches ", h("code", null, "~/.stele/registry.json"),
+    " — running ", h("code", null, "stele init"),
+    " elsewhere adds a card here on next refresh."));
+}
+
+// ============================================================================
+// Topbar sync — adjust brand link, switcher, nav based on current mode
+// ============================================================================
+
+function syncTopbar() {
+  const bar = document.querySelector(".topbar-inner");
+  if (!bar) return;
+
+  // Brand link always points at /
+  const brand = bar.querySelector(".brand");
+  if (brand) brand.setAttribute("href", "/");
+
+  const nav = bar.querySelector("nav");
+  if (nav) {
+    clear(nav);
+    if (currentSlug) {
+      // Per-project nav: resume + all decisions
+      const a1 = h("a", { href: slugUrl("/"), "data-route": "", "data-nav": "resume" }, "什么在等我");
+      const a2 = h("a", { href: slugUrl("/decisions"), "data-route": "", "data-nav": "decisions" }, "全部决策");
+      nav.append(a1, a2);
+    }
+    // On the overview, nav is empty (the cards are the content)
+  }
+
+  const btn = bar.querySelector(".btn-new");
+  if (btn) {
+    if (currentSlug) {
+      btn.setAttribute("href", slugUrl("/new"));
+      btn.style.display = "";
+    } else {
+      btn.style.display = "none";
+    }
+  }
+
+  // Mount or update the project switcher
+  mountSwitcher(bar);
+}
+
+let switcherProjects = null;
+let switcherLastFetch = 0;
+
+async function fetchSwitcherProjects(force = false) {
+  const now = Date.now();
+  if (!force && switcherProjects && now - switcherLastFetch < 30_000) return switcherProjects;
+  try {
+    switcherProjects = await apiGetGlobal("/api/projects");
+    switcherLastFetch = now;
+  } catch {
+    switcherProjects = switcherProjects ?? [];
+  }
+  return switcherProjects;
+}
+
+function mountSwitcher(bar) {
+  let host = bar.querySelector(".project-switcher");
+  if (!host) {
+    host = h("div", { class: "project-switcher" });
+    // Insert before .grow so it sits between nav and the action button
+    const grow = bar.querySelector(".grow");
+    if (grow) bar.insertBefore(host, grow);
+    else bar.append(host);
+  }
+  clear(host);
+  if (!currentSlug) return;  // No switcher needed on overview
+
+  const trigger = h("button", {
+    class: "switcher-trigger",
+    onclick: async (e) => {
+      e.stopPropagation();
+      const panel = host.querySelector(".switcher-panel");
+      if (panel) {
+        panel.remove();
+        return;
+      }
+      const projects = await fetchSwitcherProjects(true);
+      const p = h("div", { class: "switcher-panel" });
+      p.append(h("a", { href: "/", "data-route": "absolute", class: "switcher-item all" },
+        h("span", null, "← all projects")));
+      for (const proj of projects) {
+        if (proj.slug === currentSlug) continue;
+        p.append(h("a", {
+          href: `/${proj.slug}/`,
+          "data-route": "absolute",
+          class: "switcher-item",
+        },
+          h("span", { class: "sw-slug" }, proj.slug),
+          h("span", { class: "sw-loops" }, `${proj.openLoops} open`),
+        ));
+      }
+      host.append(p);
+    },
+  },
+    h("span", { class: "sw-current" }, currentSlug),
+    h("span", { class: "sw-chevron" }, "▾"),
+  );
+  host.append(trigger);
+}
+
+// Close switcher panel on outside click
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".project-switcher")) {
+    document.querySelectorAll(".switcher-panel").forEach((p) => p.remove());
+  }
+});
+
+// ============================================================================
 // Registration + boot
 // ============================================================================
 
-route(/^\/$/, viewResume, { nav: "resume" });
-route(/^\/decisions$/, viewAllDecisions, { nav: "decisions" });
-route(/^\/decisions\/([^/]+)$/, viewDecision, {});
-route(/^\/entities\/([^/]+)\/([^/]+)$/, viewEntity, {});
-route(/^\/new$/, viewNew, { nav: "new" });
+// Global (overview) routes — when currentSlug === null
+route(/^\/$/, viewOverview, { mode: "global", nav: "overview" });
+
+// Per-project routes — when currentSlug is set, the path after the slug is
+// matched here (e.g. /<slug>/decisions → matches /^\/decisions$/)
+route(/^\/$/, viewResume, { mode: "project", nav: "resume" });
+route(/^\/decisions$/, viewAllDecisions, { mode: "project", nav: "decisions" });
+route(/^\/decisions\/([^/]+)$/, viewDecision, { mode: "project" });
+route(/^\/entities\/([^/]+)\/([^/]+)$/, viewEntity, { mode: "project" });
+route(/^\/new$/, viewNew, { mode: "project", nav: "new" });
 
 // Expose for debugging
-window.__stele = { apiGet, apiPost, navigate, toast };
+window.__stele = { apiGet, apiGetGlobal, apiPost, navigate, toast };
 
 renderRoute();

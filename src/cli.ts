@@ -11,6 +11,11 @@ import { resolveDbPath, SteleNotInitializedError } from "./paths.ts";
 import { startServer } from "./serve.ts";
 import { installHooks, uninstallHooks, hooksStatus } from "./hooks.ts";
 import { installDaemon, uninstallDaemon, daemonStatus } from "./daemon.ts";
+import {
+  allProjects,
+  register as registerProject,
+  unregister as unregisterProject,
+} from "./registry.ts";
 import type { CapturePayload, EntityRef } from "./types.ts";
 
 function readStdin(): string {
@@ -146,6 +151,18 @@ async function initCommand(args: string[]): Promise<void> {
   console.log(`  ${mcpNote}`);
   console.log(`  ${gitignoreNote}`);
 
+  // Register this project in the global registry so the multi-tenant daemon
+  // can route /<slug>/ to it.
+  let projectSlug: string;
+  try {
+    const reg = registerProject(cwd);
+    projectSlug = reg.slug;
+    console.log(`  ${reg.isNew ? "registered" : "already registered"} as slug "${reg.slug}"`);
+  } catch (e) {
+    projectSlug = "<this-project>";
+    console.error(`  ⚠ registry write failed (continuing): ${(e as Error).message}`);
+  }
+
   // Default-install hooks (Stop hook + stele-capture skill) — opt-out with --skip-hooks
   if (!skipHooks) {
     try {
@@ -159,13 +176,16 @@ async function initCommand(args: string[]): Promise<void> {
     }
   }
 
-  // Default-install daemon (launchd / systemd) — opt-out with --skip-daemon
+  // Default-install daemon (launchd / systemd) — opt-out with --skip-daemon.
+  // Install is idempotent: if already installed, nothing happens but legacy
+  // per-project plists/units (from pre-0.0.3) get swept and their projects
+  // get registered into the global registry.
   if (!skipDaemon) {
     if (process.platform !== "darwin" && process.platform !== "linux") {
       console.log(`  ⓘ daemon not installed (unsupported platform: ${process.platform})`);
     } else {
       try {
-        const r = await installDaemon({ projectRoot: cwd, port });
+        const r = await installDaemon({ port });
         console.log(`  installed ${r.platform} daemon — http://127.0.0.1:${r.port} (loaded: ${r.loaded ? "yes" : "no"})`);
         for (const n of r.notes) console.log(`    · ${n}`);
       } catch (e) {
@@ -178,7 +198,11 @@ async function initCommand(args: string[]): Promise<void> {
   console.log(``);
   console.log(`Next:`);
   console.log(`  1. Restart Claude Code in this directory (it picks up .mcp.json).`);
-  console.log(`  2. ${skipDaemon ? `Run \`stele serve\` to launch the browser UI.` : `Open http://127.0.0.1:${port} — daemon serves it always-on.`}`);
+  if (skipDaemon) {
+    console.log(`  2. Run \`stele serve --multi\` to launch the browser UI.`);
+  } else {
+    console.log(`  2. Open http://127.0.0.1:${port}/${projectSlug}/ — daemon serves it always-on.`);
+  }
   console.log(`  3. Ask "what's waiting on me?" to see open loops.`);
 }
 
@@ -227,7 +251,6 @@ function hooksCommand(args: string[]): void {
 
 async function daemonCommand(args: string[]): Promise<void> {
   const sub = args[0];
-  const cwd = process.cwd();
 
   // Parse flags from args[1..]
   let port = 3939;
@@ -251,42 +274,129 @@ async function daemonCommand(args: string[]): Promise<void> {
 
   if (sub === "install") {
     try {
-      const r = await installDaemon({ projectRoot: cwd, port, printUnit });
+      const r = await installDaemon({ port, printUnit });
       if (printUnit) return; // unit printed to stdout already
-      console.log(`stele daemon installed (${r.platform}):`);
+      console.log(`stele daemon installed (${r.platform}, multi-tenant):`);
       console.log(`  unit:       ${r.unitPath}`);
       console.log(`  invocation: ${r.invocation}`);
       console.log(`  port:       ${r.port}`);
       console.log(`  loaded:     ${r.loaded ? "yes" : "no"}`);
       for (const n of r.notes) console.log(`  · ${n}`);
-      if (r.loaded) console.log(`\n  → http://127.0.0.1:${r.port}`);
+      if (r.legacy.registered.length > 0) {
+        console.log(`  · imported projects from legacy daemons:`);
+        for (const p of r.legacy.registered) console.log(`      ${p}`);
+      }
+      if (r.loaded) console.log(`\n  → http://127.0.0.1:${r.port}/`);
     } catch (e) {
       console.error(`daemon install failed: ${(e as Error).message}`);
       process.exit(1);
     }
   } else if (sub === "uninstall") {
-    const r = uninstallDaemon(cwd);
-    console.log(`stele daemon uninstalled from ${cwd}:`);
+    const r = uninstallDaemon();
+    console.log(`stele daemon uninstalled:`);
     for (const n of r.notes) console.log(`  · ${n}`);
   } else if (sub === "status" || sub === undefined) {
-    const s = daemonStatus(cwd);
-    console.log(`stele daemon status (${cwd}):`);
-    console.log(`  platform:  ${s.platform}`);
-    console.log(`  unit file: ${s.unitPresent ? "✓" : "✗"} ${s.unitPath}`);
-    console.log(`  loaded:    ${s.loaded ? "✓" : "✗"} (${s.loadedNote})`);
+    const s = daemonStatus();
+    const n = allProjects().length;
+    console.log(`stele daemon status:`);
+    console.log(`  platform:           ${s.platform}`);
+    console.log(`  unit file:          ${s.unitPresent ? "✓" : "✗"} ${s.unitPath}`);
+    console.log(`  loaded:             ${s.loaded ? "✓" : "✗"} (${s.loadedNote})`);
+    console.log(`  registered projects: ${n}`);
   } else {
     console.error(`unknown daemon subcommand: ${sub} — try install / uninstall / status`);
     process.exit(1);
   }
 }
 
+function projectsCommand(args: string[]): void {
+  const sub = args[0];
+  if (sub === undefined || sub === "list") {
+    const projects = allProjects();
+    if (projects.length === 0) {
+      console.log(`no projects registered. Run \`stele init\` in a project root.`);
+      return;
+    }
+    console.log(`${projects.length} registered project(s):`);
+    const w = Math.max(...projects.map((p) => p.slug.length));
+    for (const p of projects) {
+      console.log(`  ${p.slug.padEnd(w)}  ${p.path}`);
+    }
+  } else if (sub === "remove") {
+    const target = args[1];
+    if (!target) {
+      console.error(`stele projects remove <slug-or-path>`);
+      process.exit(1);
+    }
+    const removed = unregisterProject(target);
+    if (removed) console.log(`removed ${target} from registry`);
+    else {
+      console.error(`no project matched "${target}"`);
+      process.exit(1);
+    }
+  } else {
+    console.error(`unknown projects subcommand: ${sub} — try list / remove`);
+    process.exit(1);
+  }
+}
+
+async function serveCommand(args: string[]): Promise<void> {
+  let port = 3939;
+  let host = "127.0.0.1";
+  let open = false;
+  let multi = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--port") {
+      const n = Number(args[++i]);
+      if (!Number.isInteger(n) || n < 1 || n > 65535) {
+        console.error(`invalid --port value: ${args[i]}`);
+        process.exit(1);
+      }
+      port = n;
+    } else if (a === "--host") {
+      host = args[++i];
+      if (!host) {
+        console.error(`--host requires a value`);
+        process.exit(1);
+      }
+    } else if (a === "--open") {
+      open = true;
+    } else if (a === "--multi") {
+      multi = true;
+    } else {
+      console.error(`unknown serve flag: ${a}`);
+      process.exit(1);
+    }
+  }
+  if (multi) {
+    await startServer({ multi: true, port, host, open });
+    return;
+  }
+  // Single-project mode: resolve a store from cwd
+  let store: Store;
+  try {
+    store = new Store(resolveDbPath());
+  } catch (e) {
+    if (e instanceof SteleNotInitializedError) {
+      console.error(e.message);
+      process.exit(1);
+    }
+    throw e;
+  }
+  await startServer({ store, port, host, open });
+}
+
 async function main() {
   const [cmd, ...args] = process.argv.slice(2);
 
-  // Storeless commands first — they manipulate config files, never touch the DB.
+  // Storeless commands first — they manipulate config files or registry,
+  // never touch a per-project DB.
   if (cmd === "init") return initCommand(args);
   if (cmd === "hooks") return hooksCommand(args);
   if (cmd === "daemon") return daemonCommand(args);
+  if (cmd === "projects") return projectsCommand(args);
+  if (cmd === "serve") return serveCommand(args);
 
   let store: Store;
   try {
@@ -391,44 +501,13 @@ async function main() {
       break;
     }
 
-    // ----- the browser UI: localhost HTTP server + SPA over the same store ----
-    case "serve": {
-      let port = 3939;
-      let host = "127.0.0.1";
-      let open = false;
-      for (let i = 0; i < args.length; i++) {
-        const a = args[i];
-        if (a === "--port") {
-          const n = Number(args[++i]);
-          if (!Number.isInteger(n) || n < 1 || n > 65535) {
-            console.error(`invalid --port value: ${args[i]}`);
-            process.exit(1);
-          }
-          port = n;
-        } else if (a === "--host") {
-          host = args[++i];
-          if (!host) {
-            console.error(`--host requires a value`);
-            process.exit(1);
-          }
-        } else if (a === "--open") {
-          open = true;
-        } else {
-          console.error(`unknown serve flag: ${a}`);
-          process.exit(1);
-        }
-      }
-      await startServer({ store, port, host, open });
-      // startServer never resolves; the process runs until SIGINT.
-      break;
-    }
-
     default:
       console.log(`usage: stele <cmd>
-  init                          create .stele/ + .mcp.json + default hooks + daemon
-  hooks <install|uninstall|status>   manage Stop hook + stele-capture skill
-  daemon <install|uninstall|status>  always-on serve (launchd / systemd user)
-  serve [--port N] [--open]     browser UI (default http://127.0.0.1:3939)
+  init                          create .stele/ + .mcp.json + register + hooks + daemon
+  hooks <install|uninstall|status>     manage Stop hook + stele-capture skill
+  daemon <install|uninstall|status>    multi-tenant always-on serve (launchd / systemd)
+  projects <list|remove <slug>>        view/manage the global project registry
+  serve [--multi] [--port N] [--open]  browser UI (default http://127.0.0.1:3939)
   resume [--html out.html]      "什么在等我" — open loops, needs-check first
   trace <id>                    "怎么发生的" — node + its graph neighbourhood
   trace-entity <kind> <id>      everything touching an entity (file/feature/skill...)
@@ -438,8 +517,10 @@ async function main() {
   resolve <byId> <defId> [note] mark a deferred/open node resolved by a later decision
   relate  <a> <b> [note]        link two decisions
 
-Store: looks for .stele/ at cwd or any ancestor (up to $HOME). Run \`stele init\`
-to create one. Override with STELE_DB=/abs/path/decisions.db.`);
+Store: per-project at .stele/decisions.db. \`stele init\` writes that and
+registers the project in ~/.stele/registry.json so the daemon can route to it
+at http://127.0.0.1:3939/<slug>/. CLI commands walk up from cwd to find the
+.stele/ marker; override with STELE_DB=/abs/path/decisions.db.`);
   }
 }
 

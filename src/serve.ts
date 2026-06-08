@@ -1,28 +1,40 @@
 // HTTP entry point. `stele serve` runs this — a localhost-only Node http
-// server fronting the same store the MCP server and CLI talk to. Three
-// surfaces, one truth (the .stele/decisions.db SQLite file).
+// server fronting the same store(s) the MCP server and CLI talk to.
 //
-// Routes are intentionally thin: GET handlers call into projections.ts,
-// POST handlers validate with the shared Zod schemas (src/schemas.ts) and
-// then call into store.ts. Zero business logic lives here.
+// Two modes:
+//   • single-project (default): one Store, routes at `/`, `/api/*`. Used by
+//     dev / power users who run `stele serve` foreground from a project.
+//   • multi-tenant (`--multi`):  reads ~/.stele/registry.json, lazy-opens
+//     a Store per registered project, routes at `/<slug>/api/*` plus an
+//     overview at `/`. Used by the always-on daemon (com.stele.daemon).
 //
 // Static assets (web/index.html, web/styles.css, web/app.js) are read once
 // at startup into memory — no filesystem IO per request.
+//
+// Business logic lives in projections.ts / store.ts / consolidate.ts. The
+// handlers here are thin wrappers.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { z } from "zod";
-import type { Store } from "./store.ts";
+import { Store } from "./store.ts";
 import { proposeEdges } from "./consolidate.ts";
 import { resumeDigest, trace, traceEntity } from "./projections.ts";
 import { stubResolver } from "./resolver.ts";
 import { CapturePayloadSchema, EdgeSchema } from "./schemas.ts";
+import {
+  allProjects,
+  registryMtimeMs,
+  loadRegistry,
+  type ProjectEntry,
+} from "./registry.ts";
 import type { CapturePayload, Edge, EntityRef } from "./types.ts";
 
 export interface ServeOptions {
-  store: Store;
+  store?: Store;        // single-project mode: pass a pre-resolved Store
+  multi?: boolean;      // multi-tenant mode: read registry, lazy-open stores
   port?: number;
   host?: string;
   open?: boolean;
@@ -56,6 +68,51 @@ function loadAssets(): { index: Asset; files: Map<string, Asset> } {
 }
 
 // -----------------------------------------------------------------------------
+// Multi-tenant context — lazy Store per registered project, watches registry
+// mtime and evicts stale entries when projects are removed.
+// -----------------------------------------------------------------------------
+
+class MultiStoreContext {
+  private stores = new Map<string, Store>();
+  private lastMtime = 0;
+  private projectsCache: ProjectEntry[] = [];
+
+  private refresh(): void {
+    const m = registryMtimeMs();
+    if (m === this.lastMtime) return;
+    const r = loadRegistry();
+    this.lastMtime = m;
+    this.projectsCache = r.projects;
+    const valid = new Set(r.projects.map((p) => p.slug));
+    for (const slug of this.stores.keys()) {
+      if (!valid.has(slug)) this.stores.delete(slug);
+    }
+  }
+
+  projects(): ProjectEntry[] {
+    this.refresh();
+    return this.projectsCache.slice();
+  }
+
+  getStore(slug: string): { store: Store; entry: ProjectEntry } | null {
+    this.refresh();
+    const entry = this.projectsCache.find((p) => p.slug === slug);
+    if (!entry) return null;
+    const cached = this.stores.get(slug);
+    if (cached) return { store: cached, entry };
+    const dbPath = join(entry.path, ".stele", "decisions.db");
+    if (!existsSync(dbPath)) return null;
+    try {
+      const store = new Store(dbPath);
+      this.stores.set(slug, store);
+      return { store, entry };
+    } catch {
+      return null;
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
 // Response helpers
 // -----------------------------------------------------------------------------
 
@@ -64,8 +121,8 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-function notFound(res: ServerResponse): void {
-  json(res, 404, { error: "not found" });
+function notFound(res: ServerResponse, msg = "not found"): void {
+  json(res, 404, { error: msg });
 }
 
 function asset(res: ServerResponse, a: Asset): void {
@@ -112,7 +169,7 @@ function validate<T>(schema: z.ZodType<T>, body: unknown, res: ServerResponse): 
 }
 
 // -----------------------------------------------------------------------------
-// Route handlers
+// Route handlers — operate on a Store, shared by both single and multi modes
 // -----------------------------------------------------------------------------
 
 const NEXT_ID_PREFIXES = new Set(["D", "DEF", "OQ"]);
@@ -165,9 +222,6 @@ async function handlePostDecision(
   }
   const payload = validate(CapturePayloadSchema, raw, res);
   if (!payload) return;
-
-  // Mirror mcp.ts decision_capture: compute proposed edges BEFORE writing
-  // so we can return them; then write the node and any authored edges.
   const proposed = proposeEdges(store, payload.decision);
   store.putDecision(payload.decision as CapturePayload["decision"]);
   for (const e of payload.edges ?? []) store.addEdge(e as Edge);
@@ -198,11 +252,41 @@ async function handlePostEdge(
   json(res, 200, { ok: true, edge });
 }
 
+// Per-store API dispatch — handles /api/* relative to a single Store
+async function dispatchApi(
+  store: Store,
+  apiPath: string,                 // e.g. "/api/resume", "/api/decisions/D-04"
+  searchParams: URLSearchParams,
+  method: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (method === "GET") {
+    if (apiPath === "/api/resume") return json(res, 200, resumeDigest(store));
+    if (apiPath === "/api/decisions") return json(res, 200, store.allDecisions());
+    if (apiPath === "/api/next-id") {
+      return handleNextId(store, searchParams.get("prefix") ?? "D", res);
+    }
+    const mDecision = apiPath.match(/^\/api\/decisions\/([^/]+)$/);
+    if (mDecision) return await handleDecision(store, decodeURIComponent(mDecision[1]), res);
+    const mEntity = apiPath.match(/^\/api\/entity\/([^/]+)\/([^/]+)$/);
+    if (mEntity) return await handleEntity(store, decodeURIComponent(mEntity[1]), decodeURIComponent(mEntity[2]), res);
+    return notFound(res);
+  }
+  if (method === "POST") {
+    if (apiPath === "/api/decisions") return await handlePostDecision(store, req, res);
+    if (apiPath === "/api/edges") return await handlePostEdge(store, req, res);
+    return notFound(res);
+  }
+  res.writeHead(405, { "content-type": "application/json; charset=utf-8", allow: "GET, POST" });
+  res.end(JSON.stringify({ error: "method not allowed" }));
+}
+
 // -----------------------------------------------------------------------------
-// Dispatcher
+// Single-project dispatcher (backward compat for `stele serve` without --multi)
 // -----------------------------------------------------------------------------
 
-async function dispatch(
+async function dispatchSingle(
   store: Store,
   assets: ReturnType<typeof loadAssets>,
   req: IncomingMessage,
@@ -211,41 +295,93 @@ async function dispatch(
   const url = new URL(req.url ?? "/", "http://localhost");
   const path = url.pathname;
   const method = req.method ?? "GET";
-
   try {
     if (method === "GET") {
-      // Static
       if (path === "/" || path === "/index.html") return asset(res, assets.index);
       if (path.startsWith("/assets/")) {
         const file = assets.files.get(path.slice("/assets/".length));
         return file ? asset(res, file) : notFound(res);
       }
-      // SPA fallback — any non-/api path serves the index so client-side
-      // routes (e.g. /decisions/D-04) are deep-linkable.
       if (!path.startsWith("/api/")) return asset(res, assets.index);
+    }
+    return await dispatchApi(store, path, url.searchParams, method, req, res);
+  } catch (e) {
+    console.error(`[stele] handler error: ${(e as Error).message}`);
+    json(res, 500, { error: "internal error" });
+  }
+}
 
-      // API GETs
-      if (path === "/api/resume") return json(res, 200, resumeDigest(store));
-      if (path === "/api/decisions") return json(res, 200, store.allDecisions());
-      if (path === "/api/next-id") {
-        return handleNextId(store, url.searchParams.get("prefix") ?? "D", res);
-      }
-      const mDecision = path.match(/^\/api\/decisions\/([^/]+)$/);
-      if (mDecision) return await handleDecision(store, mDecision[1], res);
-      const mEntity = path.match(/^\/api\/entity\/([^/]+)\/([^/]+)$/);
-      if (mEntity) return await handleEntity(store, mEntity[1], mEntity[2], res);
+// -----------------------------------------------------------------------------
+// Multi-tenant dispatcher — routes /<slug>/api/* via the registry
+// -----------------------------------------------------------------------------
 
-      return notFound(res);
+async function handleProjects(ctx: MultiStoreContext, res: ServerResponse): Promise<void> {
+  const list = ctx.projects();
+  const summaries = list.map((p) => {
+    const got = ctx.getStore(p.slug);
+    if (!got) return { slug: p.slug, path: p.path, addedAt: p.addedAt, openLoops: 0, missing: true };
+    const items = resumeDigest(got.store);
+    return {
+      slug: p.slug,
+      path: p.path,
+      addedAt: p.addedAt,
+      openLoops: items.length,
+      needsCheck: items.filter((i) => i.needsCheck).length,
+    };
+  });
+  json(res, 200, summaries);
+}
+
+async function dispatchMulti(
+  ctx: MultiStoreContext,
+  assets: ReturnType<typeof loadAssets>,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const path = url.pathname;
+  const method = req.method ?? "GET";
+  const parts = path.split("/").filter(Boolean);
+
+  try {
+    // Static assets shared across projects
+    if (method === "GET" && parts.length > 0 && parts[0] === "assets") {
+      const file = assets.files.get(parts.slice(1).join("/"));
+      return file ? asset(res, file) : notFound(res);
     }
 
-    if (method === "POST") {
-      if (path === "/api/decisions") return await handlePostDecision(store, req, res);
-      if (path === "/api/edges") return await handlePostEdge(store, req, res);
-      return notFound(res);
+    // Global API
+    if (method === "GET" && parts.length === 2 && parts[0] === "api" && parts[1] === "projects") {
+      return await handleProjects(ctx, res);
     }
 
-    res.writeHead(405, { "content-type": "application/json; charset=utf-8", allow: "GET, POST" });
-    res.end(JSON.stringify({ error: "method not allowed" }));
+    // Overview at /
+    if (method === "GET" && parts.length === 0) {
+      return asset(res, assets.index);
+    }
+
+    // /<slug>/...
+    const slug = parts[0];
+    // Reserve some words just in case
+    if (slug === "api" || slug === "assets") {
+      return notFound(res, `unknown global route '/${slug}/...'`);
+    }
+    const got = ctx.getStore(slug);
+    if (!got) {
+      // SPA fallback for GETs to a slug that doesn't exist — the frontend
+      // will show "no such project" and offer the overview.
+      if (method === "GET" && !path.includes("/api/")) return asset(res, assets.index);
+      return notFound(res, `no such project: ${slug}`);
+    }
+
+    const rest = "/" + parts.slice(1).join("/");  // "/", "/decisions", "/api/resume", ...
+
+    if (method === "GET" && !rest.startsWith("/api/")) {
+      // SPA fallback for any non-API path under the slug
+      return asset(res, assets.index);
+    }
+
+    return await dispatchApi(got.store, rest, url.searchParams, method, req, res);
   } catch (e) {
     console.error(`[stele] handler error: ${(e as Error).message}`);
     json(res, 500, { error: "internal error" });
@@ -269,12 +405,19 @@ function openBrowser(url: string): void {
 }
 
 export function startServer(opts: ServeOptions): Promise<void> {
-  const { store, port = 3939, host = "127.0.0.1", open = false } = opts;
+  const { store, multi = false, port = 3939, host = "127.0.0.1", open = false } = opts;
   const assets = loadAssets();
+
+  if (!multi && !store) {
+    throw new Error("startServer: either `store` (single-project) or `multi: true` is required");
+  }
+
+  const ctx = multi ? new MultiStoreContext() : null;
 
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
-      void dispatch(store, assets, req, res);
+      if (multi) void dispatchMulti(ctx!, assets, req, res);
+      else void dispatchSingle(store!, assets, req, res);
     });
 
     server.on("error", (err: NodeJS.ErrnoException) => {
@@ -287,7 +430,12 @@ export function startServer(opts: ServeOptions): Promise<void> {
 
     server.listen(port, host, () => {
       const url = `http://${host}:${port}`;
-      console.log(`stele serving on ${url}`);
+      const modeStr = multi ? " (multi-tenant)" : "";
+      console.log(`stele serving on ${url}${modeStr}`);
+      if (multi && ctx) {
+        const n = ctx.projects().length;
+        console.log(`  ${n} project(s) registered`);
+      }
       console.log(`(Ctrl-C to stop)`);
       if (open) openBrowser(url);
       // Don't resolve — server runs until killed.

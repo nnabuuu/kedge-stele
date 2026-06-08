@@ -87,6 +87,54 @@ input, textarea, select { font: inherit; color: var(--t1); }
 }
 .topbar .btn-new:hover { background: #000; }
 
+/* --- Project switcher --------------------------------------------------- */
+
+.project-switcher {
+  position: relative;
+}
+.switcher-trigger {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t1);
+  background: var(--surface2);
+  border: 1px solid var(--border-2);
+  padding: 5px 10px 5px 12px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.switcher-trigger:hover { background: var(--border-2); }
+.switcher-trigger .sw-current { font-family: "JetBrains Mono", monospace; font-size: 11px; }
+.switcher-trigger .sw-chevron { font-size: 10px; color: var(--t3); }
+
+.switcher-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.10);
+  padding: 4px;
+  z-index: 50;
+}
+.switcher-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 11px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--t1);
+  gap: 12px;
+}
+.switcher-item:hover { background: var(--surface2); }
+.switcher-item.all { color: var(--t2); border-bottom: 1px solid var(--border); border-radius: 0; margin-bottom: 4px; }
+.switcher-item .sw-slug { font-family: "JetBrains Mono", monospace; font-size: 11px; font-weight: 600; }
+.switcher-item .sw-loops { font-size: 11px; color: var(--t3); }
+
 /* --- Page wrap ---------------------------------------------------------- */
 
 .wrap { max-width: 920px; margin: 0 auto; padding: 36px 40px 80px; }

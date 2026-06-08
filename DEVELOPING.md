@@ -16,12 +16,13 @@ for contributors running stele from source or making changes.
 
 ```
 src/             core TypeScript source (store, projections, consolidate, render, seed, resolver, paths, types)
-src/cli.ts       CLI subcommands incl. `stele init`, `stele serve`, `stele daemon`, `stele hooks`
-src/mcp.ts       stdio MCP server
-src/serve.ts     HTTP server + JSON API for the web UI
+src/cli.ts       CLI subcommands: `stele init`, `serve`, `daemon`, `hooks`, `projects`
+src/mcp.ts       stdio MCP server (per-project; Claude Code is per-session)
+src/serve.ts     HTTP server — single-project default + `--multi` tenant dispatch
 src/schemas.ts   Zod schemas shared by mcp.ts and serve.ts
-src/daemon.ts    launchd (macOS) / systemd (Linux) installer for always-on `stele serve`
+src/daemon.ts    launchd (macOS) / systemd (Linux) installer for the single multi-tenant daemon
 src/hooks.ts     installer for the Stop hook + stele-capture skill
+src/registry.ts  global project registry at ~/.stele/registry.json — slug ↔ path mapping
 src/templates/   source-of-truth for installed templates (decision-command.md, skill, hook)
 dist/            build output (gitignored) — `npm run build` produces this; the npm package ships dist/, not src/
 web/             single-page web UI — index.html / styles.css / app.js (vanilla)

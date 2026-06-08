@@ -62,25 +62,40 @@ become available in Claude Code after a restart.
 
 ## Always-on browser UI
 
-`stele init` installs a daemon that keeps `stele serve` alive across reboots
-and login sessions:
+`stele init` installs a single multi-tenant daemon that serves every
+registered project at the same URL:
 
-- macOS → `~/Library/LaunchAgents/com.stele.<hash>.plist` (launchd)
-- Linux → `~/.config/systemd/user/stele-<hash>.service` (systemd user)
-
-Each project gets its own daemon, identified by a short hash of the project
-path. Manage them with:
-
-```bash
-stele daemon status                # is it loaded? on what port?
-stele daemon install --port 4000   # reinstall on a different port
-stele daemon uninstall             # remove the unit + unload
+```
+http://127.0.0.1:3939/                     ← overview of all projects
+http://127.0.0.1:3939/<slug>/              ← that project's resume
+http://127.0.0.1:3939/<slug>/decisions/    ← that project's full list
 ```
 
-Logs live at `<project>/.stele/serve.log` and `serve.err.log`.
+One daemon, one URL to bookmark, one process to manage. As you `stele init`
+in more projects, each one registers in `~/.stele/registry.json` (slug
+defaults to the directory's basename; collisions get `-2`/`-3` suffixes)
+and shows up as a new card on the overview without a daemon restart.
+
+- macOS → `~/Library/LaunchAgents/com.stele.daemon.plist` (launchd)
+- Linux → `~/.config/systemd/user/stele-daemon.service` (systemd user)
+
+Manage with:
+
+```bash
+stele daemon status                # is it loaded? how many projects?
+stele daemon install               # idempotent — also sweeps legacy plists
+stele daemon uninstall             # remove the unit + unload
+stele projects list                # registry contents
+stele projects remove <slug>       # forget a project (doesn't delete .stele/)
+```
+
+Logs live at `~/.stele/daemon.log` and `daemon.err.log`.
 
 > **Linux**: services run only while you're logged in. For true always-on,
 > run `sudo loginctl enable-linger <you>` (one-time, system level).
+> **Upgrading from 0.0.2**: `stele daemon install` automatically removes
+> the old per-project plists/units (`com.stele.<hash>`) and registers their
+> working directories into the global registry, so no decisions go missing.
 
 ## Auto-detect decisions
 
@@ -192,10 +207,11 @@ silently picks up `~/.stele/` — you have to opt in explicitly.
 
 ```
 stele init [--port N] [--skip-daemon] [--skip-hooks]
-                                    bootstrap a project: .stele/, .mcp.json, daemon, hooks
-stele daemon <install|uninstall|status>  always-on serve via launchd / systemd
+                                    bootstrap a project: .stele/, .mcp.json, register, daemon, hooks
+stele daemon <install|uninstall|status>  always-on multi-tenant serve via launchd / systemd
+stele projects <list|remove <slug>>      view/manage the global project registry
 stele hooks <install|uninstall|status>   Stop hook + stele-capture skill
-stele serve [--port N] [--open]     browser UI (default http://127.0.0.1:3939)
+stele serve [--multi] [--port N] [--open]   browser UI (default http://127.0.0.1:3939)
 stele resume [--html out.html]      what's waiting on me — open loops, needs-check first
 stele trace <id>                    a decision + its graph neighbourhood
 stele trace-entity <kind> <id>      everything touching an entity (file/feature/skill...)
