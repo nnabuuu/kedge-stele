@@ -100,9 +100,11 @@ function mergeSettings(projectRoot: string): { note: string } {
   const hooks = settings.hooks as { Stop?: unknown[] };
   if (!Array.isArray(hooks.Stop)) hooks.Stop = [];
 
-  // Replace any existing stele entry, else append.
+  // Stop array can contain either old broken { type, command } entries (from
+  // 0.0.1-snapshot) or correct { matcher, hooks: [...] } entries (0.0.2+).
+  // Type as a union so the array can hold either while we scan/replace.
+  const stop = hooks.Stop as Array<StopHookEntry & StopHookCommand>;
   let replaced = false;
-  const stop = hooks.Stop as Array<{ command?: string }>;
   for (let i = 0; i < stop.length; i++) {
     if (isOurHookEntry(stop[i])) {
       stop[i] = { ...STELE_HOOK_ENTRY };
@@ -126,7 +128,9 @@ function unmergeSettings(projectRoot: string): { note: string } {
   } catch (e) {
     throw new Error(`could not parse ${SETTINGS_REL}: ${(e as Error).message}`);
   }
-  const hooks = (settings.hooks ?? {}) as { Stop?: Array<{ command?: string }> };
+  const hooks = (settings.hooks ?? {}) as {
+    Stop?: Array<StopHookEntry & StopHookCommand>;
+  };
   if (!Array.isArray(hooks.Stop)) return { note: "no Stop hooks — nothing to remove" };
 
   const before = hooks.Stop.length;
