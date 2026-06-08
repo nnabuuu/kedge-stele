@@ -16,6 +16,64 @@ npm install -g stele-mcp@snapshot
 
 — nothing yet —
 
+## [0.0.7-snapshot] · 2026-06-09
+
+### Added
+- **Tags as first-class.** A `Tag` is a cross-cutting label
+  (`security`, `backend`, `perf`, ...) attachable to both decisions and
+  milestones via `Tagging` (M:N). Tags carry `origin` (`you` / `agent`),
+  `status` (`active` / `archived`), a hex color, and a unique
+  case-insensitive `name`.
+- **Tag policy engine** (`src/tags.ts`). The local `tag_policy` config
+  (per-project, in the new `config` table) gates whether the agent can
+  create new tags directly:
+  - `auto` — create immediately (`origin='agent'`, `status='active'`),
+    audit-logged as `auto_adopted` in `tag_proposals`
+  - `propose` (default) — queue into `tag_proposals` for the human;
+    `tag_require_reason` (default `true`) makes `reason` mandatory
+  - `locked` — refuse, log the attempt as `blocked`
+  Existing active tags always apply directly regardless of policy —
+  only NEW tag CREATION is gated.
+- New SQLite tables: `tags`, `taggings`, `tag_proposals`, `config`.
+  All created idempotently via `CREATE TABLE IF NOT EXISTS` — pre-0.0.7
+  databases pick them up on first open with no migration step.
+- **WAL journaling** enabled on the SQLite store. Existing rows are
+  unaffected; concurrent readers (e.g. the always-on daemon while a CLI
+  command is writing) no longer serialise.
+- New MCP tools: `tag_propose`, `tag_apply`, `tag_confirm`, `tag_reject`,
+  `tag_recolor`, `tag_rename`, `tag_archive`, `tag_restore`, `config_get`,
+  `config_set` (10 in total).
+- `decision_capture` grew an optional `tags` field — each
+  `{name, reason?, suggestedColor?}` runs through the policy engine and
+  the result (applied / pending / blocked / error) is reported back in
+  the capture-result text.
+- `stele tags {list, propose, apply, confirm, reject, recolor, rename,
+  archive, restore, proposals}` CLI subcommand. `--json` output on
+  `tags list` is what the Stop hook consumes.
+- `stele config {list, get, set}` CLI subcommand for managing
+  `tag_policy` / `tag_require_reason` (and any future keys).
+- HTTP API: `GET/POST /<slug>/api/tags`, `GET /<slug>/api/tags/proposals`,
+  `POST /<slug>/api/tags/proposals/:id/{confirm,reject}`,
+  `POST /<slug>/api/tags/:id/{apply,recolor,rename,archive,restore}`,
+  `DELETE /<slug>/api/tags/:id/tagging`, `GET /<slug>/api/decisions/:id/tags`,
+  `GET /<slug>/api/milestones/:id/tags`,
+  `GET/POST /<slug>/api/config[/<key>]`. Routes ship without a frontend
+  consumer this release; the browser UI catches up in 0.0.8.
+- Stop hook injects active tags and current `tag_policy` into
+  `additionalContext` so the `stele-capture` skill knows what to reuse vs
+  propose without a separate round-trip.
+- `stele-capture` skill grew **Step 0.5 — Tag judgment** with reuse-first
+  guidance and the policy → behaviour table.
+
+### Tests
+- 31 new tests (21 for the policy engine in `src/tags.test.ts`, 10 for
+  the HTTP routes in `src/serve.test.ts`). Total: 138 → 169.
+
+### Out of scope (deferred to 0.0.8)
+- Web UI for tags (management page, chip rendering on decision /
+  milestone detail, capture-form picker). Backend is in; frontend
+  catches up next release.
+
 ## [0.0.6-snapshot] · 2026-06-09
 
 ### Added

@@ -217,6 +217,9 @@ stele init [--port N] [--skip-daemon] [--skip-hooks]
 stele daemon <install|uninstall|status>  always-on multi-tenant serve via launchd / systemd
 stele projects <list|remove <slug>>      view/manage the global project registry
 stele milestones <list|open|close|show>  0.0.6+: group decisions by milestone + session
+stele tags <list|propose|apply|confirm|reject|recolor|rename|archive|restore|proposals>
+                                    0.0.7+: cross-cutting labels for milestones/decisions
+stele config <list|get|set>         0.0.7+: per-project preferences (e.g. tag_policy)
 stele hooks <install|uninstall|status>   Stop hook + stele-capture skill
 stele serve [--multi] [--port N] [--open]   browser UI (default http://127.0.0.1:3939)
 stele resume [--html out.html]      what's waiting on me — open loops, needs-check first
@@ -227,6 +230,41 @@ stele resolve <byId> <defId> [note] manually stitch a later decision as resolvin
 stele relate <a> <b> [note]         link two decisions
 stele seed <report.html>            cold-start: ingest an HTML feature-report
 ```
+
+## Tags (0.0.7+)
+
+Tags are cross-cutting labels (`security`, `backend`, `perf`, ...) that
+attach to both decisions and milestones. They live alongside milestones,
+not instead of them — milestone is "what big push is this part of?",
+tag is "what cross-cutting concerns does this touch?".
+
+The agent doesn't get free reign over the namespace. The per-project
+`tag_policy` config decides what happens when the agent reaches for a
+name that doesn't exist yet:
+
+| Policy   | What new agent-proposed tags do                                                |
+| -------- | ------------------------------------------------------------------------------ |
+| `auto`   | created immediately, `origin='agent'`, audit-logged                            |
+| `propose` | queued into `tag_proposals` for your `stele tags confirm` (default)            |
+| `locked` | refused outright; attempt logged as `blocked`                                  |
+
+Existing tags get re-applied regardless of policy — the gate is on
+creation, not reuse.
+
+```bash
+stele config list                    # see current policy
+stele config set tag_policy auto     # trust the agent fully
+stele tags list                      # all active tags
+stele tags proposals                 # what the agent has suggested
+stele tags confirm tp-abc12345       # accept a proposal → becomes active
+stele tags reject  tp-abc12345       # drop a proposal
+stele tags propose security --reason "OWASP" --target decision:D-9
+```
+
+In `decision_capture`, the agent can pass `tags: [{name, reason?}, ...]`
+to tag the new decision in one round-trip. Each name flows through the
+policy engine, and the capture result tells you which landed, which are
+pending, and which were blocked.
 
 ## Backup
 

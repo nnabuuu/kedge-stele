@@ -142,6 +142,47 @@ export const EdgeSchema = z.object({
   note: z.string().optional(),
 });
 
+// -----------------------------------------------------------------------------
+// Tag system (added 0.0.7) — mirror src/types.ts
+// -----------------------------------------------------------------------------
+
+export const TagOriginSchema = z.enum(["you", "agent"]);
+export const TagStatusSchema = z.enum(["active", "archived"]);
+export const TagPolicySchema = z.enum(["auto", "propose", "locked"]);
+export const TaggingTargetKindSchema = z.enum(["milestone", "decision"]);
+export const ProposalOutcomeSchema = z.enum(["pending", "blocked", "auto_adopted"]);
+
+export const TagSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "color must be #RRGGBB"),
+  kind: z.string().optional(),
+  origin: TagOriginSchema,
+  status: TagStatusSchema,
+  createdAt: z.string(),
+});
+
+export const TaggingTargetSchema = z.object({
+  kind: TaggingTargetKindSchema,
+  id: z.string(),
+});
+
+export const TagProposalSchema = z.object({
+  id: z.string(),
+  name: z.string().min(1),
+  suggestedColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  reason: z.string().optional(),
+  targets: z.array(TaggingTargetSchema),
+  outcome: ProposalOutcomeSchema,
+  createdAt: z.string(),
+});
+
+export const CaptureTagRequestSchema = z.object({
+  name: z.string().min(1),
+  reason: z.string().optional(),
+  suggestedColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+});
+
 export const CapturePayloadSchema = z.object({
   decision: DecisionSchema,
   edges: z.array(EdgeSchema).optional(),
@@ -150,4 +191,7 @@ export const CapturePayloadSchema = z.object({
   // Milestone + Session + Decision relationship in a single putDecision.
   milestone: CaptureMilestoneModeSchema.optional(),
   sourceSession: CaptureSourceSessionSchema.optional(),
+  // 0.0.7+: tag the new decision; each request is routed through the
+  // ensureTag policy engine before the response comes back.
+  tags: z.array(CaptureTagRequestSchema).optional(),
 });

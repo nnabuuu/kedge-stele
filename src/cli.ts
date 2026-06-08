@@ -17,7 +17,20 @@ import {
   unregister as unregisterProject,
 } from "./registry.ts";
 import { createHash } from "node:crypto";
-import type { CapturePayload, EntityRef, Milestone } from "./types.ts";
+import {
+  applyCaptureTags,
+  confirmProposal,
+  ensureTag,
+  getTagPolicy,
+  getTagRequireReason,
+  rejectProposal,
+} from "./tags.ts";
+import type {
+  CapturePayload,
+  EntityRef,
+  Milestone,
+  TaggingTargetKind,
+} from "./types.ts";
 
 function readStdin(): string {
   try { return readFileSync(0, "utf8"); } catch { return ""; }
@@ -512,6 +525,304 @@ function milestonesCommand(store: Store, args: string[]): void {
   process.exit(1);
 }
 
+// -----------------------------------------------------------------------------
+// 0.0.7 — stele tags <list|propose|apply|confirm|reject|recolor|rename|archive|restore|proposals>
+// -----------------------------------------------------------------------------
+
+function parseTarget(spec: string | undefined): { kind: TaggingTargetKind; id: string } {
+  if (!spec) {
+    console.error(`expected target in form <kind>:<id> — e.g. decision:D-42 or milestone:M-03`);
+    process.exit(1);
+  }
+  const idx = spec.indexOf(":");
+  if (idx <= 0) {
+    console.error(`bad target "${spec}" — expected <kind>:<id>`);
+    process.exit(1);
+  }
+  const kind = spec.slice(0, idx);
+  const id = spec.slice(idx + 1);
+  if (kind !== "decision" && kind !== "milestone") {
+    console.error(`target kind must be 'decision' or 'milestone', got "${kind}"`);
+    process.exit(1);
+  }
+  return { kind, id };
+}
+
+function tagsCommand(store: Store, args: string[]): void {
+  const sub = args[0] ?? "list";
+
+  if (sub === "list") {
+    let status: "active" | "archived" | "all" = "active";
+    let json = false;
+    for (let i = 1; i < args.length; i++) {
+      if (args[i] === "--all") status = "all";
+      else if (args[i] === "--archived") status = "archived";
+      else if (args[i] === "--active") status = "active";
+      else if (args[i] === "--json") json = true;
+      else {
+        console.error(`unknown flag: ${args[i]}`);
+        process.exit(1);
+      }
+    }
+    const list = status === "all" ? store.allTags() : store.allTags(status);
+    if (json) {
+      const enriched = list.map((t) => ({ ...t, targetCount: store.targetsForTag(t.id).length }));
+      process.stdout.write(JSON.stringify(enriched, null, 2) + "\n");
+      return;
+    }
+    if (list.length === 0) {
+      console.log(`no ${status === "all" ? "" : status + " "}tags`);
+      return;
+    }
+    for (const t of list) {
+      const targets = store.targetsForTag(t.id);
+      console.log(
+        `  ${t.id.padEnd(14)} ${t.color}  ${t.status.padEnd(8)} ${t.origin.padEnd(5)}  ${t.name}  (${targets.length} target${targets.length === 1 ? "" : "s"})`,
+      );
+    }
+    return;
+  }
+
+  if (sub === "proposals") {
+    let outcome: "pending" | "blocked" | "auto_adopted" | undefined = "pending";
+    for (let i = 1; i < args.length; i++) {
+      if (args[i] === "--all") outcome = undefined;
+      else if (args[i] === "--pending") outcome = "pending";
+      else if (args[i] === "--blocked") outcome = "blocked";
+      else if (args[i] === "--adopted") outcome = "auto_adopted";
+      else {
+        console.error(`unknown flag: ${args[i]}`);
+        process.exit(1);
+      }
+    }
+    const list = store.allTagProposals(outcome);
+    if (list.length === 0) {
+      console.log(`no ${outcome ?? ""} proposals`);
+      return;
+    }
+    for (const p of list) {
+      console.log(`  ${p.id.padEnd(12)} [${p.outcome.padEnd(12)}] ${p.name}  → ${p.targets.length} target(s)`);
+      if (p.reason) console.log(`        reason: ${p.reason}`);
+    }
+    return;
+  }
+
+  if (sub === "propose") {
+    const name = args[1];
+    if (!name) {
+      console.error(`stele tags propose <name> [--reason "..."] [--color #RRGGBB] [--target kind:id ...]`);
+      process.exit(1);
+    }
+    let reason: string | undefined;
+    let suggestedColor: string | undefined;
+    const targets: { kind: TaggingTargetKind; id: string }[] = [];
+    for (let i = 2; i < args.length; i++) {
+      const a = args[i];
+      if (a === "--reason") reason = args[++i];
+      else if (a === "--color") suggestedColor = args[++i];
+      else if (a === "--target") targets.push(parseTarget(args[++i]));
+      else {
+        console.error(`unknown flag: ${a}`);
+        process.exit(1);
+      }
+    }
+    if (targets.length === 0) {
+      console.error(`at least one --target is required`);
+      process.exit(1);
+    }
+    try {
+      const r = ensureTag(store, name, { reason, suggestedColor, targets });
+      if (r.kind === "active") console.log(`applied existing ${r.tag.id} (${r.tag.name})`);
+      else if (r.kind === "pending") console.log(`proposed ${r.proposal.id} (${r.proposal.name}) — confirm with: stele tags confirm ${r.proposal.id}`);
+      else console.log(`blocked by tag_policy=locked — logged ${r.proposal.id}`);
+    } catch (e) {
+      console.error(`error: ${(e as Error).message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (sub === "apply") {
+    const tagId = args[1];
+    const targetSpec = args[2];
+    if (!tagId || !targetSpec) {
+      console.error(`stele tags apply <tagId> <kind:id>`);
+      process.exit(1);
+    }
+    const tag = store.getTag(tagId);
+    if (!tag) {
+      console.error(`no such tag: ${tagId}`);
+      process.exit(1);
+    }
+    if (tag.status !== "active") {
+      console.error(`tag ${tagId} is archived; restore it first`);
+      process.exit(1);
+    }
+    const target = parseTarget(targetSpec);
+    store.upsertTagging({ tagId, targetKind: target.kind, targetId: target.id });
+    console.log(`${tag.name} → ${target.kind}:${target.id}`);
+    return;
+  }
+
+  if (sub === "confirm") {
+    const proposalId = args[1];
+    if (!proposalId) {
+      console.error(`stele tags confirm <proposalId> [--rename name] [--color #RRGGBB]`);
+      process.exit(1);
+    }
+    let rename: string | undefined;
+    let color: string | undefined;
+    for (let i = 2; i < args.length; i++) {
+      if (args[i] === "--rename") rename = args[++i];
+      else if (args[i] === "--color") color = args[++i];
+      else {
+        console.error(`unknown flag: ${args[i]}`);
+        process.exit(1);
+      }
+    }
+    try {
+      const r = confirmProposal(store, proposalId, { rename, color });
+      console.log(`confirmed ${r.tag.id} (${r.tag.name}); ${r.taggingsAdded} new tagging(s) applied`);
+    } catch (e) {
+      console.error(`error: ${(e as Error).message}`);
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (sub === "reject") {
+    const proposalId = args[1];
+    if (!proposalId) {
+      console.error(`stele tags reject <proposalId>`);
+      process.exit(1);
+    }
+    const ok = rejectProposal(store, proposalId);
+    if (!ok) {
+      console.error(`no such proposal: ${proposalId}`);
+      process.exit(1);
+    }
+    console.log(`rejected ${proposalId}`);
+    return;
+  }
+
+  if (sub === "recolor") {
+    const tagId = args[1];
+    const color = args[2];
+    if (!tagId || !color || !/^#[0-9a-fA-F]{6}$/.test(color)) {
+      console.error(`stele tags recolor <tagId> <#RRGGBB>`);
+      process.exit(1);
+    }
+    if (!store.getTag(tagId)) {
+      console.error(`no such tag: ${tagId}`);
+      process.exit(1);
+    }
+    store.recolorTag(tagId, color);
+    console.log(`${tagId} → ${color}`);
+    return;
+  }
+
+  if (sub === "rename") {
+    const tagId = args[1];
+    const name = args[2];
+    if (!tagId || !name) {
+      console.error(`stele tags rename <tagId> <newname>`);
+      process.exit(1);
+    }
+    const existing = store.getTag(tagId);
+    if (!existing) {
+      console.error(`no such tag: ${tagId}`);
+      process.exit(1);
+    }
+    const collision = store.findTagByName(name);
+    if (collision && collision.id !== tagId) {
+      console.error(`name "${name}" already taken by ${collision.id}`);
+      process.exit(1);
+    }
+    store.renameTag(tagId, name);
+    console.log(`${tagId} renamed → ${name}`);
+    return;
+  }
+
+  if (sub === "archive") {
+    const tagId = args[1];
+    if (!tagId || !store.getTag(tagId)) {
+      console.error(`stele tags archive <tagId>`);
+      process.exit(1);
+    }
+    store.archiveTag(tagId);
+    console.log(`${tagId} archived`);
+    return;
+  }
+
+  if (sub === "restore") {
+    const tagId = args[1];
+    if (!tagId || !store.getTag(tagId)) {
+      console.error(`stele tags restore <tagId>`);
+      process.exit(1);
+    }
+    store.restoreTag(tagId);
+    console.log(`${tagId} restored`);
+    return;
+  }
+
+  console.error(`unknown tags subcommand: ${sub} — try list / proposals / propose / apply / confirm / reject / recolor / rename / archive / restore`);
+  process.exit(1);
+}
+
+function configCommand(store: Store, args: string[]): void {
+  const sub = args[0];
+  if (sub === undefined || sub === "list") {
+    const all = store.allConfig();
+    const keys = Object.keys(all).sort();
+    // Surface defaults inline so the user sees what's actually in effect.
+    console.log(`  tag_policy         = ${all.tag_policy ?? getTagPolicy(store) + " (default)"}`);
+    console.log(`  tag_require_reason = ${all.tag_require_reason ?? (getTagRequireReason(store) ? "true" : "false") + " (default)"}`);
+    for (const k of keys) {
+      if (k === "tag_policy" || k === "tag_require_reason") continue;
+      console.log(`  ${k.padEnd(18)} = ${all[k]}`);
+    }
+    return;
+  }
+  if (sub === "get") {
+    const key = args[1];
+    if (!key) {
+      console.error(`stele config get <key>`);
+      process.exit(1);
+    }
+    const v = store.getConfig(key);
+    if (v === null) {
+      // Surface inferred defaults for the two known keys
+      if (key === "tag_policy") console.log(`${key} = ${getTagPolicy(store)} (default)`);
+      else if (key === "tag_require_reason") console.log(`${key} = ${getTagRequireReason(store)} (default)`);
+      else console.log(`${key} = (unset)`);
+    } else {
+      console.log(`${key} = ${v}`);
+    }
+    return;
+  }
+  if (sub === "set") {
+    const key = args[1];
+    const value = args[2];
+    if (!key || value === undefined) {
+      console.error(`stele config set <key> <value>`);
+      process.exit(1);
+    }
+    if (key === "tag_policy" && !["auto", "propose", "locked"].includes(value)) {
+      console.error(`tag_policy must be one of: auto, propose, locked`);
+      process.exit(1);
+    }
+    if (key === "tag_require_reason" && !["true", "false"].includes(value)) {
+      console.error(`tag_require_reason must be 'true' or 'false'`);
+      process.exit(1);
+    }
+    store.setConfig(key, value);
+    console.log(`${key} = ${value}`);
+    return;
+  }
+  console.error(`unknown config subcommand: ${sub} — try list / get / set`);
+  process.exit(1);
+}
+
 async function main() {
   const [cmd, ...args] = process.argv.slice(2);
 
@@ -534,9 +845,11 @@ async function main() {
     throw e;
   }
 
-  // milestones is per-project (needs the store) but doesn't fit the switch
-  // pattern (has nested subcommands).
+  // milestones / tags / config are per-project (need the store) but have
+  // nested subcommands so they don't fit the flat switch pattern.
   if (cmd === "milestones") return milestonesCommand(store, args);
+  if (cmd === "tags") return tagsCommand(store, args);
+  if (cmd === "config") return configCommand(store, args);
 
   switch (cmd) {
     // ----- seed from an existing feature-report HTML --------------------------
@@ -558,6 +871,13 @@ async function main() {
 
       console.log(`captured ${payload.decision.id} — ${payload.decision.title}`);
       if (payload.edges?.length) console.log(`applied ${payload.edges.length} authored edge(s)`);
+      if (payload.tags?.length) {
+        const tr = applyCaptureTags(store, payload.tags, payload.decision.id);
+        if (tr.applied.length) console.log(`tags applied: ${tr.applied.map((a) => a.name).join(", ")}`);
+        if (tr.pending.length) console.log(`tags pending: ${tr.pending.map((p) => `${p.name}(${p.proposalId})`).join(", ")}`);
+        if (tr.blocked.length) console.log(`tags blocked: ${tr.blocked.map((b) => b.name).join(", ")}`);
+        for (const e of tr.errors) console.log(`tag error "${e.name}": ${e.message}`);
+      }
       if (candidates.length) {
         console.log(`\nconsolidate proposes ${candidates.length} edge(s) — confirm with \`resolve\`/\`relate\`:`);
         for (const c of candidates.slice(0, 6))
@@ -637,6 +957,9 @@ async function main() {
   daemon <install|uninstall|status>    multi-tenant always-on serve (launchd / systemd)
   projects <list|remove <slug>>        view/manage the global project registry
   milestones <list|open|close|show>    0.0.6+ — group decisions by milestone / session
+  tags <list|propose|apply|confirm|reject|recolor|rename|archive|restore|proposals>
+                                       0.0.7+ — tag milestones / decisions
+  config <list|get|set>                0.0.7+ — local preferences (e.g. tag_policy)
   serve [--multi] [--port N] [--open]  browser UI (default http://127.0.0.1:3939)
   resume [--html out.html]      "什么在等我" — open loops, needs-check first
   trace <id>                    "怎么发生的" — node + its graph neighbourhood

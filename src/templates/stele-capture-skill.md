@@ -45,6 +45,35 @@ Heuristics:
   or reassign later. But default toward continuing — proliferation is the
   larger risk.
 
+## Step 0.5 — Tag judgment (NEW in 0.0.7)
+
+The Stop hook also injects the project's **active tags** and current
+**tag_policy**. Tags are a cross-cutting classification — `security`,
+`backend`, `perf`, `compliance`, etc. — that lives alongside (not instead of)
+milestones. A decision can carry several tags; same tag spans many decisions.
+
+Populate `tags` on the `decision_capture` call:
+
+- `tags: [{ name, reason?, suggestedColor? }, ...]`
+  - `name`: short, lowercase-kebab if multi-word (`browser-ui`, not `Browser UI`).
+  - `reason`: REQUIRED when policy is `propose` and `tag_require_reason=true`
+    (the default). One line on *why this decision needs a new tag*.
+  - `suggestedColor`: optional `#RRGGBB` hex; otherwise the server picks one.
+
+**Reuse before propose**: if any active tag fits, pass its `name` exactly — the
+server will reuse the existing tag rather than create a new one. Only propose
+a *new* name when nothing existing fits.
+
+**Read the policy first**:
+- `auto` → new names land as active immediately, origin=agent.
+- `propose` (default) → new names queue for the user; existing names apply
+  directly. `reason` is required.
+- `locked` → don't bother proposing new names; only reuse existing tags.
+
+**Restraint**: at most 2-3 tags per decision. Tagging everything `backend`
+defeats the point. A tag is for cross-cutting concerns the *human* will want
+to filter by later.
+
 ## Step 1 — Decide whether a real decision was made
 
 Before drafting anything, ask yourself: **did a decision actually crystallize?**
@@ -96,8 +125,11 @@ Look at the resume output. If this decision answers a pending one, draft a
 
 ```
 decision_capture
-  decision: <the Decision object you drafted>
-  edges:    <your authored Edge[] (optional)>
+  decision:      <the Decision object you drafted>
+  edges:         <your authored Edge[] (optional)>
+  milestone:     <Step 0 judgment>
+  sourceSession: { source: "claude-code", sourceSessionId: <hook-provided> }
+  tags:          <Step 0.5 tag requests (optional)>
 ```
 
 The MCP tool will ALSO run the consolidate layer and propose more edges for

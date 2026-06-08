@@ -137,4 +137,62 @@ export interface CapturePayload {
   edges?: Edge[];
   milestone?: CaptureMilestoneMode;
   sourceSession?: CaptureSourceSession;
+  // 0.0.7+: tag the new decision. Each runs through ensureTag (auto/propose/
+  // locked) per the local tag_policy config. Existing active tags get
+  // applied immediately; new names go through proposal queue or are rejected.
+  tags?: CaptureTagRequest[];
+}
+
+// ---------------------------------------------------------------------------
+// Tag system — added 0.0.7.
+//
+// Tag is a cross-cutting classification, attachable to milestones AND
+// decisions (many-to-many via Tagging). Whether the agent can create new
+// tags freely is controlled by the per-store tag_policy config:
+//   - auto:    agent can create directly (origin: "agent", status: "active")
+//   - propose: agent's new-tag attempts queue into TagProposal (default)
+//   - locked:  agent can't create at all; attempts logged as outcome:"blocked"
+// ---------------------------------------------------------------------------
+
+export type TagId = string;            // "tag-<short hash>"
+export type TagOrigin = "you" | "agent";
+export type TagStatus = "active" | "archived";
+
+export interface Tag {
+  id: TagId;
+  name: string;                        // unique COLLATE NOCASE in the store
+  color: string;                       // hex, e.g. "#942929"
+  kind?: string;                       // default "scope"
+  origin: TagOrigin;
+  status: TagStatus;
+  createdAt: string;
+}
+
+export type TaggingTargetKind = "milestone" | "decision";
+
+export interface Tagging {
+  tagId: TagId;
+  targetKind: TaggingTargetKind;
+  targetId: string;                    // milestone id or decision id
+}
+
+export type ProposalOutcome = "pending" | "blocked" | "auto_adopted";
+
+export interface TagProposal {
+  id: string;                          // "tp-<short hash>"
+  name: string;
+  suggestedColor?: string;
+  reason?: string;
+  targets: { kind: TaggingTargetKind; id: string }[];
+  outcome: ProposalOutcome;
+  createdAt: string;
+}
+
+export type TagPolicy = "auto" | "propose" | "locked";
+
+// The shape the agent sends per tag inside CapturePayload.tags[].
+export interface CaptureTagRequest {
+  name: string;
+  reason?: string;
+  suggestedColor?: string;
 }

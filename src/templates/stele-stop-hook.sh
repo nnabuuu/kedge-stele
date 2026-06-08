@@ -72,6 +72,19 @@ if printf '%s' "$response_text" | grep -qE "$joined"; then
     fi
   fi
 
+  # 0.0.7 — fetch active tags + current tag_policy so the skill knows what's
+  # available (apply existing) vs what needs proposing (new), and whether the
+  # propose flow even works (locked → don't bother). Best-effort.
+  tags_block=""
+  tag_policy_block=""
+  if command -v stele >/dev/null 2>&1 && [ -n "$cwd" ] && [ -d "$cwd/.stele" ]; then
+    tag_policy_block="$(cd "$cwd" && stele config get tag_policy 2>/dev/null | sed -n 's/^tag_policy = //p' | awk '{print $1}')"
+    tags_json="$(cd "$cwd" && stele tags list --json 2>/dev/null)"
+    if [ -n "$tags_json" ] && [ "$tags_json" != "[]" ]; then
+      tags_block="$(printf '%s' "$tags_json" | jq -r '.[] | "  - \(.name)  (\(.id), \(.targetCount) target\(if .targetCount == 1 then "" else "s" end))"' 2>/dev/null)"
+    fi
+  fi
+
   # Pull Claude Code's native session_id from the payload so the skill can
   # pass it through as sourceSessionId — keeps multiple captures in one
   # conversation glued to one Session.
@@ -86,6 +99,21 @@ if printf '%s' "$response_text" | grep -qE "$joined"; then
 
 Active milestones (consult before deciding milestone.mode):
 $milestones_block"
+  fi
+
+  if [ -n "$tag_policy_block" ]; then
+    context="$context
+
+Tag policy: $tag_policy_block — under 'auto' agent-created tags land immediately;
+under 'propose' (default) new tags queue for the human; under 'locked' new tag
+attempts are refused (don't bother proposing)."
+  fi
+
+  if [ -n "$tags_block" ]; then
+    context="$context
+
+Active tags (reuse these first; only propose a new name if none fit):
+$tags_block"
   fi
 
   if [ -n "$claude_sid" ]; then

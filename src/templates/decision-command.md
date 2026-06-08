@@ -24,6 +24,7 @@ the user should not type fields. They confirm or correct.
    ```
    decision_resume                # what's open/deferred right now
    milestone_list                 # 0.0.6+: active milestones to consider
+   config_get key: "tag_policy"   # 0.0.7+: knowing tag_policy avoids dead proposals
    ```
    Note the existing nodes — the new decision may resolve one, and probably
    belongs to an existing active milestone (continue) rather than a new one.
@@ -64,6 +65,7 @@ the user should not type fields. They confirm or correct.
      edges:    <your authored Edge[] (optional)>
      milestone: <0.0.6+: continue an existing milestone, open new, or unscoped>
      sourceSession: <0.0.6+: { source: "claude-code", sourceSessionId: <session id> }>
+     tags: <0.0.7+: [{ name, reason?, suggestedColor? }, ...] (optional)>
    ```
    For milestone:
    - `{ mode: "continue", id: "M-04" }` if the conversation has been working
@@ -71,6 +73,11 @@ the user should not type fields. They confirm or correct.
    - `{ mode: "new", draft: { title, intent? } }` if the user just planned
      something fresh and none of the active milestones match
    - `{ mode: "unscoped" }` for genuine exploration with no goal (rare)
+
+   For tags (0.0.7+): reuse existing tag names when they fit; only propose
+   new names when no existing tag captures the cross-cutting concern. Under
+   `tag_policy=propose` (default), each new name requires a `reason`. Max 2-3
+   tags per decision — tagging everything `backend` defeats the point.
 
 5. **Confirm** to the user: the id captured, your authored edges, and any
    *additional* edges the consolidate layer proposed. For each proposed edge

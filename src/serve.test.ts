@@ -311,6 +311,181 @@ test("multi · POST /<slug>/api/decisions captures into that project's store", a
   assert.ok(s.getDecision("D-NEW"));
 });
 
+// ============================================================================
+// 0.0.7 — tag + config HTTP API (single-project, where the dispatcher lives)
+// ============================================================================
+
+test("single-project · GET /api/tags returns active by default; ?status=all sees archived", async () => {
+  const store = seedStore();
+  store.putTag({
+    id: "tag-a", name: "active-tag", color: "#0d5245",
+    kind: "scope", origin: "you", status: "active",
+    createdAt: "2026-06-01T00:00:00Z",
+  });
+  store.putTag({
+    id: "tag-b", name: "archived-tag", color: "#3a3185",
+    kind: "scope", origin: "you", status: "archived",
+    createdAt: "2026-06-01T00:00:00Z",
+  });
+  running = await startServer({ store, port: 0 });
+
+  let r = await fetch(`${running.url}/api/tags`);
+  let body = await r.json() as Array<{ id: string }>;
+  assert.equal(body.length, 1, "default returns only active");
+  assert.equal(body[0].id, "tag-a");
+
+  r = await fetch(`${running.url}/api/tags?status=all`);
+  body = await r.json() as Array<{ id: string }>;
+  assert.equal(body.length, 2);
+});
+
+test("single-project · POST /api/tags follows tag policy (propose by default)", async () => {
+  const store = seedStore();
+  running = await startServer({ store, port: 0 });
+  const r = await fetch(`${running.url}/api/tags`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      name: "security",
+      reason: "OWASP A1",
+      targets: [{ kind: "decision", id: "D-1" }],
+    }),
+  });
+  assert.equal(r.status, 200);
+  const body = await r.json() as { kind: string; proposal?: { id: string } };
+  assert.equal(body.kind, "pending");
+  assert.ok(body.proposal?.id?.startsWith("tp-"));
+});
+
+test("single-project · POST /api/tags returns 400 when require_reason=true and no reason given", async () => {
+  const store = seedStore();
+  running = await startServer({ store, port: 0 });
+  const r = await fetch(`${running.url}/api/tags`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      name: "security",
+      targets: [{ kind: "decision", id: "D-1" }],
+    }),
+  });
+  assert.equal(r.status, 400);
+});
+
+test("single-project · POST /api/tags/proposals/:id/confirm creates the tag", async () => {
+  const store = seedStore();
+  running = await startServer({ store, port: 0 });
+  let r = await fetch(`${running.url}/api/tags`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      name: "security", reason: "x",
+      targets: [{ kind: "decision", id: "D-1" }],
+    }),
+  });
+  const propose = await r.json() as { proposal: { id: string } };
+
+  r = await fetch(`${running.url}/api/tags/proposals/${propose.proposal.id}/confirm`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "content-length": "0" },
+  });
+  assert.equal(r.status, 200);
+  const confirmed = await r.json() as { tag: { id: string; origin: string } };
+  assert.equal(confirmed.tag.origin, "you");
+
+  // Tag is now active and bound to D-1
+  const tags = store.taggingsForTarget("decision", "D-1");
+  assert.equal(tags.length, 1);
+  assert.equal(tags[0].id, confirmed.tag.id);
+});
+
+test("single-project · POST /api/tags/:id/apply binds existing tag to target", async () => {
+  const store = seedStore();
+  store.putTag({
+    id: "tag-existing", name: "backend", color: "#0d5245",
+    kind: "scope", origin: "you", status: "active",
+    createdAt: "2026-06-01T00:00:00Z",
+  });
+  running = await startServer({ store, port: 0 });
+  const r = await fetch(`${running.url}/api/tags/tag-existing/apply`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ target: { kind: "decision", id: "D-1" } }),
+  });
+  assert.equal(r.status, 200);
+  assert.equal(store.taggingsForTarget("decision", "D-1").length, 1);
+});
+
+test("single-project · DELETE /api/tags/:id/tagging removes a binding", async () => {
+  const store = seedStore();
+  store.putTag({
+    id: "tag-existing", name: "backend", color: "#0d5245",
+    kind: "scope", origin: "you", status: "active",
+    createdAt: "2026-06-01T00:00:00Z",
+  });
+  store.upsertTagging({ tagId: "tag-existing", targetKind: "decision", targetId: "D-1" });
+  running = await startServer({ store, port: 0 });
+
+  const r = await fetch(`${running.url}/api/tags/tag-existing/tagging`, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ target: { kind: "decision", id: "D-1" } }),
+  });
+  assert.equal(r.status, 200);
+  assert.equal(store.taggingsForTarget("decision", "D-1").length, 0);
+});
+
+test("single-project · GET /api/config returns defaults inline", async () => {
+  const store = seedStore();
+  running = await startServer({ store, port: 0 });
+  const r = await fetch(`${running.url}/api/config`);
+  const body = await r.json() as { _defaults: { tag_policy: string; tag_require_reason: boolean } };
+  assert.equal(body._defaults.tag_policy, "propose");
+  assert.equal(body._defaults.tag_require_reason, true);
+});
+
+test("single-project · POST /api/config/tag_policy + GET round-trips", async () => {
+  const store = seedStore();
+  running = await startServer({ store, port: 0 });
+  let r = await fetch(`${running.url}/api/config/tag_policy`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ value: "auto" }),
+  });
+  assert.equal(r.status, 200);
+
+  r = await fetch(`${running.url}/api/config/tag_policy`);
+  const body = await r.json() as { key: string; value: string };
+  assert.equal(body.value, "auto");
+});
+
+test("single-project · POST /api/config/tag_policy rejects invalid values", async () => {
+  const store = seedStore();
+  running = await startServer({ store, port: 0 });
+  const r = await fetch(`${running.url}/api/config/tag_policy`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ value: "yolo" }),
+  });
+  assert.equal(r.status, 400);
+});
+
+test("single-project · POST /api/tags + locked policy + later restore archived tag", async () => {
+  const store = seedStore();
+  store.setConfig("tag_policy", "locked");
+  running = await startServer({ store, port: 0 });
+  const r = await fetch(`${running.url}/api/tags`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      name: "lockdown", reason: "test",
+      targets: [{ kind: "decision", id: "D-1" }],
+    }),
+  });
+  assert.equal(r.status, 200);
+  const body = await r.json() as { kind: string };
+  assert.equal(body.kind, "blocked");
+});
+
 test("multi · registry edits are picked up via mtime watch", async () => {
   running = await startServer({ multi: true, port: 0 });
   // Initially empty

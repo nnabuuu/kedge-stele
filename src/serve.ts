@@ -29,14 +29,34 @@ import {
   traceEntity,
 } from "./projections.ts";
 import { stubResolver } from "./resolver.ts";
-import { CapturePayloadSchema, EdgeSchema } from "./schemas.ts";
+import {
+  CaptureTagRequestSchema,
+  CapturePayloadSchema,
+  EdgeSchema,
+  TaggingTargetSchema,
+} from "./schemas.ts";
+import {
+  applyCaptureTags,
+  confirmProposal,
+  ensureTag,
+  getTagPolicy,
+  getTagRequireReason,
+  rejectProposal,
+} from "./tags.ts";
 import {
   allProjects,
   registryMtimeMs,
   loadRegistry,
   type ProjectEntry,
 } from "./registry.ts";
-import type { CapturePayload, Decision, Edge, EntityRef } from "./types.ts";
+import type {
+  CapturePayload,
+  Decision,
+  Edge,
+  EntityRef,
+  ProposalOutcome,
+  TaggingTargetKind,
+} from "./types.ts";
 
 export interface ServeOptions {
   store?: Store;        // single-project mode: pass a pre-resolved Store
@@ -263,6 +283,161 @@ async function handlePostEdge(
   json(res, 200, { ok: true, edge });
 }
 
+// -----------------------------------------------------------------------------
+// 0.0.7 — tag + config route handlers (extracted out of dispatchApi for
+// readability — keep dispatchApi's switch flat).
+// -----------------------------------------------------------------------------
+
+const TagProposeBodySchema = z.object({
+  name: z.string().min(1),
+  reason: z.string().optional(),
+  suggestedColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  targets: z.array(TaggingTargetSchema).min(1),
+});
+
+const ConfirmBodySchema = z.object({
+  rename: z.string().optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+});
+
+const ApplyBodySchema = z.object({ target: TaggingTargetSchema });
+const RecolorBodySchema = z.object({ color: z.string().regex(/^#[0-9a-fA-F]{6}$/) });
+const RenameBodySchema = z.object({ name: z.string().min(1) });
+const ConfigSetBodySchema = z.object({ value: z.string() });
+
+async function handlePostTagPropose(
+  store: Store,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  let raw: unknown;
+  try { raw = await readJsonBody(req); }
+  catch (e) { return badRequest(res, (e as Error).message); }
+  const body = validate(TagProposeBodySchema, raw, res);
+  if (!body) return;
+  try {
+    const r = ensureTag(store, body.name, {
+      reason: body.reason,
+      suggestedColor: body.suggestedColor,
+      targets: body.targets as { kind: TaggingTargetKind; id: string }[],
+    });
+    json(res, 200, r);
+  } catch (e) {
+    badRequest(res, (e as Error).message);
+  }
+}
+
+async function handlePostProposalConfirm(
+  store: Store,
+  proposalId: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  let raw: unknown = {};
+  try {
+    const ct = req.headers["content-length"];
+    if (ct && ct !== "0") raw = await readJsonBody(req);
+  } catch (e) { return badRequest(res, (e as Error).message); }
+  const body = validate(ConfirmBodySchema, raw, res);
+  if (!body) return;
+  try {
+    const r = confirmProposal(store, proposalId, body);
+    json(res, 200, r);
+  } catch (e) {
+    badRequest(res, (e as Error).message);
+  }
+}
+
+async function handlePostTagApply(
+  store: Store,
+  tagId: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  let raw: unknown;
+  try { raw = await readJsonBody(req); }
+  catch (e) { return badRequest(res, (e as Error).message); }
+  const body = validate(ApplyBodySchema, raw, res);
+  if (!body) return;
+  const tag = store.getTag(tagId);
+  if (!tag) return notFound(res, `no such tag: ${tagId}`);
+  if (tag.status !== "active") return badRequest(res, `tag ${tagId} is archived`);
+  store.upsertTagging({ tagId, targetKind: body.target.kind, targetId: body.target.id });
+  json(res, 200, { ok: true });
+}
+
+async function handleDeleteTagging(
+  store: Store,
+  tagId: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  let raw: unknown;
+  try { raw = await readJsonBody(req); }
+  catch (e) { return badRequest(res, (e as Error).message); }
+  const body = validate(ApplyBodySchema, raw, res);
+  if (!body) return;
+  const ok = store.removeTagging(tagId, body.target.kind, body.target.id);
+  json(res, 200, { ok });
+}
+
+async function handlePostTagRecolor(
+  store: Store,
+  tagId: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  let raw: unknown;
+  try { raw = await readJsonBody(req); }
+  catch (e) { return badRequest(res, (e as Error).message); }
+  const body = validate(RecolorBodySchema, raw, res);
+  if (!body) return;
+  if (!store.getTag(tagId)) return notFound(res, `no such tag: ${tagId}`);
+  store.recolorTag(tagId, body.color);
+  json(res, 200, { ok: true });
+}
+
+async function handlePostTagRename(
+  store: Store,
+  tagId: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  let raw: unknown;
+  try { raw = await readJsonBody(req); }
+  catch (e) { return badRequest(res, (e as Error).message); }
+  const body = validate(RenameBodySchema, raw, res);
+  if (!body) return;
+  if (!store.getTag(tagId)) return notFound(res, `no such tag: ${tagId}`);
+  const collision = store.findTagByName(body.name);
+  if (collision && collision.id !== tagId) {
+    return badRequest(res, `name "${body.name}" already taken by ${collision.id}`);
+  }
+  store.renameTag(tagId, body.name);
+  json(res, 200, { ok: true });
+}
+
+async function handlePostConfigSet(
+  store: Store,
+  key: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  let raw: unknown;
+  try { raw = await readJsonBody(req); }
+  catch (e) { return badRequest(res, (e as Error).message); }
+  const body = validate(ConfigSetBodySchema, raw, res);
+  if (!body) return;
+  if (key === "tag_policy" && !["auto", "propose", "locked"].includes(body.value)) {
+    return badRequest(res, `tag_policy must be auto / propose / locked`);
+  }
+  if (key === "tag_require_reason" && !["true", "false"].includes(body.value)) {
+    return badRequest(res, `tag_require_reason must be 'true' or 'false'`);
+  }
+  store.setConfig(key, body.value);
+  json(res, 200, { ok: true, key, value: body.value });
+}
+
 // Per-store API dispatch — handles /api/* relative to a single Store
 async function dispatchApi(
   store: Store,
@@ -289,14 +464,94 @@ async function dispatchApi(
     if (mDecision) return await handleDecision(store, decodeURIComponent(mDecision[1]), res);
     const mEntity = apiPath.match(/^\/api\/entity\/([^/]+)\/([^/]+)$/);
     if (mEntity) return await handleEntity(store, decodeURIComponent(mEntity[1]), decodeURIComponent(mEntity[2]), res);
+    // 0.0.7 — tags
+    if (apiPath === "/api/tags") {
+      const status = searchParams.get("status") ?? "active";
+      if (status === "all") return json(res, 200, store.allTags());
+      if (status === "archived") return json(res, 200, store.allTags("archived"));
+      return json(res, 200, store.allTags("active"));
+    }
+    if (apiPath === "/api/tags/proposals") {
+      const outcome = searchParams.get("outcome");
+      if (!outcome || outcome === "all") return json(res, 200, store.allTagProposals());
+      if (outcome !== "pending" && outcome !== "blocked" && outcome !== "auto_adopted") {
+        return badRequest(res, `outcome must be pending / blocked / auto_adopted / all`);
+      }
+      return json(res, 200, store.allTagProposals(outcome as ProposalOutcome));
+    }
+    const mTaggings = apiPath.match(/^\/api\/(decisions|milestones)\/([^/]+)\/tags$/);
+    if (mTaggings) {
+      const kind = mTaggings[1] === "decisions" ? "decision" : "milestone";
+      return json(res, 200, store.taggingsForTarget(kind, decodeURIComponent(mTaggings[2])));
+    }
+    // 0.0.7 — config
+    if (apiPath === "/api/config") {
+      const all = store.allConfig();
+      // surface defaults too so the consumer doesn't have to know the engine.
+      return json(res, 200, {
+        ...all,
+        _defaults: {
+          tag_policy: getTagPolicy(store),
+          tag_require_reason: getTagRequireReason(store),
+        },
+      });
+    }
+    const mConfigGet = apiPath.match(/^\/api\/config\/([^/]+)$/);
+    if (mConfigGet) {
+      const key = decodeURIComponent(mConfigGet[1]);
+      const v = store.getConfig(key);
+      if (v === null) {
+        if (key === "tag_policy") return json(res, 200, { key, value: getTagPolicy(store), default: true });
+        if (key === "tag_require_reason") return json(res, 200, { key, value: getTagRequireReason(store), default: true });
+        return notFound(res);
+      }
+      return json(res, 200, { key, value: v });
+    }
     return notFound(res);
   }
   if (method === "POST") {
     if (apiPath === "/api/decisions") return await handlePostDecision(store, req, res);
     if (apiPath === "/api/edges") return await handlePostEdge(store, req, res);
+    // 0.0.7 — tags
+    if (apiPath === "/api/tags") return await handlePostTagPropose(store, req, res);
+    const mConfirm = apiPath.match(/^\/api\/tags\/proposals\/([^/]+)\/confirm$/);
+    if (mConfirm) return await handlePostProposalConfirm(store, decodeURIComponent(mConfirm[1]), req, res);
+    const mReject = apiPath.match(/^\/api\/tags\/proposals\/([^/]+)\/reject$/);
+    if (mReject) {
+      const ok = rejectProposal(store, decodeURIComponent(mReject[1]));
+      return ok ? json(res, 200, { ok }) : notFound(res);
+    }
+    const mApply = apiPath.match(/^\/api\/tags\/([^/]+)\/apply$/);
+    if (mApply) return await handlePostTagApply(store, decodeURIComponent(mApply[1]), req, res);
+    const mRecolor = apiPath.match(/^\/api\/tags\/([^/]+)\/recolor$/);
+    if (mRecolor) return await handlePostTagRecolor(store, decodeURIComponent(mRecolor[1]), req, res);
+    const mRename = apiPath.match(/^\/api\/tags\/([^/]+)\/rename$/);
+    if (mRename) return await handlePostTagRename(store, decodeURIComponent(mRename[1]), req, res);
+    const mArchive = apiPath.match(/^\/api\/tags\/([^/]+)\/archive$/);
+    if (mArchive) {
+      const tagId = decodeURIComponent(mArchive[1]);
+      if (!store.getTag(tagId)) return notFound(res);
+      store.archiveTag(tagId);
+      return json(res, 200, { ok: true });
+    }
+    const mRestore = apiPath.match(/^\/api\/tags\/([^/]+)\/restore$/);
+    if (mRestore) {
+      const tagId = decodeURIComponent(mRestore[1]);
+      if (!store.getTag(tagId)) return notFound(res);
+      store.restoreTag(tagId);
+      return json(res, 200, { ok: true });
+    }
+    // 0.0.7 — config
+    const mConfigSet = apiPath.match(/^\/api\/config\/([^/]+)$/);
+    if (mConfigSet) return await handlePostConfigSet(store, decodeURIComponent(mConfigSet[1]), req, res);
     return notFound(res);
   }
-  res.writeHead(405, { "content-type": "application/json; charset=utf-8", allow: "GET, POST" });
+  if (method === "DELETE") {
+    const mDelTagging = apiPath.match(/^\/api\/tags\/([^/]+)\/tagging$/);
+    if (mDelTagging) return await handleDeleteTagging(store, decodeURIComponent(mDelTagging[1]), req, res);
+    return notFound(res);
+  }
+  res.writeHead(405, { "content-type": "application/json; charset=utf-8", allow: "GET, POST, DELETE" });
   res.end(JSON.stringify({ error: "method not allowed" }));
 }
 

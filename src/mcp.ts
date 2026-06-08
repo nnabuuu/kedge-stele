@@ -24,16 +24,27 @@ import { resolveDbPath, SteleNotInitializedError } from "./paths.ts";
 import {
   CaptureMilestoneModeSchema,
   CaptureSourceSessionSchema,
+  CaptureTagRequestSchema,
   DecisionSchema,
   EdgeSchema,
+  TaggingTargetSchema,
 } from "./schemas.ts";
+import {
+  applyCaptureTags,
+  confirmProposal,
+  ensureTag,
+  getTagPolicy,
+  rejectProposal,
+} from "./tags.ts";
 import type {
   CaptureMilestoneMode,
   CaptureSourceSession,
+  CaptureTagRequest,
   Decision,
   Edge,
   EntityRef,
   Milestone,
+  TaggingTargetKind,
 } from "./types.ts";
 
 // -----------------------------------------------------------------------------
@@ -116,7 +127,7 @@ try {
   throw e;
 }
 const store = new Store(db);
-const server = new McpServer({ name: "stele", version: "0.0.6-snapshot" });
+const server = new McpServer({ name: "stele", version: "0.0.7-snapshot" });
 
 server.registerTool(
   "decision_capture",
@@ -126,15 +137,18 @@ server.registerTool(
       "Pass `decision` (full Decision shape per src/types.ts) and optional `edges` you authored. " +
       "0.0.6+: also pass `milestone` (your judgment: continue an existing milestone, open a new one, or leave unscoped) " +
       "and `sourceSession` (the tool's native session id so we dedup across captures in the same conversation). " +
+      "0.0.7+: pass `tags` — each `{name, reason?, suggestedColor?}` runs through the local tag policy " +
+      "(auto / propose / locked). Existing active tags apply immediately; new names follow the policy. " +
       "The consolidate layer will propose additional edges; review them and confirm via decision_resolve.",
     inputSchema: {
       decision: DecisionSchema,
       edges: z.array(EdgeSchema).optional(),
       milestone: CaptureMilestoneModeSchema.optional(),
       sourceSession: CaptureSourceSessionSchema.optional(),
+      tags: z.array(CaptureTagRequestSchema).optional(),
     },
   },
-  async ({ decision, edges, milestone, sourceSession }) => {
+  async ({ decision, edges, milestone, sourceSession, tags }) => {
     // Wire milestone + session first; stamp the resulting session_id onto
     // the decision before persisting.
     const resolved = resolveMilestoneAndSession(
@@ -155,6 +169,22 @@ server.registerTool(
 
     const lines = [fmtCaptureResult(decision.id, edges?.length ?? 0, candidates)];
     for (const n of resolved.notes) lines.push(`  · ${n}`);
+
+    if (tags && tags.length > 0) {
+      const tr = applyCaptureTags(store, tags as CaptureTagRequest[], decision.id);
+      if (tr.applied.length)
+        lines.push(`  · tags applied: ${tr.applied.map((a) => `${a.name}(${a.tagId})`).join(", ")}`);
+      if (tr.pending.length)
+        lines.push(
+          `  · tags pending (need your confirm): ${tr.pending.map((p) => `${p.name}(${p.proposalId})`).join(", ")}`,
+        );
+      if (tr.blocked.length)
+        lines.push(
+          `  · tags blocked by policy=locked: ${tr.blocked.map((b) => `${b.name}(${b.proposalId})`).join(", ")}`,
+        );
+      for (const e of tr.errors) lines.push(`  · tag error "${e.name}": ${e.message}`);
+    }
+
     return { content: [{ type: "text", text: lines.join("\n") }] };
   },
 );
@@ -306,6 +336,249 @@ server.registerTool(
     return {
       content: [{ type: "text", text: `${id} → ${verdict}${summary ? `  (${summary})` : ""}` }],
     };
+  },
+);
+
+// -----------------------------------------------------------------------------
+// 0.0.7 — tag tools + config tools
+//
+// The agent has eight tag tools split into two layers:
+//   • write path:  tag_propose, tag_apply (the agent reaches for these mid-capture)
+//   • admin path:  tag_confirm, tag_reject, tag_recolor, tag_rename, tag_archive,
+//                  tag_restore (the human reaches for these from CLI / web)
+// Whether `tag_propose` directly creates a tag depends on `tag_policy` in
+// config — see src/tags.ts for the engine.
+// -----------------------------------------------------------------------------
+
+server.registerTool(
+  "tag_propose",
+  {
+    description:
+      "Propose a tag for one or more targets (milestones / decisions). Behaviour depends on the " +
+      "local `tag_policy` config: 'auto' creates the tag immediately, 'propose' (default) queues " +
+      "into the tag_proposals table for human confirmation, 'locked' refuses. " +
+      "If `tag_require_reason` is true (default) and policy is 'propose', `reason` is required.",
+    inputSchema: {
+      name: z.string().min(1),
+      reason: z.string().optional(),
+      suggestedColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+      targets: z.array(TaggingTargetSchema).min(1),
+    },
+  },
+  async ({ name, reason, suggestedColor, targets }) => {
+    try {
+      const r = ensureTag(store, name, {
+        reason,
+        suggestedColor,
+        targets: targets as { kind: TaggingTargetKind; id: string }[],
+      });
+      if (r.kind === "active") {
+        return { content: [{ type: "text", text: `applied existing tag ${r.tag.id} (${r.tag.name})` }] };
+      }
+      if (r.kind === "pending") {
+        return {
+          content: [
+            { type: "text", text: `proposed ${r.proposal.id} (${r.proposal.name}) — awaiting confirm` },
+          ],
+        };
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: `blocked: tag_policy=locked — logged proposal ${r.proposal.id} (${r.proposal.name})`,
+          },
+        ],
+      };
+    } catch (e) {
+      return { content: [{ type: "text", text: `error: ${(e as Error).message}` }] };
+    }
+  },
+);
+
+server.registerTool(
+  "tag_apply",
+  {
+    description:
+      "Bind an existing active tag to a target (milestone or decision). Idempotent. " +
+      "Refuses if the tag does not exist or is archived — use tag_propose for new tags.",
+    inputSchema: {
+      tagId: z.string(),
+      target: TaggingTargetSchema,
+    },
+  },
+  async ({ tagId, target }) => {
+    const tag = store.getTag(tagId);
+    if (!tag) return { content: [{ type: "text", text: `no such tag: ${tagId}` }] };
+    if (tag.status !== "active") {
+      return { content: [{ type: "text", text: `tag ${tagId} is archived; restore it first` }] };
+    }
+    store.upsertTagging({ tagId, targetKind: target.kind, targetId: target.id });
+    return {
+      content: [{ type: "text", text: `${tag.name} → ${target.kind}:${target.id}` }],
+    };
+  },
+);
+
+server.registerTool(
+  "tag_confirm",
+  {
+    description:
+      "Confirm a pending tag proposal: creates the tag (origin='you'), applies its target taggings, " +
+      "and removes the proposal. Optional `rename` / `color` override the agent's suggestion at " +
+      "confirmation time. Use this when the agent's proposed tag is good.",
+    inputSchema: {
+      proposalId: z.string(),
+      rename: z.string().optional(),
+      color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+    },
+  },
+  async ({ proposalId, rename, color }) => {
+    try {
+      const r = confirmProposal(store, proposalId, { rename, color });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `confirmed ${r.tag.id} (${r.tag.name}); ${r.taggingsAdded} new tagging(s) applied`,
+          },
+        ],
+      };
+    } catch (e) {
+      return { content: [{ type: "text", text: `error: ${(e as Error).message}` }] };
+    }
+  },
+);
+
+server.registerTool(
+  "tag_reject",
+  {
+    description: "Reject a tag proposal — removes the row, doesn't create a tag.",
+    inputSchema: { proposalId: z.string() },
+  },
+  async ({ proposalId }) => {
+    const ok = rejectProposal(store, proposalId);
+    return { content: [{ type: "text", text: ok ? `rejected ${proposalId}` : `no such proposal: ${proposalId}` }] };
+  },
+);
+
+server.registerTool(
+  "tag_recolor",
+  {
+    description: "Change a tag's display color. Hex #RRGGBB.",
+    inputSchema: {
+      tagId: z.string(),
+      color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+    },
+  },
+  async ({ tagId, color }) => {
+    if (!store.getTag(tagId)) return { content: [{ type: "text", text: `no such tag: ${tagId}` }] };
+    store.recolorTag(tagId, color);
+    return { content: [{ type: "text", text: `${tagId} → ${color}` }] };
+  },
+);
+
+server.registerTool(
+  "tag_rename",
+  {
+    description: "Rename a tag. Fails if the new name collides with another existing tag.",
+    inputSchema: {
+      tagId: z.string(),
+      name: z.string().min(1),
+    },
+  },
+  async ({ tagId, name }) => {
+    const existing = store.getTag(tagId);
+    if (!existing) return { content: [{ type: "text", text: `no such tag: ${tagId}` }] };
+    const collision = store.findTagByName(name);
+    if (collision && collision.id !== tagId) {
+      return { content: [{ type: "text", text: `name "${name}" already taken by ${collision.id}` }] };
+    }
+    store.renameTag(tagId, name);
+    return { content: [{ type: "text", text: `${tagId} renamed → ${name}` }] };
+  },
+);
+
+server.registerTool(
+  "tag_archive",
+  {
+    description:
+      "Archive a tag — hides it from active list, keeps existing taggings intact, " +
+      "but new proposals using the same name go through policy as if the tag didn't exist.",
+    inputSchema: { tagId: z.string() },
+  },
+  async ({ tagId }) => {
+    if (!store.getTag(tagId)) return { content: [{ type: "text", text: `no such tag: ${tagId}` }] };
+    store.archiveTag(tagId);
+    return { content: [{ type: "text", text: `${tagId} archived` }] };
+  },
+);
+
+server.registerTool(
+  "tag_restore",
+  {
+    description: "Restore an archived tag back to active.",
+    inputSchema: { tagId: z.string() },
+  },
+  async ({ tagId }) => {
+    if (!store.getTag(tagId)) return { content: [{ type: "text", text: `no such tag: ${tagId}` }] };
+    store.restoreTag(tagId);
+    return { content: [{ type: "text", text: `${tagId} restored` }] };
+  },
+);
+
+server.registerTool(
+  "config_get",
+  {
+    description:
+      "Read a single config key, or omit `key` to dump everything. Notable keys: " +
+      "`tag_policy` (auto|propose|locked, default propose), " +
+      "`tag_require_reason` (true|false, default true).",
+    inputSchema: { key: z.string().optional() },
+  },
+  async ({ key }) => {
+    if (key) {
+      const v = store.getConfig(key);
+      // Surface the effective policy even when the key is unset, so the agent
+      // can see what's actually in force without a second lookup.
+      if (key === "tag_policy" && v === null) {
+        return {
+          content: [{ type: "text", text: `tag_policy = ${getTagPolicy(store)} (default)` }],
+        };
+      }
+      return { content: [{ type: "text", text: v === null ? `${key} = (unset)` : `${key} = ${v}` }] };
+    }
+    const all = store.allConfig();
+    const keys = Object.keys(all).sort();
+    if (keys.length === 0) return { content: [{ type: "text", text: "config is empty (using defaults)" }] };
+    return {
+      content: [
+        { type: "text", text: keys.map((k) => `${k} = ${all[k]}`).join("\n") },
+      ],
+    };
+  },
+);
+
+server.registerTool(
+  "config_set",
+  {
+    description:
+      "Set a config key. Validated keys: " +
+      "`tag_policy` (auto|propose|locked), `tag_require_reason` (true|false).",
+    inputSchema: {
+      key: z.string().min(1),
+      value: z.string(),
+    },
+  },
+  async ({ key, value }) => {
+    if (key === "tag_policy" && !["auto", "propose", "locked"].includes(value)) {
+      return { content: [{ type: "text", text: `tag_policy must be one of: auto, propose, locked` }] };
+    }
+    if (key === "tag_require_reason" && !["true", "false"].includes(value)) {
+      return { content: [{ type: "text", text: `tag_require_reason must be 'true' or 'false'` }] };
+    }
+    store.setConfig(key, value);
+    return { content: [{ type: "text", text: `${key} = ${value}` }] };
   },
 );
 

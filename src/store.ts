@@ -7,11 +7,18 @@ import type {
   Milestone,
   MilestoneId,
   MilestoneStatus,
+  ProposalOutcome,
   Session,
   SessionId,
   SessionSource,
   Status,
   StatusKind,
+  Tag,
+  TagId,
+  TagProposal,
+  TagStatus,
+  Tagging,
+  TaggingTargetKind,
 } from "./types.ts";
 
 // The store owns the graph. It needs NO ontology to answer "which decisions
@@ -24,6 +31,15 @@ export class Store {
 
   constructor(path: string) {
     this.db = new DatabaseSync(path);
+
+    // 0.0.7 — enable WAL for better concurrent read perf and crash safety.
+    // No-op for :memory: DBs; idempotent for file DBs.
+    try {
+      this.db.exec(`PRAGMA journal_mode = WAL`);
+    } catch {
+      // :memory: rejects WAL; fall back to default journal mode
+    }
+
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS decisions (
         id          TEXT PRIMARY KEY,
@@ -69,6 +85,46 @@ export class Store {
       CREATE INDEX IF NOT EXISTS idx_sessions_milestone ON sessions(milestone_id);
 
       CREATE INDEX IF NOT EXISTS idx_decisions_session ON decisions(json_extract(data, '$.sessionId'));
+
+      -- 0.0.7 — tag system
+      CREATE TABLE IF NOT EXISTS tags (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        color       TEXT NOT NULL,
+        kind        TEXT NOT NULL DEFAULT 'scope',
+        origin      TEXT NOT NULL CHECK(origin IN ('you','agent')),
+        status      TEXT NOT NULL CHECK(status IN ('active','archived')),
+        created_at  TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_tags_status ON tags(status);
+
+      CREATE TABLE IF NOT EXISTS taggings (
+        tag_id      TEXT NOT NULL REFERENCES tags(id),
+        target_kind TEXT NOT NULL CHECK(target_kind IN ('milestone','decision')),
+        target_id   TEXT NOT NULL,
+        PRIMARY KEY (tag_id, target_kind, target_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_taggings_target ON taggings(target_kind, target_id);
+
+      CREATE TABLE IF NOT EXISTS tag_proposals (
+        id              TEXT PRIMARY KEY,
+        name            TEXT NOT NULL,
+        suggested_color TEXT,
+        reason          TEXT,
+        targets         TEXT NOT NULL,        -- JSON array
+        outcome         TEXT NOT NULL CHECK(outcome IN ('pending','blocked','auto_adopted')),
+        created_at      TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_proposals_outcome ON tag_proposals(outcome);
+      -- Loose dedup index: one open pending proposal per (name, outcome). We
+      -- enforce idempotency in code rather than via UNIQUE because outcomes
+      -- can repeat across name + history.
+      CREATE INDEX IF NOT EXISTS idx_proposals_name ON tag_proposals(name COLLATE NOCASE);
+
+      CREATE TABLE IF NOT EXISTS config (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
     `);
 
     // ALTER TABLE decisions ADD COLUMN session_id — idempotent. SQLite's
@@ -300,5 +356,258 @@ export class Store {
       .prepare(`SELECT data FROM decisions WHERE session_id IS NULL ORDER BY created_at, id`)
       .all() as { data: string }[];
     return rows.map((r) => JSON.parse(r.data) as Decision);
+  }
+
+  // -------------------------------------------------------------------------
+  // 0.0.7 — tags
+  // -------------------------------------------------------------------------
+
+  putTag(t: Tag): Tag {
+    this.db
+      .prepare(
+        `INSERT INTO tags (id, name, color, kind, origin, status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name       = excluded.name,
+           color      = excluded.color,
+           kind       = excluded.kind,
+           status     = excluded.status`
+      )
+      .run(t.id, t.name, t.color, t.kind ?? "scope", t.origin, t.status, t.createdAt);
+    return t;
+  }
+
+  getTag(id: TagId): Tag | null {
+    const row = this.db
+      .prepare(`SELECT id, name, color, kind, origin, status, created_at FROM tags WHERE id = ?`)
+      .get(id) as
+      | { id: string; name: string; color: string; kind: string; origin: TagStatus; status: TagStatus; created_at: string }
+      | undefined;
+    if (!row) return null;
+    return {
+      id: row.id,
+      name: row.name,
+      color: row.color,
+      kind: row.kind,
+      origin: row.origin as Tag["origin"],
+      status: row.status,
+      createdAt: row.created_at,
+    };
+  }
+
+  findTagByName(name: string): Tag | null {
+    const row = this.db
+      .prepare(`SELECT id, name, color, kind, origin, status, created_at FROM tags WHERE name = ? COLLATE NOCASE LIMIT 1`)
+      .get(name) as
+      | { id: string; name: string; color: string; kind: string; origin: string; status: TagStatus; created_at: string }
+      | undefined;
+    if (!row) return null;
+    return {
+      id: row.id,
+      name: row.name,
+      color: row.color,
+      kind: row.kind,
+      origin: row.origin as Tag["origin"],
+      status: row.status,
+      createdAt: row.created_at,
+    };
+  }
+
+  allTags(status?: TagStatus): Tag[] {
+    const sql = status
+      ? `SELECT id, name, color, kind, origin, status, created_at FROM tags WHERE status = ? ORDER BY name COLLATE NOCASE`
+      : `SELECT id, name, color, kind, origin, status, created_at FROM tags ORDER BY name COLLATE NOCASE`;
+    const rows = (status ? this.db.prepare(sql).all(status) : this.db.prepare(sql).all()) as Array<{
+      id: string; name: string; color: string; kind: string; origin: string; status: TagStatus; created_at: string;
+    }>;
+    return rows.map((r) => ({
+      id: r.id, name: r.name, color: r.color, kind: r.kind,
+      origin: r.origin as Tag["origin"], status: r.status, createdAt: r.created_at,
+    }));
+  }
+
+  renameTag(id: TagId, name: string): void {
+    this.db.prepare(`UPDATE tags SET name = ? WHERE id = ?`).run(name, id);
+  }
+
+  recolorTag(id: TagId, color: string): void {
+    this.db.prepare(`UPDATE tags SET color = ? WHERE id = ?`).run(color, id);
+  }
+
+  archiveTag(id: TagId): void {
+    this.db.prepare(`UPDATE tags SET status = 'archived' WHERE id = ?`).run(id);
+  }
+
+  restoreTag(id: TagId): void {
+    this.db.prepare(`UPDATE tags SET status = 'active' WHERE id = ?`).run(id);
+  }
+
+  // -------------------------------------------------------------------------
+  // 0.0.7 — taggings (tag ↔ milestone|decision M:N)
+  // -------------------------------------------------------------------------
+
+  upsertTagging(tag: Tagging): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO taggings (tag_id, target_kind, target_id) VALUES (?, ?, ?)`,
+      )
+      .run(tag.tagId, tag.targetKind, tag.targetId);
+  }
+
+  removeTagging(tagId: TagId, targetKind: TaggingTargetKind, targetId: string): boolean {
+    const r = this.db
+      .prepare(`DELETE FROM taggings WHERE tag_id = ? AND target_kind = ? AND target_id = ?`)
+      .run(tagId, targetKind, targetId);
+    return r.changes > 0;
+  }
+
+  taggingsForTarget(targetKind: TaggingTargetKind, targetId: string): Tag[] {
+    const rows = this.db
+      .prepare(
+        `SELECT t.id, t.name, t.color, t.kind, t.origin, t.status, t.created_at
+         FROM taggings tg JOIN tags t ON t.id = tg.tag_id
+         WHERE tg.target_kind = ? AND tg.target_id = ?
+         ORDER BY t.name COLLATE NOCASE`,
+      )
+      .all(targetKind, targetId) as Array<{
+        id: string; name: string; color: string; kind: string; origin: string; status: TagStatus; created_at: string;
+      }>;
+    return rows.map((r) => ({
+      id: r.id, name: r.name, color: r.color, kind: r.kind,
+      origin: r.origin as Tag["origin"], status: r.status, createdAt: r.created_at,
+    }));
+  }
+
+  targetsForTag(tagId: TagId): Array<{ kind: TaggingTargetKind; id: string }> {
+    const rows = this.db
+      .prepare(`SELECT target_kind, target_id FROM taggings WHERE tag_id = ?`)
+      .all(tagId) as Array<{ target_kind: TaggingTargetKind; target_id: string }>;
+    return rows.map((r) => ({ kind: r.target_kind, id: r.target_id }));
+  }
+
+  // -------------------------------------------------------------------------
+  // 0.0.7 — tag proposals (pending queue)
+  // -------------------------------------------------------------------------
+
+  putTagProposal(p: TagProposal): TagProposal {
+    this.db
+      .prepare(
+        `INSERT INTO tag_proposals (id, name, suggested_color, reason, targets, outcome, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name            = excluded.name,
+           suggested_color = excluded.suggested_color,
+           reason          = excluded.reason,
+           targets         = excluded.targets,
+           outcome         = excluded.outcome`,
+      )
+      .run(
+        p.id, p.name, p.suggestedColor ?? null, p.reason ?? null,
+        JSON.stringify(p.targets), p.outcome, p.createdAt,
+      );
+    return p;
+  }
+
+  // Merge new targets into an existing pending/blocked proposal for the same
+  // name, or insert a fresh one. Idempotency: same (name, outcome) collapses.
+  upsertProposalByName(p: TagProposal): TagProposal {
+    const existing = this.db
+      .prepare(
+        `SELECT id, name, suggested_color, reason, targets, outcome, created_at
+         FROM tag_proposals
+         WHERE name = ? COLLATE NOCASE AND outcome = ?
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(p.name, p.outcome) as
+      | { id: string; name: string; suggested_color: string | null; reason: string | null; targets: string; outcome: ProposalOutcome; created_at: string }
+      | undefined;
+    if (!existing) {
+      return this.putTagProposal(p);
+    }
+    // Merge target sets (dedup by kind+id)
+    const existingTargets = JSON.parse(existing.targets) as { kind: TaggingTargetKind; id: string }[];
+    const merged = new Map<string, { kind: TaggingTargetKind; id: string }>();
+    for (const t of [...existingTargets, ...p.targets]) merged.set(`${t.kind}:${t.id}`, t);
+    const updated: TagProposal = {
+      id: existing.id,
+      name: existing.name,
+      suggestedColor: p.suggestedColor ?? existing.suggested_color ?? undefined,
+      reason: p.reason ?? existing.reason ?? undefined,
+      targets: Array.from(merged.values()),
+      outcome: existing.outcome,
+      createdAt: existing.created_at,
+    };
+    return this.putTagProposal(updated);
+  }
+
+  getTagProposal(id: string): TagProposal | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, name, suggested_color, reason, targets, outcome, created_at
+         FROM tag_proposals WHERE id = ?`,
+      )
+      .get(id) as
+      | { id: string; name: string; suggested_color: string | null; reason: string | null; targets: string; outcome: ProposalOutcome; created_at: string }
+      | undefined;
+    if (!row) return null;
+    return {
+      id: row.id,
+      name: row.name,
+      suggestedColor: row.suggested_color ?? undefined,
+      reason: row.reason ?? undefined,
+      targets: JSON.parse(row.targets) as { kind: TaggingTargetKind; id: string }[],
+      outcome: row.outcome,
+      createdAt: row.created_at,
+    };
+  }
+
+  allTagProposals(outcome?: ProposalOutcome): TagProposal[] {
+    const sql = outcome
+      ? `SELECT id, name, suggested_color, reason, targets, outcome, created_at FROM tag_proposals WHERE outcome = ? ORDER BY created_at DESC`
+      : `SELECT id, name, suggested_color, reason, targets, outcome, created_at FROM tag_proposals ORDER BY created_at DESC`;
+    const rows = (outcome ? this.db.prepare(sql).all(outcome) : this.db.prepare(sql).all()) as Array<{
+      id: string; name: string; suggested_color: string | null; reason: string | null; targets: string; outcome: ProposalOutcome; created_at: string;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      suggestedColor: r.suggested_color ?? undefined,
+      reason: r.reason ?? undefined,
+      targets: JSON.parse(r.targets) as { kind: TaggingTargetKind; id: string }[],
+      outcome: r.outcome,
+      createdAt: r.created_at,
+    }));
+  }
+
+  deleteTagProposal(id: string): boolean {
+    const r = this.db.prepare(`DELETE FROM tag_proposals WHERE id = ?`).run(id);
+    return r.changes > 0;
+  }
+
+  // -------------------------------------------------------------------------
+  // 0.0.7 — config key/value (local machine preferences)
+  // -------------------------------------------------------------------------
+
+  setConfig(key: string, value: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO config (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      )
+      .run(key, value);
+  }
+
+  getConfig(key: string): string | null {
+    const row = this.db.prepare(`SELECT value FROM config WHERE key = ?`).get(key) as
+      | { value: string }
+      | undefined;
+    return row ? row.value : null;
+  }
+
+  allConfig(): Record<string, string> {
+    const rows = this.db.prepare(`SELECT key, value FROM config`).all() as Array<{ key: string; value: string }>;
+    const out: Record<string, string> = {};
+    for (const r of rows) out[r.key] = r.value;
+    return out;
   }
 }
