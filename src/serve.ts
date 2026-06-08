@@ -409,8 +409,19 @@ function openBrowser(url: string): void {
   }
 }
 
-export function startServer(opts: ServeOptions): Promise<void> {
-  const { store, multi = false, port = 3939, host = "127.0.0.1", open = false } = opts;
+export interface RunningServer {
+  server: import("node:http").Server;
+  url: string;
+  port: number;
+  host: string;
+  close: () => Promise<void>;
+}
+
+// Start the HTTP server and resolve once it's listening. Returns a handle
+// the caller can use to close (tests do this in afterEach; the CLI keeps
+// the process alive separately).
+export function startServer(opts: ServeOptions): Promise<RunningServer> {
+  const { store, multi = false, port = 3939, host = "127.0.0.1" } = opts;
   const assets = loadAssets();
 
   if (!multi && !store) {
@@ -425,31 +436,55 @@ export function startServer(opts: ServeOptions): Promise<void> {
       else void dispatchSingle(store!, assets, req, res);
     });
 
-    server.on("error", (err: NodeJS.ErrnoException) => {
-      if (err.code === "EADDRINUSE") {
-        console.error(`[stele] port ${port} is already in use on ${host} — pass --port to pick another`);
-        process.exit(1);
-      }
-      reject(err);
-    });
+    server.on("error", (err) => reject(err));
 
     server.listen(port, host, () => {
-      const url = `http://${host}:${port}`;
-      const modeStr = multi ? " (multi-tenant)" : "";
-      console.log(`stele serving on ${url}${modeStr}`);
-      if (multi && ctx) {
-        const n = ctx.projects().length;
-        console.log(`  ${n} project(s) registered`);
-      }
-      console.log(`(Ctrl-C to stop)`);
-      if (open) openBrowser(url);
-      // Don't resolve — server runs until killed.
-    });
-
-    process.on("SIGINT", () => {
-      console.log("");
-      console.log(`stopping…`);
-      server.close(() => process.exit(0));
+      const addr = server.address();
+      const actualPort = typeof addr === "object" && addr ? addr.port : port;
+      const url = `http://${host}:${actualPort}`;
+      const close = () =>
+        new Promise<void>((res, rej) => {
+          server.close((err) => (err ? rej(err) : res()));
+        });
+      resolve({ server, url, port: actualPort, host, close });
     });
   });
+}
+
+// Wrapper used by the CLI: starts the server, logs, opens browser if
+// requested, installs SIGINT handler, and never resolves (server runs
+// until killed). Tests use startServer directly.
+export async function startServerForeground(opts: ServeOptions & { open?: boolean }): Promise<void> {
+  const { open = false, multi = false } = opts;
+  let running: RunningServer;
+  try {
+    running = await startServer(opts);
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    if (e.code === "EADDRINUSE") {
+      console.error(
+        `[stele] port ${opts.port ?? 3939} is already in use on ${opts.host ?? "127.0.0.1"} — pass --port to pick another`,
+      );
+      process.exit(1);
+    }
+    throw err;
+  }
+  const modeStr = multi ? " (multi-tenant)" : "";
+  console.log(`stele serving on ${running.url}${modeStr}`);
+  if (multi) {
+    // For diagnostic only — reading the registry here is cheap
+    const projects = (await import("./registry.ts")).allProjects();
+    console.log(`  ${projects.length} project(s) registered`);
+  }
+  console.log(`(Ctrl-C to stop)`);
+  if (open) openBrowser(running.url);
+
+  process.on("SIGINT", () => {
+    console.log("");
+    console.log("stopping…");
+    void running.close().then(() => process.exit(0));
+  });
+
+  // Never resolve — server runs until killed.
+  await new Promise<void>(() => {});
 }

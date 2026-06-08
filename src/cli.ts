@@ -8,7 +8,7 @@ import { resumeDigest, trace, traceEntity } from "./projections.ts";
 import { renderResume } from "./render.ts";
 import { stubResolver } from "./resolver.ts";
 import { resolveDbPath, SteleNotInitializedError } from "./paths.ts";
-import { startServer } from "./serve.ts";
+import { startServerForeground } from "./serve.ts";
 import { installHooks, uninstallHooks, hooksStatus } from "./hooks.ts";
 import { installDaemon, uninstallDaemon, daemonStatus } from "./daemon.ts";
 import {
@@ -370,7 +370,7 @@ async function serveCommand(args: string[]): Promise<void> {
     }
   }
   if (multi) {
-    await startServer({ multi: true, port, host, open });
+    await startServerForeground({ multi: true, port, host, open });
     return;
   }
   // Single-project mode: resolve a store from cwd
@@ -384,7 +384,7 @@ async function serveCommand(args: string[]): Promise<void> {
     }
     throw e;
   }
-  await startServer({ store, port, host, open });
+  await startServerForeground({ store, port, host, open });
 }
 
 async function main() {
