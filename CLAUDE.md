@@ -12,7 +12,10 @@ All scripts inject the `--experimental-strip-types --no-warnings` flag via the `
 
 ```bash
 npm install                                       # ~92 transitive packages, 2 real deps
-npm run _node -- src/cli.ts init                  # bootstrap a .stele/ in this repo for local testing
+npm run _node -- src/cli.ts init --skip-daemon --skip-hooks  # local-test init (skip system installs)
+npm run _node -- src/cli.ts hooks status          # see whether hooks are installed in this repo
+npm run _node -- src/cli.ts daemon status         # see whether the launchd/systemd daemon is loaded
+npm run _node -- src/cli.ts serve                 # launch browser UI at http://127.0.0.1:3939
 npm run mcp                                       # start the MCP server (stdio)
 npm run seed -- sample-report.html                # cold-start: ingest a feature-report HTML
 npm run list                                      # raw dump of every node by status
@@ -40,7 +43,8 @@ Status flips happen inside `Store.addEdge` (`src/store.ts`): a `resolves` edge m
 
 ### Module layout (everything is headless except the two adapters)
 
-- `src/types.ts` — schema. If you change `Status` or `EdgeKind`, the Zod schemas in `mcp.ts` must be updated in lockstep.
+- `src/types.ts` — schema. If you change `Status` or `EdgeKind`, `src/schemas.ts` (Zod) AND the capture form in `web/app.js` (`viewNew` / `buildDecision`) must be updated in lockstep — three places, no exceptions.
+- `src/schemas.ts` — Zod schemas mirroring `types.ts`. Imported by both `mcp.ts` (MCP tool input validation) and `serve.ts` (HTTP POST validation) so the two adapters can't drift.
 - `src/store.ts` — SQLite-backed graph. Owns three tables (`decisions`, `edges`, `affects`) and answers entity-anchored queries (`decisionsAffecting`) without any ontology — it keeps its own reverse index.
 - `src/projections.ts` — read-only views: `resumeDigest` (what's waiting), `trace` (node neighbourhood), `traceEntity` (everything touching a file/feature/skill). These return plain data; formatting lives in the adapters.
 - `src/consolidate.ts` — on capture, proposes `resolves` / `relates` edges against every still-pending node via token-jaccard + shared-entity heuristic. This is the "Evaluator agent's seat" — the human (via `decision_resolve`) confirms.
@@ -48,8 +52,13 @@ Status flips happen inside `Store.addEdge` (`src/store.ts`): a `resolves` edge m
 - `src/seed.ts` — HTML feature-report → decision graph parser. Used only for cold-start; not part of the runtime path.
 - `src/resolver.ts` — `EntityResolver` interface. `stubResolver` returns bare `kind:id` labels. This is the **only** coupling point to an external ontology; swapping it is how the tool would light up across a real entity model.
 - `src/paths.ts` — single source of truth for the DB path. Project-based: walks up from cwd looking for a `.stele/` marker directory (stopping at `$HOME` to avoid silently picking up a stale global store). If no marker is found, throws `SteleNotInitializedError` — both `cli.ts` and `mcp.ts` catch it and print a hint pointing the user at `stele init`. No auto-create (deliberate footgun-avoidance for the distributed binary). `STELE_DB` (or legacy `PROV_DB`) overrides everything. Never hardcode another path.
-- `src/cli.ts` — CLI adapter. Writes to stdout freely. Owns the `init` subcommand: creates `.stele/`, writes `.stele/README.md`, appends `.stele/` to project `.gitignore`, and merges a `stele` entry into the project's `.mcp.json` (preserving any other MCP servers already configured).
+- `src/cli.ts` — CLI adapter. Writes to stdout freely. Owns four storeless subcommands (`init`, `hooks`, `daemon`, `serve`) plus all data-touching ones. `init` is the bootstrap entry: creates `.stele/`, writes `.mcp.json` + `.gitignore`, then by default also installs hooks (via `src/hooks.ts`) and a daemon (via `src/daemon.ts`). `--skip-daemon` / `--skip-hooks` are opt-outs.
+- `src/hooks.ts` — installer for the write-path integration. Writes `.claude/hooks/stele-stop.sh`, `.claude/skills/stele-capture/SKILL.md`, `.claude/commands/decision.md`, and merges a Stop hook entry into `.claude/settings.json` preserving any other configured hooks. All artifacts read from `src/templates/`.
+- `src/daemon.ts` — launchd (macOS) / systemd user (Linux) installer that keeps `stele serve` always-on. Writes the unit file with **absolute `node` + script path** (from `process.execPath` and `process.argv[1]`), so launchd/systemd don't need a working PATH to resolve shims like asdf or nvm. Each project gets its own unit, identified by `sha256(projectRoot).slice(0,8)`.
+- `src/templates/` — source-of-truth for everything `stele init` / `stele hooks install` writes into a project: `decision-command.md` (slash command body), `stele-capture-skill.md` (skill with semantic-activation frontmatter), `stele-stop-hook.sh` (bash regex detector). Changing project-installed content means changing here.
 - `src/mcp.ts` — stdio MCP server. Registers four tools: `decision_capture`, `decision_resume`, `decision_trace`, `decision_resolve`. Catches `SteleNotInitializedError` at startup and exits 1 with a stderr hint, so Claude Code surfaces the "run stele init" message instead of a silent crash.
+- `src/serve.ts` — `node:http` server backing `stele serve`. Routes: `/` + `/assets/*` serve `web/`; `/api/*` are thin wrappers over `projections.ts` / `store.ts` / `consolidate.ts`. POST endpoints validate via `src/schemas.ts`. localhost-only by default. Static assets `readFileSync`'d into memory once at startup.
+- `web/index.html`, `web/styles.css`, `web/app.js` — single-page web UI; vanilla JS, no framework, no build. Views: resume / all decisions / decision detail / entity / capture form. Design tokens lifted from `src/render.ts` so the web UI and `--html` export look like a family.
 - `bin/stele.js`, `bin/stele-mcp.js` — JS wrappers npm publishes as the `stele` and `stele-mcp` PATH bins. Each re-execs Node with `--experimental-strip-types --no-warnings` against the corresponding `src/*.ts` and inherits stdio. Edits to `src/` are picked up without rebuilding.
 
 ### MCP server stdio discipline

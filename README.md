@@ -36,12 +36,67 @@ cd /path/to/your-project
 stele init
 ```
 
-This creates `.stele/` (the decision store for this project), writes a
-`.mcp.json` so Claude Code in this directory sees the `stele` MCP server,
-and adds `.stele/` to your `.gitignore`.
+This single command sets up the full read/write loop:
 
-**Restart Claude Code** in that directory. Four tools become available:
-`decision_capture`, `decision_resume`, `decision_trace`, `decision_resolve`.
+- **`.stele/`** — the decision store (SQLite) for this project
+- **`.mcp.json`** — so Claude Code in this directory sees the `stele` MCP server
+- **`.gitignore`** — adds `.stele/` so the DB isn't accidentally committed
+- **Always-on browser UI** — launchd (macOS) or systemd-user (Linux) keeps
+  `stele serve` alive at `http://127.0.0.1:3939` across reboots
+- **Stop hook + skill** — Claude Code is nudged to capture decisions when a
+  conversation reaches one (see "Auto-detect decisions" below)
+
+Pass `--port N` to pick a non-default port. Pass `--skip-daemon` or
+`--skip-hooks` to opt out of either integration. The MCP tools
+(`decision_capture`, `decision_resume`, `decision_trace`, `decision_resolve`)
+become available in Claude Code after a restart.
+
+## Always-on browser UI
+
+`stele init` installs a daemon that keeps `stele serve` alive across reboots
+and login sessions:
+
+- macOS → `~/Library/LaunchAgents/com.stele.<hash>.plist` (launchd)
+- Linux → `~/.config/systemd/user/stele-<hash>.service` (systemd user)
+
+Each project gets its own daemon, identified by a short hash of the project
+path. Manage them with:
+
+```bash
+stele daemon status                # is it loaded? on what port?
+stele daemon install --port 4000   # reinstall on a different port
+stele daemon uninstall             # remove the unit + unload
+```
+
+Logs live at `<project>/.stele/serve.log` and `serve.err.log`.
+
+> **Linux**: services run only while you're logged in. For true always-on,
+> run `sudo loginctl enable-linger <you>` (one-time, system level).
+
+## Auto-detect decisions
+
+`stele init` also installs a Stop hook (`.claude/hooks/stele-stop.sh`) and a
+project-level skill (`.claude/skills/stele-capture/`). The hook scans
+Claude's reply at the end of every turn for decision-y language ("we decided
+to…", "let's defer…", "我们决定…", "锁定了…"). On a hit, it injects a
+gentle reminder into Claude's next turn pointing at the skill, which knows
+how to draft and capture a full `CapturePayload`.
+
+This makes the write path **proactive**: Claude offers to carve the
+decision when one happens, rather than you having to remember to type
+`/decision`. The skill is conservative — if no real decision crystallized,
+it stays silent.
+
+Manage with:
+
+```bash
+stele hooks status
+stele hooks uninstall              # remove just the auto-detection
+stele hooks install                # reinstall
+```
+
+You can still type `/decision` manually whenever — the slash command and
+the auto-detected skill share the same script.
 
 ## Daily use
 
@@ -71,6 +126,43 @@ into the stele — present-tense, deliberate, hard to erase.
 > it once globally by copying `.claude/commands/decision.md` from this
 > repository into `~/.claude/commands/`, or set it up your own way.
 
+## Browser UI
+
+`stele serve` opens a local web UI at `http://127.0.0.1:3939`. Bookmark
+it — it's a real entry point you can come back to, not a one-shot HTML
+export.
+
+```bash
+stele serve            # http://127.0.0.1:3939
+stele serve --open     # also opens your default browser
+stele serve --port 4000
+```
+
+What you can do in the UI:
+- See "什么在等我" — the resume digest, live
+- Browse every decision in the project, grouped by status
+- Open any node, see its full graph neighbourhood (which edges connect
+  where), affects, consequences
+- **Capture a new decision** from a form — full Decision shape including
+  options, structured deferred-triggers, affects. Server validates with
+  the same schema MCP uses.
+- Stitch edges: resolve a deferred node by a later one; relate two
+  decisions; mark a node superseded.
+
+Keyboard (Linear-style):
+
+| | |
+|---|---|
+| `g r` | resume |
+| `g a` | all decisions |
+| `c` | capture a new decision |
+| `/` | search (id or title) |
+| `esc` | close modal |
+
+The server listens on `127.0.0.1` only — no external access. Three
+surfaces (CLI, MCP, web) all read and write the same `.stele/decisions.db`,
+so changes from Claude Code show up on browser refresh.
+
 ## Cross-project view
 
 stele resolves the decision store by walking up from cwd looking for a
@@ -90,7 +182,11 @@ silently picks up `~/.stele/` — you have to opt in explicitly.
 ## CLI reference
 
 ```
-stele init                          create .stele/ + .mcp.json in this project
+stele init [--port N] [--skip-daemon] [--skip-hooks]
+                                    bootstrap a project: .stele/, .mcp.json, daemon, hooks
+stele daemon <install|uninstall|status>  always-on serve via launchd / systemd
+stele hooks <install|uninstall|status>   Stop hook + stele-capture skill
+stele serve [--port N] [--open]     browser UI (default http://127.0.0.1:3939)
 stele resume [--html out.html]      what's waiting on me — open loops, needs-check first
 stele trace <id>                    a decision + its graph neighbourhood
 stele trace-entity <kind> <id>      everything touching an entity (file/feature/skill...)

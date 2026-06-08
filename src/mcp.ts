@@ -19,96 +19,8 @@ import { resumeDigest, trace, traceEntity } from "./projections.ts";
 import { renderResume } from "./render.ts";
 import { stubResolver } from "./resolver.ts";
 import { resolveDbPath, SteleNotInitializedError } from "./paths.ts";
+import { DecisionSchema, EdgeSchema } from "./schemas.ts";
 import type { Decision, Edge, EntityRef } from "./types.ts";
-
-// -----------------------------------------------------------------------------
-// Zod schemas — moderately strict mirror of src/types.ts. Use passthrough on
-// the leaf objects so optional fields the agent invents don't reject; the
-// runtime store enforces the strict types as a second pass.
-// -----------------------------------------------------------------------------
-
-const TriggerSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("manual") }),
-  z.object({ kind: z.literal("metric"), expr: z.string() }),
-  z.object({ kind: z.literal("event"), name: z.string() }),
-  z.object({ kind: z.literal("dependency"), on: z.string() }),
-]);
-
-const OptionSchema = z.object({
-  label: z.string(),
-  summary: z.string(),
-  verdict: z.enum(["chosen", "rejected"]),
-  why: z.string().optional(),
-});
-
-const IntentDeltaSchema = z
-  .object({
-    baseVersion: z.string(),
-    patches: z.array(
-      z.object({
-        path: z.string(),
-        op: z.enum(["set", "add", "remove"]),
-        value: z.unknown().optional(),
-      }),
-    ),
-  })
-  .optional();
-
-const StatusSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("open"), question: z.string() }),
-  z.object({
-    kind: z.literal("decided"),
-    options: z.array(OptionSchema),
-    rationale: z.string(),
-    delta: IntentDeltaSchema,
-  }),
-  z.object({
-    kind: z.literal("deferred"),
-    current: z.string(),
-    reason: z.string(),
-    revisitWhen: TriggerSchema,
-    draftDelta: IntentDeltaSchema,
-  }),
-  z.object({ kind: z.literal("superseded"), by: z.string() }),
-  z.object({ kind: z.literal("resolved"), by: z.string() }),
-  z.object({
-    kind: z.literal("conflicted"),
-    between: z.array(z.string()),
-    path: z.string(),
-  }),
-]);
-
-const EntityRefSchema = z.object({ kind: z.string(), id: z.string() });
-
-const DecisionSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  scope: z.string().optional(),
-  raisedBy: z.object({
-    trigger: z.string(),
-    actor: z.string(),
-    layer: z.enum(["district", "school", "personal"]),
-    session: z.string().optional(),
-    at: z.string(),
-  }),
-  constraint: z.string().optional(),
-  status: StatusSchema,
-  consequences: z
-    .object({ lockedIn: z.string().optional(), lockedOut: z.string().optional() })
-    .optional(),
-  affects: z.array(EntityRefSchema),
-  artifacts: z
-    .array(z.object({ file: z.string(), commit: z.string().optional() }))
-    .optional(),
-  sourceReport: z.string().optional(),
-});
-
-const EdgeSchema = z.object({
-  from: z.string(),
-  to: z.string(),
-  kind: z.enum(["resolves", "supersedes", "reconciles", "relates"]),
-  note: z.string().optional(),
-});
 
 // -----------------------------------------------------------------------------
 // Formatters — return plain-text bodies suitable for MCP tool content[0].text.
@@ -190,7 +102,7 @@ try {
   throw e;
 }
 const store = new Store(db);
-const server = new McpServer({ name: "stele", version: "0.2.0" });
+const server = new McpServer({ name: "stele", version: "0.5.0" });
 
 server.registerTool(
   "decision_capture",

@@ -7,6 +7,9 @@ import { resumeDigest, trace, traceEntity } from "./projections.ts";
 import { renderResume } from "./render.ts";
 import { stubResolver } from "./resolver.ts";
 import { resolveDbPath, SteleNotInitializedError } from "./paths.ts";
+import { startServer } from "./serve.ts";
+import { installHooks, uninstallHooks, hooksStatus } from "./hooks.ts";
+import { installDaemon, uninstallDaemon, daemonStatus } from "./daemon.ts";
 import type { CapturePayload, EntityRef } from "./types.ts";
 
 function readStdin(): string {
@@ -61,7 +64,27 @@ DB file is small and version-friendly for small teams.
 itself was installed via \`npm install -g stele-mcp\`.*
 `;
 
-function initCommand(): void {
+async function initCommand(args: string[]): Promise<void> {
+  let skipDaemon = false;
+  let skipHooks = false;
+  let port = 3939;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--skip-daemon") skipDaemon = true;
+    else if (a === "--skip-hooks") skipHooks = true;
+    else if (a === "--port") {
+      const n = Number(args[++i]);
+      if (!Number.isInteger(n) || n < 1 || n > 65535) {
+        console.error(`invalid --port value: ${args[i]}`);
+        process.exit(1);
+      }
+      port = n;
+    } else {
+      console.error(`unknown init flag: ${a}`);
+      process.exit(1);
+    }
+  }
+
   const cwd = process.cwd();
   const steleDir = join(cwd, ".stele");
 
@@ -121,19 +144,148 @@ function initCommand(): void {
   console.log(`  wrote .stele/README.md`);
   console.log(`  ${mcpNote}`);
   console.log(`  ${gitignoreNote}`);
+
+  // Default-install hooks (Stop hook + stele-capture skill) — opt-out with --skip-hooks
+  if (!skipHooks) {
+    try {
+      const r = installHooks(cwd);
+      console.log(`  ${r.hook}`);
+      console.log(`  ${r.skill}`);
+      console.log(`  ${r.command}`);
+      console.log(`  ${r.settings}`);
+    } catch (e) {
+      console.error(`  ⚠ hooks install failed (continuing): ${(e as Error).message}`);
+    }
+  }
+
+  // Default-install daemon (launchd / systemd) — opt-out with --skip-daemon
+  if (!skipDaemon) {
+    if (process.platform !== "darwin" && process.platform !== "linux") {
+      console.log(`  ⓘ daemon not installed (unsupported platform: ${process.platform})`);
+    } else {
+      try {
+        const r = await installDaemon({ projectRoot: cwd, port });
+        console.log(`  installed ${r.platform} daemon — http://127.0.0.1:${r.port} (loaded: ${r.loaded ? "yes" : "no"})`);
+        for (const n of r.notes) console.log(`    · ${n}`);
+      } catch (e) {
+        console.error(`  ⚠ daemon install failed (continuing): ${(e as Error).message}`);
+        console.error(`    you can retry with: stele daemon install --port <N>`);
+      }
+    }
+  }
+
   console.log(``);
   console.log(`Next:`);
   console.log(`  1. Restart Claude Code in this directory (it picks up .mcp.json).`);
-  console.log(`  2. In conversation, type /decision when a decision crystallizes.`);
+  console.log(`  2. ${skipDaemon ? `Run \`stele serve\` to launch the browser UI.` : `Open http://127.0.0.1:${port} — daemon serves it always-on.`}`);
   console.log(`  3. Ask "what's waiting on me?" to see open loops.`);
 }
 
 // -----------------------------------------------------------------------------
 
+function hooksCommand(args: string[]): void {
+  const sub = args[0];
+  const cwd = process.cwd();
+  if (sub === "install") {
+    try {
+      const r = installHooks(cwd);
+      console.log(`hooks installed in ${cwd}:`);
+      console.log(`  ${r.hook}`);
+      console.log(`  ${r.skill}`);
+      console.log(`  ${r.command}`);
+      console.log(`  ${r.settings}`);
+    } catch (e) {
+      console.error(`hooks install failed: ${(e as Error).message}`);
+      process.exit(1);
+    }
+  } else if (sub === "uninstall") {
+    try {
+      const r = uninstallHooks(cwd);
+      console.log(`hooks uninstalled from ${cwd}:`);
+      console.log(`  ${r.hook}`);
+      console.log(`  ${r.skill}`);
+      console.log(`  ${r.command}`);
+      console.log(`  ${r.settings}`);
+    } catch (e) {
+      console.error(`hooks uninstall failed: ${(e as Error).message}`);
+      process.exit(1);
+    }
+  } else if (sub === "status" || sub === undefined) {
+    const s = hooksStatus(cwd);
+    const mark = (b: boolean) => (b ? "✓" : "✗");
+    console.log(`stele hooks status (${cwd}):`);
+    console.log(`  ${mark(s.hook)}  .claude/hooks/stele-stop.sh`);
+    console.log(`  ${mark(s.skill)}  .claude/skills/stele-capture/SKILL.md`);
+    console.log(`  ${mark(s.command)}  .claude/commands/decision.md`);
+    console.log(`  ${mark(s.settingsHasEntry)}  Stop hook in .claude/settings.json`);
+  } else {
+    console.error(`unknown hooks subcommand: ${sub} — try install / uninstall / status`);
+    process.exit(1);
+  }
+}
+
+async function daemonCommand(args: string[]): Promise<void> {
+  const sub = args[0];
+  const cwd = process.cwd();
+
+  // Parse flags from args[1..]
+  let port = 3939;
+  let printUnit = false;
+  for (let i = 1; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--port") {
+      const n = Number(args[++i]);
+      if (!Number.isInteger(n) || n < 1 || n > 65535) {
+        console.error(`invalid --port value: ${args[i]}`);
+        process.exit(1);
+      }
+      port = n;
+    } else if (a === "--print-unit") {
+      printUnit = true;
+    } else {
+      console.error(`unknown daemon flag: ${a}`);
+      process.exit(1);
+    }
+  }
+
+  if (sub === "install") {
+    try {
+      const r = await installDaemon({ projectRoot: cwd, port, printUnit });
+      if (printUnit) return; // unit printed to stdout already
+      console.log(`stele daemon installed (${r.platform}):`);
+      console.log(`  unit:       ${r.unitPath}`);
+      console.log(`  invocation: ${r.invocation}`);
+      console.log(`  port:       ${r.port}`);
+      console.log(`  loaded:     ${r.loaded ? "yes" : "no"}`);
+      for (const n of r.notes) console.log(`  · ${n}`);
+      if (r.loaded) console.log(`\n  → http://127.0.0.1:${r.port}`);
+    } catch (e) {
+      console.error(`daemon install failed: ${(e as Error).message}`);
+      process.exit(1);
+    }
+  } else if (sub === "uninstall") {
+    const r = uninstallDaemon(cwd);
+    console.log(`stele daemon uninstalled from ${cwd}:`);
+    for (const n of r.notes) console.log(`  · ${n}`);
+  } else if (sub === "status" || sub === undefined) {
+    const s = daemonStatus(cwd);
+    console.log(`stele daemon status (${cwd}):`);
+    console.log(`  platform:  ${s.platform}`);
+    console.log(`  unit file: ${s.unitPresent ? "✓" : "✗"} ${s.unitPath}`);
+    console.log(`  loaded:    ${s.loaded ? "✓" : "✗"} (${s.loadedNote})`);
+  } else {
+    console.error(`unknown daemon subcommand: ${sub} — try install / uninstall / status`);
+    process.exit(1);
+  }
+}
+
 async function main() {
   const [cmd, ...args] = process.argv.slice(2);
 
-  if (cmd === "init") return initCommand();
+  // Storeless commands first — they manipulate config files, never touch the DB.
+  if (cmd === "init") return initCommand(args);
+  if (cmd === "hooks") return hooksCommand(args);
+  if (cmd === "daemon") return daemonCommand(args);
 
   let store: Store;
   try {
@@ -238,9 +390,44 @@ async function main() {
       break;
     }
 
+    // ----- the browser UI: localhost HTTP server + SPA over the same store ----
+    case "serve": {
+      let port = 3939;
+      let host = "127.0.0.1";
+      let open = false;
+      for (let i = 0; i < args.length; i++) {
+        const a = args[i];
+        if (a === "--port") {
+          const n = Number(args[++i]);
+          if (!Number.isInteger(n) || n < 1 || n > 65535) {
+            console.error(`invalid --port value: ${args[i]}`);
+            process.exit(1);
+          }
+          port = n;
+        } else if (a === "--host") {
+          host = args[++i];
+          if (!host) {
+            console.error(`--host requires a value`);
+            process.exit(1);
+          }
+        } else if (a === "--open") {
+          open = true;
+        } else {
+          console.error(`unknown serve flag: ${a}`);
+          process.exit(1);
+        }
+      }
+      await startServer({ store, port, host, open });
+      // startServer never resolves; the process runs until SIGINT.
+      break;
+    }
+
     default:
       console.log(`usage: stele <cmd>
-  init                          create .stele/ + .mcp.json in this project
+  init                          create .stele/ + .mcp.json + default hooks + daemon
+  hooks <install|uninstall|status>   manage Stop hook + stele-capture skill
+  daemon <install|uninstall|status>  always-on serve (launchd / systemd user)
+  serve [--port N] [--open]     browser UI (default http://127.0.0.1:3939)
   resume [--html out.html]      "什么在等我" — open loops, needs-check first
   trace <id>                    "怎么发生的" — node + its graph neighbourhood
   trace-entity <kind> <id>      everything touching an entity (file/feature/skill...)

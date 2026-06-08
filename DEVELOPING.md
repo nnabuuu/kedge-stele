@@ -15,11 +15,17 @@ for contributors running stele from source or making changes.
 ## Layout
 
 ```
-src/         core (store, projections, consolidate, render, seed, resolver, paths, types)
-src/cli.ts   CLI subcommands incl. `stele init`
-src/mcp.ts   stdio MCP server
-bin/         JS wrappers that npm publishes as `stele` and `stele-mcp` bins
-.claude/commands/decision.md   the /decision slash command (reference copy)
+src/             core (store, projections, consolidate, render, seed, resolver, paths, types)
+src/cli.ts       CLI subcommands incl. `stele init`, `stele serve`, `stele daemon`, `stele hooks`
+src/mcp.ts       stdio MCP server
+src/serve.ts     HTTP server + JSON API for the web UI
+src/schemas.ts   Zod schemas shared by mcp.ts and serve.ts
+src/daemon.ts    launchd (macOS) / systemd (Linux) installer for always-on `stele serve`
+src/hooks.ts     installer for the Stop hook + stele-capture skill
+src/templates/   source-of-truth for installed templates (decision-command.md, skill, hook)
+bin/             JS wrappers that npm publishes as `stele` and `stele-mcp` bins
+web/             single-page web UI — index.html / styles.css / app.js (vanilla)
+.claude/commands/decision.md   the /decision slash command (reference copy of the template)
 sample-report.html             seed fixture for the cold-start acceptance scenario
 ```
 
@@ -92,8 +98,65 @@ Module roles:
 - `src/mcp.ts` — stdio MCP server. **stdout reserved for JSON-RPC framing**
   — any stray `console.log` corrupts the protocol and the client hangs.
 
-The Zod schemas in `mcp.ts` mirror `types.ts`. If you change `Status` or
-`EdgeKind`, both must move in lockstep.
+**Zod schemas live in `src/schemas.ts`** and are shared by `mcp.ts`
+(MCP tool inputs) and `serve.ts` (HTTP POST bodies). If you change
+`Status` or `EdgeKind` in `types.ts`, update `schemas.ts` in the same
+commit — both adapters validate against the same shape, so a drift is
+silently wrong. The capture form in `web/app.js` (`viewNew`) also
+hand-builds payloads to this shape; it has to move in lockstep too.
+
+## Web UI
+
+`stele serve` runs an HTTP server (`src/serve.ts`) over the same store
+as the CLI/MCP. localhost-only by default; bind elsewhere with `--host`.
+
+### API contract
+
+| Method | Route | Body / params | Returns |
+|---|---|---|---|
+| GET | `/` | — | HTML shell (serves `web/index.html`) |
+| GET | `/assets/styles.css` | — | static |
+| GET | `/assets/app.js` | — | static |
+| GET | `/<other>` | — | SPA fallback → `web/index.html` (so deep links like `/decisions/D-04` work) |
+| GET | `/api/resume` | — | `WaitingItem[]` (shape: `projections.ts:WaitingItem`) |
+| GET | `/api/decisions` | — | `Decision[]` |
+| GET | `/api/decisions/:id` | — | `Trace` (`projections.ts:Trace`) — decision + edges + affects |
+| GET | `/api/entity/:kind/:id` | — | `{ ref: EntityRef, traces: Trace[] }` |
+| GET | `/api/next-id` | `?prefix=D\|DEF\|OQ` | `"D-NN"` string |
+| POST | `/api/decisions` | `CapturePayload` (`schemas.ts`) | `{ id, applied, proposed: EdgeCandidate[] }` |
+| POST | `/api/edges` | `Edge` (`schemas.ts`) | `{ ok: true, edge }` |
+
+Validation failures return `400` with `{ error, details }` where
+`details` is the Zod issue array. Missing edge endpoints (POST
+`/api/edges` with a non-existent `from` / `to`) also return `400`.
+
+### Frontend
+
+`web/app.js` is vanilla JS (no React/Vue/Svelte, no build step). Structure:
+
+- `apiGet` / `apiPost` — thin fetch wrappers
+- `h(tag, attrs, ...kids)` — DOM element helper
+- A small history-API router (`route(pattern, fn, opts)` / `navigate(path)`)
+- View renderers: `viewResume` / `viewAllDecisions` / `viewDecision` /
+  `viewEntity` / `viewNew`
+- Edge-picker modal (`buildEdgeModal`, `buildResolveByModal`)
+- Search overlay (`/` shortcut)
+- Capture form (`viewNew`) — the heaviest single piece
+
+`web/styles.css` design tokens (color, font, card styles) are lifted
+directly from `src/render.ts` so the browser UI and the `--html` export
+look like a family. If you change one, change the other.
+
+### Capture-form / schema sync
+
+The form in `viewNew` (`web/app.js`) hand-builds a `CapturePayload`. If
+you add or rename a Decision field in `types.ts` + `schemas.ts`, also:
+
+1. Add the input in the relevant section of `viewNew`
+2. Map it in `buildDecision()` so the POST body has the right shape
+
+The server rejects unknown payloads via Zod, so a missed update fails
+loudly at submit time — but invest the time to keep them in step.
 
 ## Acceptance scenario
 
@@ -162,6 +225,11 @@ docs. `node_modules/`, `.stele/`, fixture DBs are excluded.
 | `no stele store found` | Cwd has no `.stele/` and no ancestor up to `$HOME` does either | `stele init` in your project root, or set `STELE_DB` |
 | `unable to open database file` | `STELE_DB` points to a path whose parent doesn't exist | `mkdir -p` the parent, or unset `STELE_DB` |
 | New `.stele/` appearing in an unexpected directory (older versions) | Auto-create from pre-0.3 builds | Upgrade to ≥0.3; the new behaviour errors instead of silently creating |
+| `launchctl bootstrap` says "Bootstrap failed: 5: Input/output error" | A previous version of the same Label is still loaded, or the plist is malformed | `launchctl bootout gui/$UID/com.stele.<hash>` then retry; check `~/Library/LaunchAgents/com.stele.<hash>.plist` parses with `plutil -lint` |
+| Daemon installed (`loaded: yes`) but `curl localhost:PORT` fails | The launchd-spawned `node` couldn't find a runtime (asdf/nvm shim resolution) | Verify the plist `ProgramArguments[0]` is an **absolute** node path — `stele daemon install` resolves `process.execPath` for exactly this reason; if you edited the plist by hand, re-run install |
+| `systemctl --user enable` fails with "Failed to connect to bus" | No user systemd session (often the case under `ssh` without `--user-keep-env`) | Run `loginctl enable-linger $USER` (one-time, sudo); or run the daemon foreground via `stele serve` |
+| Hook installed but no `additionalContext` fires in Claude | The regex didn't match Claude's response, or the project's `.claude/settings.json` got malformed | Run the hook by hand: `echo '{"response_text":"we decided to X"}' \| .claude/hooks/stele-stop.sh` — should emit JSON with `additionalContext`. Set `STELE_HOOK_DEBUG=1` for matched-signal stderr |
+| Skill never activates even after the hook fires | Claude's semantic matcher doesn't see the right keywords | The hook's reminder text and the skill's `description` must share keywords (stele / capture / decision / crystallize). Check both haven't drifted from their templates |
 
 ## Reference
 
