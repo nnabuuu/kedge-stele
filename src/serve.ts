@@ -94,7 +94,7 @@ const MIME: Record<string, string> = {
   ".svg":  "image/svg+xml",
 };
 
-function loadAssets(): { index: Asset; files: Map<string, Asset> } {
+function loadAssets(): { index: Asset; landing: Asset; files: Map<string, Asset> } {
   const here = dirname(fileURLToPath(import.meta.url));
   const webDir = join(here, "..", "web");
   const read = (name: string): Asset => {
@@ -102,10 +102,11 @@ function loadAssets(): { index: Asset; files: Map<string, Asset> } {
     return { body: readFileSync(join(webDir, name)), type: MIME[ext] ?? "application/octet-stream" };
   };
   const index = read("index.html");
+  const landing = read("landing.html");
   const files = new Map<string, Asset>();
   files.set("styles.css", read("styles.css"));
   files.set("app.js", read("app.js"));
-  return { index, files };
+  return { index, landing, files };
 }
 
 // -----------------------------------------------------------------------------
@@ -757,6 +758,7 @@ async function dispatchSingle(
   try {
     if (method === "GET") {
       if (path === "/" || path === "/index.html") return asset(res, assets.index);
+      if (path === "/welcome" || path === "/welcome.html") return asset(res, assets.landing);
       if (path.startsWith("/assets/")) {
         const file = assets.files.get(path.slice("/assets/".length));
         return file ? asset(res, file) : notFound(res);
@@ -819,10 +821,15 @@ async function dispatchMulti(
       return asset(res, assets.index);
     }
 
+    // Marketing landing at /welcome (single static page, no slug)
+    if (method === "GET" && parts.length === 1 && (parts[0] === "welcome" || parts[0] === "welcome.html")) {
+      return asset(res, assets.landing);
+    }
+
     // /<slug>/...
     const slug = parts[0];
     // Reserve some words just in case
-    if (slug === "api" || slug === "assets") {
+    if (slug === "api" || slug === "assets" || slug === "welcome") {
       return notFound(res, `unknown global route '/${slug}/...'`);
     }
     const got = ctx.getStore(slug);
