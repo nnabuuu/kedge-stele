@@ -59,6 +59,27 @@ test("install writes skill file with frontmatter", () => {
   assert.ok(content.includes("name: stele-capture"));
 });
 
+test("install writes the full skill folder (SKILL.md + gotchas + references)", () => {
+  installHooks(projectDir);
+  const root = join(projectDir, ".claude/skills/stele-capture");
+  assert.ok(existsSync(join(root, "SKILL.md")));
+  assert.ok(existsSync(join(root, "gotchas.md")));
+  assert.ok(existsSync(join(root, "references/decision-schema.md")));
+  assert.ok(existsSync(join(root, "references/milestone-judgment.md")));
+  assert.ok(existsSync(join(root, "references/feature-judgment.md")));
+  assert.ok(existsSync(join(root, "references/tag-judgment.md")));
+});
+
+test("re-install replaces stale files (no leftover references from prior versions)", () => {
+  installHooks(projectDir);
+  // Plant a stale file under references/ that ISN'T in the current template set
+  const stale = join(projectDir, ".claude/skills/stele-capture/references/STALE.md");
+  writeFileSync(stale, "leftover from a prior install");
+  // Re-install: the stale file must be cleaned up
+  installHooks(projectDir);
+  assert.equal(existsSync(stale), false, "stale references file survived re-install");
+});
+
 test("install writes slash command if missing, leaves it if present", () => {
   // First install: writes
   installHooks(projectDir);

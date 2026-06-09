@@ -1,6 +1,6 @@
 ---
 name: resume
-description: 回来时念回来 — read back what the user did last time on this project, with the outcome + pause_reason + a copy-paste-ready `claude --resume` command to jump back in.
+description: 回来时念回来 (read it back to me when I come back) — read back what the user did last time on this project, with the outcome + pause_reason + a copy-paste-ready `claude --resume` command to jump back in. Activates when the user is returning to a project, asks "what was I doing", "where did we leave off", "pick up where I left off", "what's the state here", "remind me what I was working on", "resume the last session", "claude --resume", "回来时", "继续上次的对话", "上次干到哪了", "我之前在搞什么". Calls `resume_command` for the latest session and renders the dual-mode (jump vs rebuild) result.
 allowed-tools:
   - Read
 ---

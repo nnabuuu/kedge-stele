@@ -1,6 +1,6 @@
 ---
 name: milestone-report
-description: 走之前留话 — close out the current Claude Code session with a summary, a "pick up here next time" anchor, and a structured pause reason. Runs `milestone_report` to get a draft, lets the user confirm, then calls `session_end` so the milestone state advances and the next conversation can read the context back.
+description: 走之前留话 (write a parting note before you go) — close out the current Claude Code session with a summary, a resume-anchor, and a structured pause reason. Activates when the user is wrapping up a session, signing off, taking a break, parking the milestone, or asks to "close out", "wrap up", "milestone report", "pause reason", "summarize this session", "before I leave", "before I go", "session 收尾", "走之前", "暂停一下", "把这次的进展记一下". Runs `milestone_report` to get a draft, lets the user confirm, then calls `session_end` so the milestone state advances and the next conversation can read the context back via `/resume`.
 allowed-tools:
   - Read
 ---

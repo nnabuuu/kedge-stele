@@ -11,10 +11,12 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HOOK_PATH_REL = ".claude/hooks/stele-stop.sh";
@@ -36,6 +38,42 @@ function readTemplate(name: string): string {
 
 function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true });
+}
+
+/**
+ * Recursively walk a directory and yield every file path relative to root.
+ * Used by the skill installer — skills are folders now (SKILL.md + gotchas.md
+ * + references/*.md) per Anthropic's progressive-disclosure pattern.
+ */
+function walkFiles(root: string): string[] {
+  const out: string[] = [];
+  function visit(dir: string): void {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      const stat = statSync(full);
+      if (stat.isDirectory()) visit(full);
+      else out.push(full);
+    }
+  }
+  if (existsSync(root)) visit(root);
+  return out.map((p) => relative(root, p));
+}
+
+/**
+ * Recursive copy of a template subdirectory into the install destination.
+ * Returns the count of files written. Mode for executable scripts is set
+ * separately by the caller.
+ */
+function copyTemplateDir(templateSubdir: string, destDir: string): number {
+  const src = join(templatesDir(), templateSubdir);
+  const files = walkFiles(src);
+  for (const rel of files) {
+    const srcPath = join(src, rel);
+    const destPath = join(destDir, rel);
+    ensureDir(dirname(destPath));
+    writeFileSync(destPath, readFileSync(srcPath));
+  }
+  return files.length;
 }
 
 // -----------------------------------------------------------------------------
@@ -180,12 +218,16 @@ export function installHooks(projectRoot: string): InstallReport {
   chmodSync(hookPath, 0o755);
   report.hook = `wrote ${HOOK_PATH_REL} (executable)`;
 
-  // 2. Skill
+  // 2. Skill — the stele-capture skill is a folder (SKILL.md + gotchas.md +
+  // references/*.md) per Anthropic's progressive-disclosure pattern. Recursive
+  // copy of every template file under templates/stele-capture-skill/. We
+  // clean any pre-existing install first so stale references files from
+  // older versions don't linger.
   const skillDir = join(projectRoot, SKILL_DIR_REL);
-  const skillPath = join(projectRoot, SKILL_FILE_REL);
+  if (existsSync(skillDir)) rmSync(skillDir, { recursive: true });
   ensureDir(skillDir);
-  writeFileSync(skillPath, readTemplate("stele-capture-skill.md"));
-  report.skill = `wrote ${SKILL_FILE_REL}`;
+  const skillFileCount = copyTemplateDir("stele-capture-skill", skillDir);
+  report.skill = `wrote ${SKILL_DIR_REL}/ (${skillFileCount} file${skillFileCount === 1 ? "" : "s"}: SKILL.md + gotchas + references)`;
 
   // 3. Slash commands — only write if missing (don't overwrite user edits)
   report.command = installCommand(projectRoot, COMMAND_FILE_REL, "decision-command.md");
