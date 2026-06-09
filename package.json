@@ -1,6 +1,6 @@
 {
   "name": "stele-mcp",
-  "version": "0.0.7-snapshot",
+  "version": "0.1.0-snapshot",
   "description": "实录 / Stele — carve decisions as they're made, traceable ever after. Local MCP server + SQLite decision-provenance store; primary client is Claude Code.",
   "keywords": [
     "mcp",

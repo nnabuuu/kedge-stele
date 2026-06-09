@@ -222,6 +222,26 @@ stele trace-entity file path/to/the-file.ts   # pulls cross-session decisions
 
 ## Migrating from earlier versions
 
+### From 0.0.7 → 0.1.0
+
+The Decision shape, Edge field name, and id format all change in 0.1.0. **The
+old DB is NOT auto-translated.** On first open, the store detects the
+pre-0.1.0 schema (via the `decisions.status_kind` column) and renames the
+file aside to `.stele/decisions.0.0.x.db`, then creates a fresh 0.1.0
+database in its place. The MCP server and CLI print a one-time hint pointing
+at the backup.
+
+If you need rows from the backup, query it directly with `sqlite3`:
+
+```bash
+sqlite3 .stele/decisions.0.0.x.db "SELECT id, title FROM decisions"
+```
+
+The `/decision` and `/milestone-report` flows are the intended new write
+path; bulk import from old data isn't a 0.1.0 feature.
+
+### Earlier (pre-0.0.3) layouts
+
 The old global `~/.stele/decisions.db` is no longer auto-detected from a
 project subdirectory. To move data into a specific project:
 

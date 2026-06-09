@@ -16,6 +16,120 @@ npm install -g stele-mcp@snapshot
 
 — nothing yet —
 
+## [0.1.0-snapshot] · 2026-06-09
+
+**Breaking release.** The 0.0.x → 0.1.0 cut. Decision shape, milestone state
+enum, edge field name, and id format all change. Pre-0.1.0 databases are
+auto-renamed aside (see Migration below); the snapshot npm channel is the
+intended audience, so the blast radius is small.
+
+### Added — domain model
+
+- **Project** is a first-class DB entity now (was registry-only). Each
+  per-project `.stele/decisions.db` holds exactly one Project row with
+  `name`, `code`, `path`, `status ∈ {active, winding, dormant, archived}`,
+  and a `createdAt` timestamp. `stele init` bootstraps it.
+- **Feature** is a new entity between Project and Milestone. The structural
+  axis (`CcaaS`, `Live Lesson`, ...) that pairs with cross-cutting Tags.
+  Each Feature has an `id`, `projectId`, `name`, and optional `links[]` to
+  other Features. Each project gets an auto-created "unscoped" Feature for
+  decisions that don't fit a real Feature.
+- **Milestone state** widens from 3 states (`active/shipped/abandoned`) to
+  **5 states (`draft/going/winding/done/paused`)**. State transitions:
+  - opens at `draft` until a session opens on it (auto-advance to `going`)
+  - `session_end({outcome:{type:'resolved'}})` advances `going → winding`
+  - explicit transitions to `done` / `paused` via CLI
+- **Milestone** gains `about` (one-line context), `sequenceAfter[]`
+  (predecessor milestone ids), and a required `featureId` FK.
+- **Session** gains structured fields: `provenance` (cwd + zellij info +
+  `layoutAlive` flag), `outcome` (typed: `advanced` | `resolved` | `touched`
+  + summary + resolves[] + via), and `pauseReason` (kind + note).
+- **Decision** splits the old discriminated `Status` union into separate
+  columns: `type ∈ {decision, deferred, open}`, `status ∈ {null, open,
+  resolved}`, `resolvedBy`, `supersededBy`. A rich `detail` body holds
+  `optionAxis` / `trigger` / `constraint` / `options[]` / `why[]` /
+  `locks{in,out}` / `artifact{file,commit}`. A new derived `nodeState`
+  helper rolls the split back into the 6-state UI label.
+- **Decision id format** changes from `D-NN` / `DEF-NN` / `OQ-NN` to
+  `<milestoneId>/<local>` (e.g. `M-01/D-04`). The status-prefixed local
+  part is still glanceable. Unscoped decisions live under the auto-created
+  unscoped milestone, so every id parses with one regex.
+- **Edge** field rename: `kind` → `relation`. A new `depends_on` value joins
+  the relation enum. `resolves` and `supersedes` still flip the target;
+  `depends_on` / `relates` / `reconciles` are non-mutating.
+
+### Added — MCP tools (22 total, was 17)
+
+- New: `feature_open`, `feature_list`
+- New: `session_start`, `session_end`, `milestone_report`, `resume_command`
+- Renamed: `decision_resolve` arg `kind` → `relation`
+- Extended: `decision_capture` accepts the new Decision shape, an explicit
+  `sessionId` (when `session_start` was called separately), and an updated
+  `milestone.draft` shape with `featureId` / `featureDraft`.
+- Retired: `milestone_close` (state advances via the `milestone_report` /
+  `session_end` flow + explicit `set-state` CLI).
+
+### Added — slash commands
+
+- New: `/milestone-report` ("走之前留话") — agent drafts a session summary
+  + structured pause_reason + open-loop list, user confirms, tool advances
+  milestone state.
+- New: `/resume` ("回来时念回来") — agent reads back the last session's
+  outcome + pause_reason and prints a copy-paste `claude --resume` command.
+  Mode is `jump` (zellij layout still alive) or `rebuild`.
+
+### Added — CLI subcommands
+
+- `stele project {show, set-status}` — current project's DB row + rollup
+- `stele features {list, open}`
+- `stele sessions {list, start, end, resume, continue}` — `continue` is
+  the CLI equivalent of `/resume`
+- `stele milestones {list, open, report, show, set-state}` — `close`
+  retired; `set-state` for explicit transitions; `report` for the
+  walk-away ritual
+- `stele depends-on <from> <to> [note]` — author depends_on edges
+- Retired: `stele seed` (source file kept for one snapshot in case users
+  have unmigrated HTML archives) and `stele milestones close`.
+
+### Added — HTTP routes
+
+- `GET /api/project`, `GET/POST /api/features`, `GET /api/features/:id`,
+  `GET /api/sessions`, `GET /api/sessions/:id`, `POST /api/sessions/start`,
+  `POST /api/sessions/:id/end`, `GET /api/sessions/:id/resume-command`,
+  `GET /api/milestones/:id/report`, `POST /api/project/status`.
+- `GET /api/decisions/<milestone>/<local>` works with the slash in the id.
+
+### Added — agent surface
+
+- The Stop hook now queries `stele milestones list --state going --json`
+  and surfaces only active milestones to the skill.
+- `stele-capture` skill grew **Step 0.7 — Feature judgment** and a
+  rewritten Decision-shape primer for the new split form.
+
+### Migration story
+
+When `Store` opens a pre-0.1.0 `.stele/decisions.db` (detected by the
+`decisions.status_kind` column), it **auto-renames the file aside** to
+`<path>.0.0.x.db` and creates a fresh 0.1.0 schema. The snapshot CLI/MCP
+prints a one-time hint pointing at the backup. No auto-translation of
+prior Decision rows — query the backup via `sqlite3` if you need the data.
+
+### Tests
+
+138 → 169 (added Project/Feature/Session lifecycle tests, end-to-end
+acceptance scenario; rewrote all schema/projection/capture/serve tests for
+the new shape).
+
+### Out of scope (deferred to 0.1.1+)
+
+- `web/` SPA rebuild against the design mocks. The frontend keeps its
+  0.0.7 shape this release and renders incompletely; the rebuild is the
+  next planning round.
+- `IntentDelta` bundle layer.
+- Auto-proposing `depends_on` from the consolidate layer (authored only
+  in 0.1.0).
+- Real `EntityResolver` (stub stays).
+
 ## [0.0.7-snapshot] · 2026-06-09
 
 ### Added

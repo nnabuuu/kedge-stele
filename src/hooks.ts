@@ -21,6 +21,8 @@ const HOOK_PATH_REL = ".claude/hooks/stele-stop.sh";
 const SKILL_DIR_REL = ".claude/skills/stele-capture";
 const SKILL_FILE_REL = ".claude/skills/stele-capture/SKILL.md";
 const COMMAND_FILE_REL = ".claude/commands/decision.md";
+const MILESTONE_REPORT_FILE_REL = ".claude/commands/milestone-report.md";
+const RESUME_FILE_REL = ".claude/commands/resume.md";
 const SETTINGS_REL = ".claude/settings.json";
 
 function templatesDir(): string {
@@ -151,11 +153,25 @@ export interface InstallReport {
   hook: string;
   skill: string;
   command: string;
+  milestoneReport: string;
+  resume: string;
   settings: string;
 }
 
+function installCommand(projectRoot: string, relPath: string, templateName: string): string {
+  const path = join(projectRoot, relPath);
+  if (existsSync(path)) {
+    return `${relPath} already exists, left as-is`;
+  }
+  ensureDir(dirname(path));
+  writeFileSync(path, readTemplate(templateName));
+  return `wrote ${relPath}`;
+}
+
 export function installHooks(projectRoot: string): InstallReport {
-  const report: InstallReport = { hook: "", skill: "", command: "", settings: "" };
+  const report: InstallReport = {
+    hook: "", skill: "", command: "", milestoneReport: "", resume: "", settings: "",
+  };
 
   // 1. Hook script
   const hookPath = join(projectRoot, HOOK_PATH_REL);
@@ -171,15 +187,10 @@ export function installHooks(projectRoot: string): InstallReport {
   writeFileSync(skillPath, readTemplate("stele-capture-skill.md"));
   report.skill = `wrote ${SKILL_FILE_REL}`;
 
-  // 3. /decision slash command — only if missing (don't overwrite user edits)
-  const commandPath = join(projectRoot, COMMAND_FILE_REL);
-  if (existsSync(commandPath)) {
-    report.command = `${COMMAND_FILE_REL} already exists, left as-is`;
-  } else {
-    ensureDir(dirname(commandPath));
-    writeFileSync(commandPath, readTemplate("decision-command.md"));
-    report.command = `wrote ${COMMAND_FILE_REL}`;
-  }
+  // 3. Slash commands — only write if missing (don't overwrite user edits)
+  report.command = installCommand(projectRoot, COMMAND_FILE_REL, "decision-command.md");
+  report.milestoneReport = installCommand(projectRoot, MILESTONE_REPORT_FILE_REL, "milestone-report-command.md");
+  report.resume = installCommand(projectRoot, RESUME_FILE_REL, "resume-command.md");
 
   // 4. Settings merge
   const s = mergeSettings(projectRoot);
@@ -189,7 +200,9 @@ export function installHooks(projectRoot: string): InstallReport {
 }
 
 export function uninstallHooks(projectRoot: string): InstallReport {
-  const report: InstallReport = { hook: "", skill: "", command: "", settings: "" };
+  const report: InstallReport = {
+    hook: "", skill: "", command: "", milestoneReport: "", resume: "", settings: "",
+  };
 
   const hookPath = join(projectRoot, HOOK_PATH_REL);
   if (existsSync(hookPath)) {
@@ -207,8 +220,10 @@ export function uninstallHooks(projectRoot: string): InstallReport {
     report.skill = `${SKILL_DIR_REL} not present`;
   }
 
-  // Never delete the /decision command on uninstall — user may have customized.
+  // Never delete the slash commands on uninstall — user may have customized.
   report.command = `${COMMAND_FILE_REL} left in place (manual delete if you want)`;
+  report.milestoneReport = `${MILESTONE_REPORT_FILE_REL} left in place`;
+  report.resume = `${RESUME_FILE_REL} left in place`;
 
   const s = unmergeSettings(projectRoot);
   report.settings = s.note;
@@ -220,6 +235,8 @@ export interface StatusReport {
   hook: boolean;
   skill: boolean;
   command: boolean;
+  milestoneReport: boolean;
+  resume: boolean;
   settingsHasEntry: boolean;
 }
 
@@ -239,6 +256,8 @@ export function hooksStatus(projectRoot: string): StatusReport {
     hook: existsSync(join(projectRoot, HOOK_PATH_REL)),
     skill: existsSync(join(projectRoot, SKILL_FILE_REL)),
     command: existsSync(join(projectRoot, COMMAND_FILE_REL)),
+    milestoneReport: existsSync(join(projectRoot, MILESTONE_REPORT_FILE_REL)),
+    resume: existsSync(join(projectRoot, RESUME_FILE_REL)),
     settingsHasEntry,
   };
 }

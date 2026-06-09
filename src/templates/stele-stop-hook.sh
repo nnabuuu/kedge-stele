@@ -60,15 +60,14 @@ if printf '%s' "$response_text" | grep -qE "$joined"; then
       >> "$cwd/.stele/hooks.log" 2>/dev/null || true
   fi
 
-  # 0.0.6 — fetch active milestones so the skill can make a continue-vs-new
-  # judgment without doing a separate MCP roundtrip first. Best-effort:
+  # 0.1.0 — fetch active milestones (state=going) so the skill can make a
+  # continue-vs-new judgment without a separate MCP roundtrip. Best-effort:
   # if stele isn't on PATH or the project isn't initialized, skip.
   milestones_block=""
   if command -v stele >/dev/null 2>&1 && [ -n "$cwd" ] && [ -d "$cwd/.stele" ]; then
-    milestones_json="$(cd "$cwd" && stele milestones list --status active --json 2>/dev/null)"
+    milestones_json="$(cd "$cwd" && stele milestones list --state going --json 2>/dev/null)"
     if [ -n "$milestones_json" ] && [ "$milestones_json" != "[]" ]; then
-      # Inline a compact summary so the skill sees it as one block in additionalContext.
-      milestones_block="$(printf '%s' "$milestones_json" | jq -r '.[] | "  - \(.milestone.id) \"\(.milestone.title)\" (started \(.milestone.startedAt[:10]), \(.openLoops) open loops)"' 2>/dev/null)"
+      milestones_block="$(printf '%s' "$milestones_json" | jq -r '.[] | "  - \(.milestone.id) \"\(.milestone.name)\" (started \(.milestone.startedAt[:10]), \(.openLoops) open loops)"' 2>/dev/null)"
     fi
   fi
 

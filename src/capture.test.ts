@@ -1,229 +1,203 @@
-// Tests for src/capture.ts — resolveMilestoneAndSession.
-//
-// This is the part of decision_capture that wires the agent's milestone +
-// sourceSession judgment into Store rows. The 0.0.6 release shipped with a
-// silent-incoherence bug (milestone-id mismatch on session reuse); this
-// suite pins the fixed behaviour as a regression test.
+// Tests for src/capture.ts (0.1.0). resolveMilestoneAndSession wires the
+// agent's milestone + sourceSession judgment into actual Project/Feature/
+// Milestone/Session rows; recordSessionStart/End are the explicit
+// session_start / session_end helpers.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { Store } from "./store.ts";
-import { resolveMilestoneAndSession } from "./capture.ts";
-import type { Milestone } from "./types.ts";
+import {
+  recordSessionEnd,
+  recordSessionStart,
+  resolveMilestoneAndSession,
+} from "./capture.ts";
 
 const AT = "2026-06-09T00:00:00Z";
 
-function freshStoreWithMilestone(id: string, title = "test"): Store {
-  const s = new Store(":memory:");
-  s.putMilestone({
-    id, title,
-    status: "active",
-    startedAt: "2026-06-01T00:00:00Z",
+function bootProject(s: Store): { projectId: string } {
+  const projectId = s.nextProjectId();
+  s.putProject({
+    id: projectId, name: "test", path: "/test", status: "active",
+    createdAt: AT,
   });
-  return s;
+  return { projectId };
 }
 
-// ---- mode: "unscoped" ---------------------------------------------------
+// ---- mode = unscoped -------------------------------------------------------
 
-test("unscoped mode returns null/null and writes nothing", () => {
+test("mode='unscoped' binds to the auto-created unscoped milestone", () => {
   const s = new Store(":memory:");
-  const r = resolveMilestoneAndSession(
-    s, { mode: "unscoped" },
-    { source: "claude-code", sourceSessionId: "abc" },
-    AT,
-  );
-  assert.equal(r.milestoneId, null);
-  assert.equal(r.sessionId, null);
-  assert.equal(s.allMilestones().length, 0);
-});
-
-test("undefined milestone is treated as unscoped", () => {
-  const s = new Store(":memory:");
-  const r = resolveMilestoneAndSession(s, undefined, undefined, AT);
-  assert.equal(r.milestoneId, null);
-  assert.equal(r.sessionId, null);
-});
-
-// ---- mode: "new" --------------------------------------------------------
-
-test("mode:new creates milestone + session and stamps both", () => {
-  const s = new Store(":memory:");
-  const r = resolveMilestoneAndSession(
-    s,
-    { mode: "new", draft: { title: "ship X", intent: "we want X because Y" } },
-    { source: "claude-code", sourceSessionId: "claude-abc" },
-    AT,
-  );
+  bootProject(s);
+  const r = resolveMilestoneAndSession(s, { mode: "unscoped" }, undefined, AT);
   assert.ok(r.milestoneId);
   assert.ok(r.sessionId);
-  const m = s.getMilestone(r.milestoneId!)!;
-  assert.equal(m.title, "ship X");
-  assert.equal(m.intent, "we want X because Y");
-  assert.equal(m.status, "active");
-  const ses = s.getSession(r.sessionId!)!;
-  assert.equal(ses.source, "claude-code");
-  assert.equal(ses.sourceSessionId, "claude-abc");
-  assert.equal(ses.milestoneId, m.id);
+  const m = s.getMilestone(r.milestoneId)!;
+  assert.equal(m.name, "unscoped");
 });
 
-test("mode:new without sourceSession opens an anonymous 'manual' session", () => {
+test("mode=undefined behaves like mode='unscoped'", () => {
   const s = new Store(":memory:");
-  const r = resolveMilestoneAndSession(
-    s,
-    { mode: "new", draft: { title: "no source identity" } },
-    undefined,
-    AT,
-  );
-  assert.ok(r.sessionId);
-  const ses = s.getSession(r.sessionId!)!;
-  assert.equal(ses.source, "manual");
-  assert.equal(ses.sourceSessionId, undefined);
+  bootProject(s);
+  const r = resolveMilestoneAndSession(s, undefined, undefined, AT);
+  assert.ok(r.milestoneId);
+  const m = s.getMilestone(r.milestoneId)!;
+  assert.equal(m.name, "unscoped");
 });
 
-// ---- mode: "continue" ---------------------------------------------------
+// ---- mode = continue -------------------------------------------------------
 
-test("mode:continue on missing milestone throws", () => {
+test("mode='continue' reuses the named milestone", () => {
   const s = new Store(":memory:");
-  assert.throws(() => {
-    resolveMilestoneAndSession(
-      s,
-      { mode: "continue", id: "M-NOPE" },
-      { source: "claude-code", sourceSessionId: "abc" },
-      AT,
-    );
-  }, /does not exist/);
-});
+  const { projectId } = bootProject(s);
+  // Set up an explicit milestone under a real feature
+  const fid = s.nextFeatureId();
+  s.putFeature({ id: fid, projectId, name: "Backend" });
+  s.putMilestone({ id: "M-01", featureId: fid, name: "First", state: "going", startedAt: AT });
 
-test("mode:continue with new sourceSessionId creates a fresh session under that milestone", () => {
-  const s = freshStoreWithMilestone("M-01");
-  const r = resolveMilestoneAndSession(
-    s,
-    { mode: "continue", id: "M-01" },
-    { source: "claude-code", sourceSessionId: "first-time" },
-    AT,
-  );
+  const r = resolveMilestoneAndSession(s, { mode: "continue", id: "M-01" }, undefined, AT);
   assert.equal(r.milestoneId, "M-01");
-  assert.ok(r.sessionId);
-  const ses = s.getSession(r.sessionId!)!;
-  assert.equal(ses.milestoneId, "M-01");
-  assert.equal(ses.sourceSessionId, "first-time");
 });
 
-test("mode:continue with an existing matching session REUSES it", () => {
-  const s = freshStoreWithMilestone("M-01");
-  // First capture
-  const r1 = resolveMilestoneAndSession(
-    s,
-    { mode: "continue", id: "M-01" },
-    { source: "claude-code", sourceSessionId: "stable-sid" },
-    AT,
-  );
-  // Second capture with same sourceSessionId + same milestone
-  const r2 = resolveMilestoneAndSession(
-    s,
-    { mode: "continue", id: "M-01" },
-    { source: "claude-code", sourceSessionId: "stable-sid" },
-    AT,
-  );
-  assert.equal(r2.sessionId, r1.sessionId, "same conversation should land on the same session");
-  // And the notes should say "reused"
-  assert.ok(r2.notes.some((n) => n.includes("reused")));
-});
-
-// ---- CR1 regression: milestone-mismatch reassignment -------------------
-
-test("CR1 — agent re-assigns conversation to a different milestone → Session moves with it", () => {
+test("mode='continue' rejects unknown milestone id", () => {
   const s = new Store(":memory:");
-  // Two active milestones
-  const M1: Milestone = { id: "M-01", title: "first attempt", status: "active", startedAt: AT };
-  const M2: Milestone = { id: "M-02", title: "real direction", status: "active", startedAt: AT };
-  s.putMilestone(M1);
-  s.putMilestone(M2);
-
-  // First capture: agent says we're on M-01
-  const r1 = resolveMilestoneAndSession(
-    s,
-    { mode: "continue", id: "M-01" },
-    { source: "claude-code", sourceSessionId: "same-conv" },
-    AT,
-  );
-  assert.equal(r1.milestoneId, "M-01");
-  const sessionId = r1.sessionId!;
-  assert.equal(s.getSession(sessionId)!.milestoneId, "M-01");
-
-  // Second capture in the same Claude session: agent realised this is
-  // really on M-02 (the user pivoted, or the agent re-read context).
-  const r2 = resolveMilestoneAndSession(
-    s,
-    { mode: "continue", id: "M-02" },
-    { source: "claude-code", sourceSessionId: "same-conv" },
-    AT,
-  );
-
-  // The returned milestoneId is M-02 (what the agent asked for)
-  assert.equal(r2.milestoneId, "M-02");
-  // The session is the SAME row (dedup worked)
-  assert.equal(r2.sessionId, sessionId);
-  // AND CRITICALLY: the Session in the store now points at M-02, not M-01.
-  // Without the CR1 fix, the Session row would still say M-01 — silently
-  // contradicting the milestoneId we returned.
-  assert.equal(
-    s.getSession(sessionId)!.milestoneId,
-    "M-02",
-    "Session row was not reassigned — the 0.0.6 mismatch bug is back",
-  );
-
-  // The note records the move so it's auditable
-  assert.ok(
-    r2.notes.some((n) => n.includes("reassigned")),
-    "no audit trail for the milestone reassignment",
-  );
-
-  // Decisions that already pointed at this Session are NOT moved per-row,
-  // but their milestone projection follows the Session, so they appear
-  // under M-02 going forward. Verify via decisionsInMilestone.
-  s.putDecision({
-    id: "D-1",
-    title: "first decision",
-    raisedBy: {
-      trigger: "x", actor: "x", layer: "personal", at: AT,
-    },
-    status: { kind: "open", question: "?" },
-    affects: [],
-    sessionId,
-  });
-  assert.deepEqual(
-    s.decisionsInMilestone("M-02").map((d) => d.id),
-    ["D-1"],
-    "decision should follow the session into the new milestone",
-  );
-  assert.deepEqual(
-    s.decisionsInMilestone("M-01").map((d) => d.id),
-    [],
-    "old milestone should be empty after the session moved",
+  bootProject(s);
+  assert.throws(() =>
+    resolveMilestoneAndSession(s, { mode: "continue", id: "M-NOPE" }, undefined, AT),
   );
 });
 
-// ---- notes audit ---------------------------------------------------------
+// ---- mode = new ------------------------------------------------------------
 
-test("notes mention the milestone id + title on continue", () => {
-  const s = freshStoreWithMilestone("M-01", "ship something");
+test("mode='new' with featureDraft creates Feature + Milestone in one shot", () => {
+  const s = new Store(":memory:");
+  bootProject(s);
   const r = resolveMilestoneAndSession(
     s,
-    { mode: "continue", id: "M-01" },
-    { source: "claude-code", sourceSessionId: "x" },
-    AT,
+    { mode: "new", draft: { name: "Binary artifact", featureDraft: { name: "CcaaS" } } },
+    undefined, AT,
   );
-  assert.ok(r.notes.some((n) => n.includes("M-01") && n.includes("ship something")));
+  const m = s.getMilestone(r.milestoneId)!;
+  assert.equal(m.name, "Binary artifact");
+  const f = s.getFeature(m.featureId)!;
+  assert.equal(f.name, "CcaaS");
 });
 
-test("notes mention the milestone id + title on new", () => {
+test("mode='new' with existing featureId uses it without creating a new Feature", () => {
   const s = new Store(":memory:");
+  const { projectId } = bootProject(s);
+  const fid = s.nextFeatureId();
+  s.putFeature({ id: fid, projectId, name: "Backend" });
+
   const r = resolveMilestoneAndSession(
-    s,
-    { mode: "new", draft: { title: "kick off X" } },
-    { source: "claude-code", sourceSessionId: "x" },
-    AT,
+    s, { mode: "new", draft: { name: "x", featureId: fid } },
+    undefined, AT,
   );
-  assert.ok(r.notes.some((n) => n.includes("kick off X")));
+  const m = s.getMilestone(r.milestoneId)!;
+  assert.equal(m.featureId, fid);
+  // Should NOT have created a second feature with the same project
+  assert.equal(s.featuresIn(projectId).length, 1);
+});
+
+test("mode='new' without featureId or featureDraft falls back to unscoped feature", () => {
+  const s = new Store(":memory:");
+  const { projectId } = bootProject(s);
+  const r = resolveMilestoneAndSession(
+    s, { mode: "new", draft: { name: "free-form" } },
+    undefined, AT,
+  );
+  const m = s.getMilestone(r.milestoneId)!;
+  const f = s.getFeature(m.featureId)!;
+  assert.equal(f.name, "unscoped");
+  assert.equal(f.projectId, projectId);
+});
+
+test("first session on a new milestone advances state draft → going", () => {
+  const s = new Store(":memory:");
+  bootProject(s);
+  const r = resolveMilestoneAndSession(
+    s, { mode: "new", draft: { name: "x" } },
+    undefined, AT,
+  );
+  const m = s.getMilestone(r.milestoneId)!;
+  assert.equal(m.state, "going");
+});
+
+// ---- session dedup ---------------------------------------------------------
+
+test("sourceSession + sourceSessionId dedup: two captures collapse to one Session", () => {
+  const s = new Store(":memory:");
+  bootProject(s);
+  const ctx = { source: "claude-code" as const, sourceSessionId: "abc123" };
+  const r1 = resolveMilestoneAndSession(s, { mode: "unscoped" }, ctx, AT);
+  const r2 = resolveMilestoneAndSession(s, { mode: "unscoped" }, ctx, AT);
+  assert.equal(r1.sessionId, r2.sessionId);
+});
+
+test("milestone-mismatch: existing session gets reassigned to the new milestone", () => {
+  const s = new Store(":memory:");
+  const { projectId } = bootProject(s);
+  const fid = s.nextFeatureId();
+  s.putFeature({ id: fid, projectId, name: "x" });
+  s.putMilestone({ id: "M-03", featureId: fid, name: "old", state: "going", startedAt: AT });
+  s.putMilestone({ id: "M-04", featureId: fid, name: "new", state: "going", startedAt: AT });
+
+  const ctx = { source: "claude-code" as const, sourceSessionId: "abc" };
+  const r1 = resolveMilestoneAndSession(s, { mode: "continue", id: "M-03" }, ctx, AT);
+  assert.equal(s.getSession(r1.sessionId)!.milestoneId, "M-03");
+  const r2 = resolveMilestoneAndSession(s, { mode: "continue", id: "M-04" }, ctx, AT);
+  assert.equal(r2.sessionId, r1.sessionId);
+  assert.equal(s.getSession(r2.sessionId)!.milestoneId, "M-04");
+});
+
+// ---- recordSessionStart ----------------------------------------------------
+
+test("recordSessionStart creates a new session with provenance", () => {
+  const s = new Store(":memory:");
+  const { projectId } = bootProject(s);
+  const m = s.ensureUnscopedMilestone(projectId);
+  const sess = recordSessionStart(
+    s, m.id,
+    { source: "claude-code", sourceSessionId: "xyz" },
+    { cwd: "/home/me", layoutAlive: true },
+  );
+  assert.equal(sess.milestoneId, m.id);
+  assert.equal(sess.provenance!.cwd, "/home/me");
+  assert.equal(sess.provenance!.layoutAlive, true);
+});
+
+test("recordSessionStart is idempotent on (source, sourceSessionId)", () => {
+  const s = new Store(":memory:");
+  const { projectId } = bootProject(s);
+  const m = s.ensureUnscopedMilestone(projectId);
+  const a = recordSessionStart(s, m.id, { source: "claude-code", sourceSessionId: "x" });
+  const b = recordSessionStart(s, m.id, { source: "claude-code", sourceSessionId: "x" });
+  assert.equal(a.id, b.id);
+});
+
+// ---- recordSessionEnd ------------------------------------------------------
+
+test("recordSessionEnd writes outcome + pauseReason", () => {
+  const s = new Store(":memory:");
+  const { projectId } = bootProject(s);
+  const m = s.ensureUnscopedMilestone(projectId);
+  const sess = recordSessionStart(s, m.id, { source: "manual" });
+  const closed = recordSessionEnd(
+    s, sess.id,
+    { type: "advanced", summary: "wrote tests" },
+    { kind: "out_of_time", note: "back tomorrow" },
+  );
+  assert.equal(closed.outcome!.type, "advanced");
+  assert.equal(closed.pauseReason!.kind, "out_of_time");
+  assert.ok(closed.endedAt);
+});
+
+test("recordSessionEnd with outcome.type='resolved' advances milestone going → winding", () => {
+  const s = new Store(":memory:");
+  const { projectId } = bootProject(s);
+  const m = s.ensureUnscopedMilestone(projectId);
+  // boot session moves state from draft → going inside recordSessionStart
+  const sess = recordSessionStart(s, m.id, { source: "manual" });
+  assert.equal(s.getMilestone(m.id)!.state, "going");
+  recordSessionEnd(s, sess.id, { type: "resolved", summary: "ok" });
+  assert.equal(s.getMilestone(m.id)!.state, "winding");
 });

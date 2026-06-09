@@ -1,7 +1,6 @@
-// Tests for src/schemas.ts — the Zod source of truth shared by mcp.ts and
-// serve.ts. The bugs we want to catch here are SHAPE drift: if the schema
-// accepts a payload that types.ts wouldn't, or vice versa, one adapter
-// silently disagrees with the other.
+// Tests for src/schemas.ts (0.1.0). Pin the canonical contracts that mcp.ts
+// and serve.ts both validate against — if these drift the two adapters can
+// diverge.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -9,221 +8,217 @@ import {
   CapturePayloadSchema,
   DecisionSchema,
   EdgeSchema,
+  FeatureSchema,
+  MilestoneSchema,
+  PauseReasonSchema,
+  ProjectSchema,
+  ResumeCommandResultSchema,
+  SessionOutcomeSchema,
+  SessionProvenanceSchema,
+  SessionSchema,
   TriggerSchema,
 } from "./schemas.ts";
 
-// ---- TriggerSchema (the most regression-prone — must stay structured) ----
+// ---- Project ---------------------------------------------------------------
 
-test("Trigger accepts manual kind", () => {
-  assert.equal(TriggerSchema.safeParse({ kind: "manual" }).success, true);
+test("ProjectSchema · valid", () => {
+  const p = {
+    id: "P-01", name: "stele", code: "STELE",
+    path: "/x", status: "active", createdAt: "2026-06-09T00:00:00Z",
+  };
+  assert.equal(ProjectSchema.safeParse(p).success, true);
 });
 
-test("Trigger accepts metric with expr", () => {
-  assert.equal(
-    TriggerSchema.safeParse({ kind: "metric", expr: "x > 10" }).success,
-    true,
-  );
+test("ProjectSchema · rejects invalid status (e.g. old 'shipped')", () => {
+  const p = {
+    id: "P-01", name: "stele", path: "/x", status: "shipped",
+    createdAt: "2026-06-09T00:00:00Z",
+  };
+  assert.equal(ProjectSchema.safeParse(p).success, false);
 });
 
-test("Trigger accepts event with name", () => {
-  assert.equal(
-    TriggerSchema.safeParse({ kind: "event", name: "ships" }).success,
-    true,
-  );
+// ---- Feature ---------------------------------------------------------------
+
+test("FeatureSchema · valid with links", () => {
+  const f = {
+    id: "F-01", projectId: "P-01", name: "CcaaS",
+    links: [{ to: "F-02", relation: "depends-on" }],
+  };
+  assert.equal(FeatureSchema.safeParse(f).success, true);
 });
 
-test("Trigger accepts dependency with on", () => {
-  assert.equal(
-    TriggerSchema.safeParse({ kind: "dependency", on: "D-04" }).success,
-    true,
-  );
+test("FeatureSchema · rejects invalid link relation", () => {
+  const f = {
+    id: "F-01", projectId: "P-01", name: "X",
+    links: [{ to: "F-02", relation: "bogus" }],
+  };
+  assert.equal(FeatureSchema.safeParse(f).success, false);
 });
 
-test("Trigger rejects free-text-only string", () => {
-  assert.equal(TriggerSchema.safeParse("when it breaks").success, false);
+// ---- Milestone -------------------------------------------------------------
+
+test("MilestoneSchema · 5-state enum", () => {
+  for (const state of ["draft", "going", "winding", "done", "paused"]) {
+    const m = {
+      id: "M-01", featureId: "F-01", name: "x",
+      state, startedAt: "2026-06-09T00:00:00Z",
+    };
+    assert.equal(MilestoneSchema.safeParse(m).success, true, `${state} should be valid`);
+  }
 });
 
-test("Trigger rejects metric without expr", () => {
+test("MilestoneSchema · rejects old 'shipped' state", () => {
+  const m = {
+    id: "M-01", featureId: "F-01", name: "x",
+    state: "shipped", startedAt: "2026-06-09T00:00:00Z",
+  };
+  assert.equal(MilestoneSchema.safeParse(m).success, false);
+});
+
+// ---- Session ---------------------------------------------------------------
+
+test("SessionSchema · with provenance + outcome", () => {
+  const s = {
+    id: "ses-x", milestoneId: "M-01", source: "claude-code",
+    startedAt: "2026-06-09T00:00:00Z",
+    provenance: { cwd: "/x", layoutAlive: true },
+    outcome: { type: "advanced", summary: "ok" },
+  };
+  assert.equal(SessionSchema.safeParse(s).success, true);
+});
+
+test("SessionProvenanceSchema · requires layoutAlive", () => {
+  assert.equal(SessionProvenanceSchema.safeParse({ cwd: "/x" }).success, false);
+  assert.equal(SessionProvenanceSchema.safeParse({ cwd: "/x", layoutAlive: false }).success, true);
+});
+
+test("SessionOutcomeSchema · rejects invalid type", () => {
+  assert.equal(SessionOutcomeSchema.safeParse({ type: "shipped" }).success, false);
+  assert.equal(SessionOutcomeSchema.safeParse({ type: "advanced" }).success, true);
+});
+
+test("PauseReasonSchema · accepts all 6 kinds", () => {
+  for (const k of ["blocked", "waiting_dep", "out_of_time", "lost_thread", "done_enough", "other"]) {
+    assert.equal(PauseReasonSchema.safeParse({ kind: k }).success, true);
+  }
+});
+
+// ---- Trigger ---------------------------------------------------------------
+
+test("TriggerSchema · 4 discriminator cases", () => {
+  for (const t of [
+    { kind: "manual" },
+    { kind: "metric", expr: "x>0" },
+    { kind: "event", name: "ship" },
+    { kind: "dependency", on: "M-01/D-01" },
+  ]) {
+    assert.equal(TriggerSchema.safeParse(t).success, true);
+  }
+});
+
+test("TriggerSchema · rejects metric without expr", () => {
   assert.equal(TriggerSchema.safeParse({ kind: "metric" }).success, false);
 });
 
-test("Trigger rejects unknown kind", () => {
-  assert.equal(
-    TriggerSchema.safeParse({ kind: "vibes", text: "later" }).success,
-    false,
-  );
-});
+// ---- Decision --------------------------------------------------------------
 
-// ---- DecisionSchema — happy paths -----------------------------------------
-
-const baseRaised = {
-  trigger: "test",
-  actor: "tester",
-  layer: "personal",
-  at: "2026-06-08T00:00:00Z",
-};
-
-test("Decision · decided · happy path", () => {
-  const r = DecisionSchema.safeParse({
-    id: "D-99",
-    title: "test?",
-    raisedBy: baseRaised,
-    status: {
-      kind: "decided",
-      options: [{ label: "A", summary: "the a option", verdict: "chosen" }],
-      rationale: "because",
+function baseDecided() {
+  return {
+    id: "M-01/D-01",
+    milestoneId: "M-01",
+    type: "decision" as const,
+    title: "pick storage backend",
+    raisedBy: {
+      trigger: "user asked", actor: "agent", layer: "personal" as const,
+      at: "2026-06-09T00:00:00Z",
     },
-    affects: [{ kind: "file", id: "src/x.ts" }],
-  });
-  assert.equal(r.success, true);
-});
-
-test("Decision · deferred · WITH structured revisitWhen", () => {
-  const r = DecisionSchema.safeParse({
-    id: "DEF-99",
-    title: "defer?",
-    raisedBy: baseRaised,
-    status: {
-      kind: "deferred",
-      current: "x",
-      reason: "y",
-      revisitWhen: { kind: "metric", expr: "z" },
+    detail: {
+      options: [
+        { name: "SQLite", verdict: "chosen" as const, chosen: true },
+        { name: "Postgres", verdict: "rejected" as const },
+      ],
     },
     affects: [],
-  });
-  assert.equal(r.success, true);
+    createdAt: "2026-06-09T00:00:00Z",
+  };
+}
+
+test("DecisionSchema · type='decision' with options[]", () => {
+  assert.equal(DecisionSchema.safeParse(baseDecided()).success, true);
 });
 
-test("Decision · open · with question", () => {
-  const r = DecisionSchema.safeParse({
-    id: "OQ-99",
-    title: "open?",
-    raisedBy: baseRaised,
-    status: { kind: "open", question: "is it?" },
-    affects: [],
-  });
-  assert.equal(r.success, true);
+test("DecisionSchema · type='decision' rejects missing detail.options", () => {
+  const d = baseDecided();
+  delete (d as Record<string, unknown>).detail;
+  assert.equal(DecisionSchema.safeParse(d).success, false);
 });
 
-// ---- DecisionSchema — the regressions ------------------------------------
-
-test("Decision · deferred · MISSING revisitWhen is REJECTED (this was the bug)", () => {
-  // A deferred decision without revisitWhen is invisible to resume forever —
-  // the schema must enforce structured triggers.
-  const r = DecisionSchema.safeParse({
-    id: "DEF-99",
-    title: "defer?",
-    raisedBy: baseRaised,
-    status: { kind: "deferred", current: "x", reason: "y" },
-    affects: [],
-  });
-  assert.equal(r.success, false);
+test("DecisionSchema · type='decision' allows empty options[] (no real fork)", () => {
+  const d = baseDecided();
+  d.detail = { options: [] };
+  assert.equal(DecisionSchema.safeParse(d).success, true);
 });
 
-test("Decision · deferred · FREE-TEXT revisitWhen is REJECTED", () => {
-  const r = DecisionSchema.safeParse({
-    id: "DEF-99",
-    title: "defer?",
-    raisedBy: baseRaised,
-    status: {
-      kind: "deferred",
-      current: "x",
-      reason: "y",
-      revisitWhen: "when bored",
+test("DecisionSchema · type='deferred' with revisit", () => {
+  const d = {
+    ...baseDecided(),
+    id: "M-01/DEF-01",
+    type: "deferred" as const,
+    status: "open" as const,
+    revisit: { trigger: { kind: "manual" as const } },
+  };
+  delete (d as Record<string, unknown>).detail;
+  assert.equal(DecisionSchema.safeParse(d).success, true);
+});
+
+test("DecisionSchema · type='open' allows omitted detail", () => {
+  const d = { ...baseDecided(), id: "M-01/OQ-01", type: "open" as const, status: "open" as const };
+  delete (d as Record<string, unknown>).detail;
+  assert.equal(DecisionSchema.safeParse(d).success, true);
+});
+
+// ---- Edge ------------------------------------------------------------------
+
+test("EdgeSchema · 5 relations incl depends_on", () => {
+  for (const relation of ["resolves", "supersedes", "reconciles", "relates", "depends_on"]) {
+    assert.equal(
+      EdgeSchema.safeParse({ from: "M-01/D-01", to: "M-01/D-02", relation }).success,
+      true,
+    );
+  }
+});
+
+test("EdgeSchema · rejects old `kind` field name", () => {
+  const e = { from: "M-01/D-01", to: "M-01/D-02", kind: "resolves" };
+  assert.equal(EdgeSchema.safeParse(e).success, false);
+});
+
+// ---- CapturePayload --------------------------------------------------------
+
+test("CapturePayloadSchema · decision only", () => {
+  const p = { decision: baseDecided() };
+  assert.equal(CapturePayloadSchema.safeParse(p).success, true);
+});
+
+test("CapturePayloadSchema · with tags + milestone mode=new + featureDraft", () => {
+  const p = {
+    decision: baseDecided(),
+    milestone: {
+      mode: "new",
+      draft: { name: "Binary artifact", featureDraft: { name: "CcaaS" } },
     },
-    affects: [],
-  });
-  assert.equal(r.success, false);
+    tags: [{ name: "security", reason: "OWASP A1" }],
+  };
+  assert.equal(CapturePayloadSchema.safeParse(p).success, true);
 });
 
-test("Decision · missing required field (id) rejected", () => {
-  const r = DecisionSchema.safeParse({
-    title: "no id",
-    raisedBy: baseRaised,
-    status: { kind: "open", question: "?" },
-    affects: [],
-  });
-  assert.equal(r.success, false);
-});
+// ---- Resume command --------------------------------------------------------
 
-test("Decision · unknown layer rejected", () => {
-  const r = DecisionSchema.safeParse({
-    id: "D-99",
-    title: "test",
-    raisedBy: { ...baseRaised, layer: "galaxy" },
-    status: { kind: "open", question: "?" },
-    affects: [],
-  });
-  assert.equal(r.success, false);
-});
-
-test("Decision · decided option with bad verdict rejected", () => {
-  const r = DecisionSchema.safeParse({
-    id: "D-99",
-    title: "test",
-    raisedBy: baseRaised,
-    status: {
-      kind: "decided",
-      options: [{ label: "A", summary: "x", verdict: "maybe" }],
-      rationale: "because",
-    },
-    affects: [],
-  });
-  assert.equal(r.success, false);
-});
-
-// ---- EdgeSchema ----------------------------------------------------------
-
-test("Edge with resolves kind", () => {
-  const r = EdgeSchema.safeParse({ from: "D-1", to: "DEF-2", kind: "resolves" });
-  assert.equal(r.success, true);
-});
-
-test("Edge with optional note", () => {
-  const r = EdgeSchema.safeParse({
-    from: "D-1",
-    to: "D-2",
-    kind: "relates",
-    note: "see also",
-  });
-  assert.equal(r.success, true);
-});
-
-test("Edge with unknown kind rejected", () => {
-  const r = EdgeSchema.safeParse({ from: "D-1", to: "D-2", kind: "vibes" });
-  assert.equal(r.success, false);
-});
-
-test("Edge missing from rejected", () => {
-  const r = EdgeSchema.safeParse({ to: "D-2", kind: "relates" });
-  assert.equal(r.success, false);
-});
-
-// ---- CapturePayloadSchema -----------------------------------------------
-
-test("CapturePayload · decision only (no edges)", () => {
-  const r = CapturePayloadSchema.safeParse({
-    decision: {
-      id: "D-1",
-      title: "t",
-      raisedBy: baseRaised,
-      status: { kind: "open", question: "?" },
-      affects: [],
-    },
-  });
-  assert.equal(r.success, true);
-});
-
-test("CapturePayload · decision + edges array", () => {
-  const r = CapturePayloadSchema.safeParse({
-    decision: {
-      id: "D-1",
-      title: "t",
-      raisedBy: baseRaised,
-      status: { kind: "open", question: "?" },
-      affects: [],
-    },
-    edges: [{ from: "D-1", to: "DEF-2", kind: "resolves" }],
-  });
-  assert.equal(r.success, true);
+test("ResumeCommandResultSchema · jump mode", () => {
+  const r = {
+    mode: "jump",
+    command: "cd /x && claude --resume abc",
+    copyable: true,
+  };
+  assert.equal(ResumeCommandResultSchema.safeParse(r).success, true);
 });

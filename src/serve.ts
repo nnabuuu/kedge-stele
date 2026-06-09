@@ -24,15 +24,25 @@ import { proposeEdges } from "./consolidate.ts";
 import {
   milestoneDetail,
   milestoneSummary,
+  projectRollup,
   resumeDigest,
   trace,
   traceEntity,
 } from "./projections.ts";
+import {
+  recordSessionEnd,
+  recordSessionStart,
+} from "./capture.ts";
 import { stubResolver } from "./resolver.ts";
 import {
+  CaptureSourceSessionSchema,
   CaptureTagRequestSchema,
   CapturePayloadSchema,
   EdgeSchema,
+  PauseReasonSchema,
+  ProjectStatusSchema,
+  SessionOutcomeSchema,
+  SessionProvenanceSchema,
   TaggingTargetSchema,
 } from "./schemas.ts";
 import {
@@ -50,11 +60,16 @@ import {
   type ProjectEntry,
 } from "./registry.ts";
 import type {
-  CapturePayload,
+  CaptureSourceSession,
   Decision,
   Edge,
   EntityRef,
+  Feature,
+  PauseReason,
+  Project,
   ProposalOutcome,
+  SessionOutcome,
+  SessionProvenance,
   TaggingTargetKind,
 } from "./types.ts";
 
@@ -198,24 +213,22 @@ function validate<T>(schema: z.ZodType<T>, body: unknown, res: ServerResponse): 
 // Route handlers — operate on a Store, shared by both single and multi modes
 // -----------------------------------------------------------------------------
 
-const NEXT_ID_PREFIXES = new Set(["D", "DEF", "OQ"]);
-
-function handleNextId(store: Store, prefix: string, res: ServerResponse): void {
-  if (!NEXT_ID_PREFIXES.has(prefix)) {
+function handleNextId(
+  store: Store,
+  prefix: string,
+  milestoneId: string | null,
+  res: ServerResponse,
+): void {
+  if (prefix !== "D" && prefix !== "DEF" && prefix !== "OQ") {
     badRequest(res, `unknown prefix '${prefix}' — expected one of D, DEF, OQ`);
     return;
   }
-  const pattern = new RegExp(`^${prefix}-(\\d+)$`);
-  let max = 0;
-  for (const d of store.allDecisions()) {
-    const m = d.id.match(pattern);
-    if (m) {
-      const n = Number(m[1]);
-      if (Number.isFinite(n) && n > max) max = n;
-    }
+  if (!milestoneId) {
+    badRequest(res, "0.1.0 ids are <milestone>/<local> — pass milestone=<M-NN> too");
+    return;
   }
-  const next = (max + 1).toString().padStart(2, "0");
-  json(res, 200, `${prefix}-${next}`);
+  const type = prefix === "D" ? "decision" : prefix === "DEF" ? "deferred" : "open";
+  json(res, 200, store.nextLocalDecisionId(milestoneId, type));
 }
 
 async function handleDecision(store: Store, id: string, res: ServerResponse): Promise<void> {
@@ -281,6 +294,106 @@ async function handlePostEdge(
   }
   store.addEdge(edge as Edge);
   json(res, 200, { ok: true, edge });
+}
+
+// -----------------------------------------------------------------------------
+// 0.1.0 — feature / session / project endpoint bodies
+// -----------------------------------------------------------------------------
+
+const SessionStartBodySchema = z.object({
+  milestoneId: z.string(),
+  sourceSession: CaptureSourceSessionSchema,
+  provenance: SessionProvenanceSchema.optional(),
+});
+const SessionEndBodySchema = z.object({
+  outcome: SessionOutcomeSchema,
+  pauseReason: PauseReasonSchema.optional(),
+});
+const FeatureBodySchema = z.object({
+  name: z.string().min(1),
+  links: z
+    .array(z.object({
+      to: z.string(),
+      relation: z.enum(["depends-on", "depended-on-by"]),
+    }))
+    .optional(),
+});
+const ProjectStatusBodySchema = z.object({ status: ProjectStatusSchema });
+
+async function handlePostSessionStart(
+  store: Store,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  let raw: unknown;
+  try { raw = await readJsonBody(req); } catch (e) { return badRequest(res, (e as Error).message); }
+  const body = validate(SessionStartBodySchema, raw, res);
+  if (!body) return;
+  try {
+    const s = recordSessionStart(
+      store, body.milestoneId,
+      body.sourceSession as CaptureSourceSession,
+      body.provenance as SessionProvenance | undefined,
+    );
+    json(res, 200, s);
+  } catch (e) {
+    badRequest(res, (e as Error).message);
+  }
+}
+
+async function handlePostSessionEnd(
+  store: Store,
+  sessionId: string,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  let raw: unknown;
+  try { raw = await readJsonBody(req); } catch (e) { return badRequest(res, (e as Error).message); }
+  const body = validate(SessionEndBodySchema, raw, res);
+  if (!body) return;
+  try {
+    const s = recordSessionEnd(
+      store, sessionId,
+      body.outcome as SessionOutcome,
+      body.pauseReason as PauseReason | undefined,
+    );
+    json(res, 200, s);
+  } catch (e) {
+    badRequest(res, (e as Error).message);
+  }
+}
+
+async function handlePostFeature(
+  store: Store,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const project = store.theProject();
+  if (!project) return badRequest(res, "no project — run `stele init`");
+  let raw: unknown;
+  try { raw = await readJsonBody(req); } catch (e) { return badRequest(res, (e as Error).message); }
+  const body = validate(FeatureBodySchema, raw, res);
+  if (!body) return;
+  const id = store.nextFeatureId();
+  const f: Feature = { id, projectId: project.id, name: body.name, links: body.links };
+  store.putFeature(f);
+  json(res, 200, f);
+}
+
+async function handlePostProjectStatus(
+  store: Store,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const project = store.theProject();
+  if (!project) return badRequest(res, "no project — run `stele init`");
+  let raw: unknown;
+  try { raw = await readJsonBody(req); } catch (e) { return badRequest(res, (e as Error).message); }
+  const body = validate(ProjectStatusBodySchema, raw, res);
+  if (!body) return;
+  const updated: Project = { ...project, status: body.status };
+  store.putProject(updated);
+  json(res, 200, { ok: true, project: updated });
 }
 
 // -----------------------------------------------------------------------------
@@ -451,7 +564,12 @@ async function dispatchApi(
     if (apiPath === "/api/resume") return json(res, 200, resumeDigest(store));
     if (apiPath === "/api/decisions") return json(res, 200, store.allDecisions());
     if (apiPath === "/api/next-id") {
-      return handleNextId(store, searchParams.get("prefix") ?? "D", res);
+      return handleNextId(
+        store,
+        searchParams.get("prefix") ?? "D",
+        searchParams.get("milestone"),
+        res,
+      );
     }
     // 0.0.6 — milestones
     if (apiPath === "/api/milestones") return json(res, 200, milestoneSummary(store));
@@ -460,10 +578,69 @@ async function dispatchApi(
       const detail = milestoneDetail(store, decodeURIComponent(mMilestone[1]));
       return detail ? json(res, 200, detail) : notFound(res);
     }
-    const mDecision = apiPath.match(/^\/api\/decisions\/([^/]+)$/);
-    if (mDecision) return await handleDecision(store, decodeURIComponent(mDecision[1]), res);
+    // 0.1.0 — decision id is `<milestoneId>/<local>` which contains a slash.
+    // The decisions route therefore takes the WHOLE remainder of the path
+    // after `/api/decisions/`, not just the next segment.
+    if (apiPath.startsWith("/api/decisions/")) {
+      const id = decodeURIComponent(apiPath.slice("/api/decisions/".length));
+      if (id && !id.includes("?")) return await handleDecision(store, id, res);
+    }
     const mEntity = apiPath.match(/^\/api\/entity\/([^/]+)\/([^/]+)$/);
     if (mEntity) return await handleEntity(store, decodeURIComponent(mEntity[1]), decodeURIComponent(mEntity[2]), res);
+    // 0.1.0 — projects + features + sessions
+    if (apiPath === "/api/project") {
+      const p = store.theProject();
+      if (!p) return notFound(res);
+      return json(res, 200, { project: p, rollup: projectRollup(store, p.id) });
+    }
+    if (apiPath === "/api/features") {
+      const p = store.theProject();
+      if (!p) return json(res, 200, []);
+      return json(res, 200, store.featuresIn(p.id));
+    }
+    const mFeature = apiPath.match(/^\/api\/features\/([^/]+)$/);
+    if (mFeature) {
+      const f = store.getFeature(decodeURIComponent(mFeature[1]));
+      if (!f) return notFound(res);
+      const milestones = store.milestonesInFeature(f.id);
+      return json(res, 200, { feature: f, milestones });
+    }
+    if (apiPath === "/api/sessions") {
+      // Latest session (resume strip)
+      const latest = store.latestSession();
+      return json(res, 200, latest);
+    }
+    const mSession = apiPath.match(/^\/api\/sessions\/([^/]+)$/);
+    if (mSession) {
+      const s = store.getSession(decodeURIComponent(mSession[1]));
+      return s ? json(res, 200, s) : notFound(res);
+    }
+    const mSessionResume = apiPath.match(/^\/api\/sessions\/([^/]+)\/resume-command$/);
+    if (mSessionResume) {
+      const s = store.getSession(decodeURIComponent(mSessionResume[1]));
+      if (!s) return notFound(res);
+      const layoutAlive = s.provenance?.layoutAlive ?? false;
+      const cwd = s.provenance?.cwd ?? "";
+      const ccSid = s.sourceSessionId ?? "";
+      return json(res, 200, {
+        mode: layoutAlive ? "jump" : "rebuild",
+        command: `cd ${cwd} && claude --resume ${ccSid}`,
+        copyable: true,
+        lastSession: { id: s.id, endedAt: s.endedAt, outcome: s.outcome, pauseReason: s.pauseReason },
+      });
+    }
+    const mMilestoneReport = apiPath.match(/^\/api\/milestones\/([^/]+)\/report$/);
+    if (mMilestoneReport) {
+      const id = decodeURIComponent(mMilestoneReport[1]);
+      const m = store.getMilestone(id);
+      if (!m) return notFound(res);
+      const openLoops = store.decisionsInMilestone(id).filter((d) => {
+        // Use nodeState via projection-level helper if available; for now inline.
+        if (d.type === "decision") return false;
+        return d.status !== "resolved" && !store.isResolved(d.id);
+      }).map((d) => ({ id: d.id, title: d.title, type: d.type }));
+      return json(res, 200, { milestoneId: id, summary: "", openLoops });
+    }
     // 0.0.7 — tags
     if (apiPath === "/api/tags") {
       const status = searchParams.get("status") ?? "active";
@@ -512,6 +689,15 @@ async function dispatchApi(
   if (method === "POST") {
     if (apiPath === "/api/decisions") return await handlePostDecision(store, req, res);
     if (apiPath === "/api/edges") return await handlePostEdge(store, req, res);
+    // 0.1.0 — sessions lifecycle endpoints
+    if (apiPath === "/api/sessions/start") return await handlePostSessionStart(store, req, res);
+    const mSessionEnd = apiPath.match(/^\/api\/sessions\/([^/]+)\/end$/);
+    if (mSessionEnd) return await handlePostSessionEnd(store, decodeURIComponent(mSessionEnd[1]), req, res);
+    // 0.1.0 — features open
+    if (apiPath === "/api/features") return await handlePostFeature(store, req, res);
+    // 0.1.0 — project status
+    const mProjectStatus = apiPath.match(/^\/api\/project\/status$/);
+    if (mProjectStatus) return await handlePostProjectStatus(store, req, res);
     // 0.0.7 — tags
     if (apiPath === "/api/tags") return await handlePostTagPropose(store, req, res);
     const mConfirm = apiPath.match(/^\/api\/tags\/proposals\/([^/]+)\/confirm$/);

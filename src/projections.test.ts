@@ -1,247 +1,238 @@
-// Tests for src/projections.ts — resumeDigest, trace, traceEntity.
-//
-// All three are pure read-side projections over a Store. We seed an
-// in-memory SQLite via `Store(":memory:")` and assert the projection shapes.
+// Tests for src/projections.ts (0.1.0). resumeDigest, trace, traceEntity,
+// nodeState, milestoneSummary, projectRollup, continueLast.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { Store } from "./store.ts";
-import { resumeDigest, trace, traceEntity } from "./projections.ts";
+import {
+  continueLast,
+  milestoneSummary,
+  nodeState,
+  projectRollup,
+  resumeDigest,
+  trace,
+  traceEntity,
+} from "./projections.ts";
 import { stubResolver } from "./resolver.ts";
 import type { Decision } from "./types.ts";
 
-const baseRaisedBy = {
-  trigger: "test",
-  actor: "tester",
-  layer: "personal" as const,
-  at: "2026-06-01T00:00:00Z", // 8 days ago at test time; ageDays will be ≥ 7
-};
+const AT = "2026-06-09T00:00:00Z";
 
-function mkOpen(id: string, title: string, question = "?"): Decision {
+function bootProject(s: Store): { projectId: string; featureId: string; milestoneId: string } {
+  const projectId = s.nextProjectId();
+  s.putProject({ id: projectId, name: "x", path: "/x", status: "active", createdAt: AT });
+  const f = s.ensureUnscopedFeature(projectId);
+  const m = s.ensureUnscopedMilestone(projectId);
+  return { projectId, featureId: f.id, milestoneId: m.id };
+}
+
+function mkOpen(milestoneId: string, id: string, title: string, trigger?: string, affects: { kind: string; id: string }[] = []): Decision {
   return {
-    id,
+    id: `${milestoneId}/${id}`, milestoneId, type: "open", status: "open",
     title,
-    raisedBy: baseRaisedBy,
-    status: { kind: "open", question },
-    affects: [],
+    raisedBy: { trigger: "t", actor: "a", layer: "personal", at: AT },
+    detail: trigger ? { trigger } : undefined,
+    affects, createdAt: AT,
   };
 }
 
-function mkDeferred(
-  id: string,
-  title: string,
-  revisitWhen: import("./types.ts").Trigger,
-): Decision {
+function mkDecided(milestoneId: string, id: string, title: string, affects: { kind: string; id: string }[] = []): Decision {
   return {
-    id,
+    id: `${milestoneId}/${id}`, milestoneId, type: "decision",
     title,
-    raisedBy: baseRaisedBy,
-    status: { kind: "deferred", current: "x", reason: "y", revisitWhen },
-    affects: [],
+    raisedBy: { trigger: "t", actor: "a", layer: "personal", at: AT },
+    detail: { options: [{ name: "A", verdict: "chosen", chosen: true }] },
+    affects, createdAt: AT,
   };
 }
 
-function mkDecided(id: string, title: string): Decision {
+function mkDeferred(milestoneId: string, id: string, title: string, triggerKind: "manual" | "metric" = "manual"): Decision {
   return {
-    id,
+    id: `${milestoneId}/${id}`, milestoneId, type: "deferred", status: "open",
     title,
-    raisedBy: baseRaisedBy,
-    status: {
-      kind: "decided",
-      options: [{ label: "A", summary: "a", verdict: "chosen" }],
-      rationale: "because",
-    },
-    affects: [],
+    raisedBy: { trigger: "t", actor: "a", layer: "personal", at: AT },
+    revisit: { trigger: triggerKind === "manual" ? { kind: "manual" } : { kind: "metric", expr: "x>5" } },
+    detail: { trigger: "deferred-prose" },
+    affects: [], createdAt: AT,
   };
 }
 
-function freshStore(): Store {
-  return new Store(":memory:");
-}
+// ---- nodeState -------------------------------------------------------------
 
-// ---- resumeDigest --------------------------------------------------------
-
-test("resumeDigest is empty on empty store", () => {
-  const s = freshStore();
-  assert.deepEqual(resumeDigest(s), []);
+test("nodeState · type=decision → 'decided' (no supersededBy)", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  const d = mkDecided(milestoneId, "D-01", "x");
+  assert.equal(nodeState(d), "decided");
 });
 
-test("resumeDigest surfaces open + deferred, ignores decided/resolved", () => {
-  const s = freshStore();
-  s.putDecision(mkOpen("OQ-1", "open one"));
-  s.putDecision(mkDeferred("DEF-1", "deferred one", { kind: "manual" }));
-  s.putDecision(mkDecided("D-1", "decided one"));
+test("nodeState · type=decision with supersededBy → 'superseded'", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  const d: Decision = { ...mkDecided(milestoneId, "D-01", "x"), supersededBy: `${milestoneId}/D-99` };
+  assert.equal(nodeState(d), "superseded");
+});
 
+test("nodeState · type=deferred + status=open → 'deferred'", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  assert.equal(nodeState(mkDeferred(milestoneId, "DEF-01", "x")), "deferred");
+});
+
+test("nodeState · status=resolved overrides type", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  const d: Decision = { ...mkDeferred(milestoneId, "DEF-01", "x"), status: "resolved", resolvedBy: `${milestoneId}/D-99` };
+  assert.equal(nodeState(d), "resolved");
+});
+
+// ---- resumeDigest ----------------------------------------------------------
+
+test("resumeDigest · returns open + un-resolved deferred", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  s.putDecision(mkOpen(milestoneId, "OQ-01", "first"));
+  s.putDecision(mkOpen(milestoneId, "OQ-02", "second"));
+  s.putDecision(mkDeferred(milestoneId, "DEF-01", "later"));
+  s.putDecision(mkDecided(milestoneId, "D-01", "done already"));
   const items = resumeDigest(s);
-  const ids = items.map((i) => i.id).sort();
-  assert.deepEqual(ids, ["DEF-1", "OQ-1"]);
+  const buckets = items.map((i) => i.bucket).sort();
+  assert.equal(items.length, 3);
+  assert.deepEqual(buckets, ["deferred", "open", "open"]);
 });
 
-test("resumeDigest drops deferred that has a resolves edge", () => {
-  const s = freshStore();
-  s.putDecision(mkDeferred("DEF-1", "deferred one", { kind: "manual" }));
-  s.putDecision(mkDecided("D-1", "later decided"));
-  s.addEdge({ from: "D-1", to: "DEF-1", kind: "resolves" });
+test("resumeDigest · skips status=resolved deferred", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  const d = mkDeferred(milestoneId, "DEF-01", "later");
+  d.status = "resolved";
+  d.resolvedBy = `${milestoneId}/D-99`;
+  s.putDecision(d);
+  assert.equal(resumeDigest(s).length, 0);
+});
 
+test("resumeDigest · skips items resolved via incoming 'resolves' edge", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  s.putDecision(mkDecided(milestoneId, "D-01", "later answer"));
+  s.putDecision(mkDeferred(milestoneId, "DEF-01", "the original q"));
+  s.addEdge({ from: `${milestoneId}/D-01`, to: `${milestoneId}/DEF-01`, relation: "resolves" });
+  assert.equal(resumeDigest(s).length, 0);
+});
+
+test("resumeDigest · 'metric' trigger flags needsCheck=true", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  s.putDecision(mkDeferred(milestoneId, "DEF-01", "wait for X", "metric"));
+  s.putDecision(mkDeferred(milestoneId, "DEF-02", "manual review", "manual"));
   const items = resumeDigest(s);
-  assert.equal(items.length, 0, "resolved deferred should not surface");
+  const metric = items.find((i) => i.id === `${milestoneId}/DEF-01`);
+  const manual = items.find((i) => i.id === `${milestoneId}/DEF-02`);
+  assert.equal(metric!.needsCheck, true);
+  assert.equal(manual!.needsCheck, false);
 });
 
-test("resumeDigest flags metric trigger as needsCheck", () => {
-  const s = freshStore();
-  s.putDecision(mkDeferred("DEF-1", "metric defer", { kind: "metric", expr: "x > 10" }));
-  s.putDecision(mkDeferred("DEF-2", "manual defer", { kind: "manual" }));
+// ---- trace -----------------------------------------------------------------
 
-  const items = resumeDigest(s);
-  const byId = new Map(items.map((i) => [i.id, i]));
-  assert.equal(byId.get("DEF-1")!.needsCheck, true);
-  assert.equal(byId.get("DEF-2")!.needsCheck, false);
-});
-
-test("resumeDigest flags event trigger as needsCheck", () => {
-  const s = freshStore();
-  s.putDecision(mkDeferred("DEF-1", "event defer", { kind: "event", name: "ships" }));
-
-  const items = resumeDigest(s);
-  assert.equal(items[0].needsCheck, true);
-});
-
-test("resumeDigest flags dependency trigger as needsCheck IFF dep is decided/resolved", () => {
-  const s = freshStore();
-  // Two deferred items: one depends on a decided node, one depends on an open node
-  s.putDecision(mkDecided("D-1", "the dep"));
-  s.putDecision(mkOpen("OQ-1", "the other dep"));
-  s.putDecision(mkDeferred("DEF-1", "dep on decided", { kind: "dependency", on: "D-1" }));
-  s.putDecision(mkDeferred("DEF-2", "dep on open", { kind: "dependency", on: "OQ-1" }));
-
-  const items = resumeDigest(s);
-  const byId = new Map(items.map((i) => [i.id, i]));
-  assert.equal(byId.get("DEF-1")!.needsCheck, true, "dep is decided → trigger fired");
-  assert.equal(byId.get("DEF-2")!.needsCheck, false, "dep is still open → don't bother");
-});
-
-test("resumeDigest sorts: needsCheck first, then oldest age first", () => {
-  const s = freshStore();
-  const old = { ...baseRaisedBy, at: "2026-05-01T00:00:00Z" };  // older
-  const newer = { ...baseRaisedBy, at: "2026-06-05T00:00:00Z" }; // newer
-
-  // No needsCheck, old → comes after newer-but-needsCheck
-  s.putDecision({ ...mkDeferred("DEF-OLD", "old plain", { kind: "manual" }), raisedBy: old });
-  s.putDecision({ ...mkDeferred("DEF-NEW-CHK", "new but due", { kind: "metric", expr: "y" }), raisedBy: newer });
-  s.putDecision({ ...mkDeferred("DEF-OLD-CHK", "old AND due", { kind: "metric", expr: "z" }), raisedBy: old });
-
-  const items = resumeDigest(s);
-  // Expected order:
-  //   1. DEF-OLD-CHK (needsCheck + oldest)
-  //   2. DEF-NEW-CHK (needsCheck + newer)
-  //   3. DEF-OLD     (not needsCheck)
-  assert.equal(items[0].id, "DEF-OLD-CHK");
-  assert.equal(items[1].id, "DEF-NEW-CHK");
-  assert.equal(items[2].id, "DEF-OLD");
-});
-
-test("WaitingItem has trigger string for deferred only", () => {
-  const s = freshStore();
-  s.putDecision(mkOpen("OQ-1", "open"));
-  s.putDecision(mkDeferred("DEF-1", "deferred", { kind: "event", name: "x" }));
-
-  const items = resumeDigest(s);
-  const open = items.find((i) => i.id === "OQ-1")!;
-  const def = items.find((i) => i.id === "DEF-1")!;
-  assert.equal(open.trigger, undefined);
-  assert.ok(def.trigger, "deferred item should have trigger text");
-  assert.ok(def.trigger!.includes("事件"), "should be Chinese 事件 prefix");
-});
-
-// ---- trace ---------------------------------------------------------------
-
-test("trace returns null for missing id", async () => {
-  const s = freshStore();
-  const t = await trace(s, "NO-SUCH", stubResolver);
+test("trace · returns null for unknown id", async () => {
+  const s = new Store(":memory:");
+  bootProject(s);
+  const t = await trace(s, "NOPE", stubResolver);
   assert.equal(t, null);
 });
 
-test("trace returns decision, statusLine, affects, edges", async () => {
-  const s = freshStore();
-  s.putDecision({
-    ...mkDecided("D-1", "test decided"),
-    affects: [
-      { kind: "file", id: "src/x.ts" },
-      { kind: "feature", id: "test-feature" },
-    ],
+test("trace · statusLine reflects nodeState", async () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  s.putDecision(mkDecided(milestoneId, "D-01", "x"));
+  const t = await trace(s, `${milestoneId}/D-01`, stubResolver);
+  assert.ok(t!.statusLine.startsWith("DECIDED"));
+});
+
+test("trace · shows incoming + outgoing edges with relation field", async () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  s.putDecision(mkDecided(milestoneId, "D-01", "answer"));
+  s.putDecision(mkOpen(milestoneId, "OQ-01", "question"));
+  s.addEdge({ from: `${milestoneId}/D-01`, to: `${milestoneId}/OQ-01`, relation: "resolves" });
+  const t = await trace(s, `${milestoneId}/D-01`, stubResolver);
+  assert.equal(t!.edges.length, 1);
+  assert.equal(t!.edges[0].relation, "resolves");
+  assert.equal(t!.edges[0].direction, "out");
+});
+
+// ---- traceEntity -----------------------------------------------------------
+
+test("traceEntity · returns every decision that affects the ref", async () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  s.putDecision(mkDecided(milestoneId, "D-01", "x", [{ kind: "file", id: "a.ts" }]));
+  s.putDecision(mkDecided(milestoneId, "D-02", "y", [{ kind: "file", id: "a.ts" }]));
+  s.putDecision(mkDecided(milestoneId, "D-03", "z", [{ kind: "file", id: "b.ts" }]));
+  const traces = await traceEntity(s, { kind: "file", id: "a.ts" }, stubResolver);
+  assert.equal(traces.length, 2);
+});
+
+// ---- milestoneSummary -------------------------------------------------------
+
+test("milestoneSummary · sorts going first then winding", () => {
+  const s = new Store(":memory:");
+  const { featureId } = bootProject(s);
+  s.putMilestone({ id: "M-a", featureId, name: "winding-one", state: "winding", startedAt: "2026-06-09T01:00:00Z" });
+  s.putMilestone({ id: "M-b", featureId, name: "going-one", state: "going", startedAt: "2026-06-09T01:00:00Z" });
+  s.putMilestone({ id: "M-c", featureId, name: "done-one", state: "done", startedAt: "2026-06-09T01:00:00Z" });
+  const sorted = milestoneSummary(s).map((m) => m.milestone.state);
+  // going first, then winding, then done (with unscoped as 'going' at the top)
+  assert.ok(sorted.indexOf("going") < sorted.indexOf("winding"));
+  assert.ok(sorted.indexOf("winding") < sorted.indexOf("done"));
+});
+
+test("milestoneSummary · openLoops counts open + un-resolved deferred", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  s.putDecision(mkOpen(milestoneId, "OQ-01", "q1"));
+  s.putDecision(mkDeferred(milestoneId, "DEF-01", "q2"));
+  s.putDecision(mkDecided(milestoneId, "D-01", "ans"));
+  const row = milestoneSummary(s).find((m) => m.milestone.id === milestoneId)!;
+  assert.equal(row.openLoops, 2);
+});
+
+// ---- projectRollup ---------------------------------------------------------
+
+test("projectRollup · aggregates per-state milestone counts + open loops", () => {
+  const s = new Store(":memory:");
+  const { projectId, featureId } = bootProject(s);
+  // unscoped milestone is state='going' from boot
+  s.putMilestone({ id: "M-2", featureId, name: "x", state: "winding", startedAt: AT });
+  s.putMilestone({ id: "M-3", featureId, name: "y", state: "done", startedAt: AT });
+  const r = projectRollup(s, projectId);
+  assert.ok(r);
+  assert.equal(r!.milestoneCount, 3);
+  assert.equal(r!.milestonesByState.going, 1);
+  assert.equal(r!.milestonesByState.winding, 1);
+  assert.equal(r!.milestonesByState.done, 1);
+});
+
+// ---- continueLast ----------------------------------------------------------
+
+test("continueLast · returns null when no sessions exist", () => {
+  const s = new Store(":memory:");
+  bootProject(s);
+  assert.equal(continueLast(s), null);
+});
+
+test("continueLast · returns the most recent session + its milestone", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  s.putSession({
+    id: "ses-1", milestoneId, source: "claude-code", sourceSessionId: "xyz",
+    startedAt: "2026-06-09T05:00:00Z",
+    outcome: { type: "advanced", summary: "got far" },
+    pauseReason: { kind: "out_of_time" },
   });
-
-  const t = await trace(s, "D-1", stubResolver);
-  assert.ok(t);
-  assert.equal(t!.decision.id, "D-1");
-  assert.ok(t!.statusLine.includes("DECIDED"));
-  assert.equal(t!.affects.length, 2);
-  assert.equal(t!.edges.length, 0);
-});
-
-test("trace edges include direction (in/out)", async () => {
-  const s = freshStore();
-  s.putDecision(mkDecided("D-1", "first"));
-  s.putDecision(mkDecided("D-2", "second"));
-  s.putDecision(mkDeferred("DEF-1", "defer", { kind: "manual" }));
-  s.addEdge({ from: "D-2", to: "D-1", kind: "supersedes" }); // outgoing from D-2
-  s.addEdge({ from: "D-1", to: "DEF-1", kind: "relates" });  // outgoing from D-1
-
-  const t = await trace(s, "D-1", stubResolver);
-  assert.ok(t);
-  const dirs = t!.edges.map((e) => `${e.direction}:${e.kind}:${e.otherId}`).sort();
-  assert.deepEqual(dirs, ["in:supersedes:D-2", "out:relates:DEF-1"]);
-});
-
-test("trace statusLine reflects each status kind", async () => {
-  const s = freshStore();
-  s.putDecision(mkOpen("OQ-1", "open", "is it?"));
-  s.putDecision(mkDeferred("DEF-1", "defer", { kind: "manual" }));
-  s.putDecision(mkDecided("D-1", "decided"));
-
-  assert.ok((await trace(s, "OQ-1", stubResolver))!.statusLine.startsWith("OPEN"));
-  assert.ok((await trace(s, "DEF-1", stubResolver))!.statusLine.startsWith("DEFERRED"));
-  assert.ok((await trace(s, "D-1", stubResolver))!.statusLine.startsWith("DECIDED"));
-});
-
-test("trace statusLine for resolved/superseded references the resolver", async () => {
-  const s = freshStore();
-  s.putDecision(mkDeferred("DEF-1", "defer", { kind: "manual" }));
-  s.putDecision(mkDecided("D-1", "later"));
-  s.addEdge({ from: "D-1", to: "DEF-1", kind: "resolves" });
-  // setStatus side-effect on resolves should flip DEF-1 to {kind:"resolved", by:"D-1"}
-
-  const t = await trace(s, "DEF-1", stubResolver);
-  assert.ok(t!.statusLine.includes("RESOLVED"));
-  assert.ok(t!.statusLine.includes("D-1"));
-});
-
-// ---- traceEntity ---------------------------------------------------------
-
-test("traceEntity returns all decisions affecting that ref", async () => {
-  const s = freshStore();
-  s.putDecision({
-    ...mkDecided("D-1", "uses x.ts"),
-    affects: [{ kind: "file", id: "src/x.ts" }],
-  });
-  s.putDecision({
-    ...mkDecided("D-2", "uses y.ts"),
-    affects: [{ kind: "file", id: "src/y.ts" }],
-  });
-  s.putDecision({
-    ...mkOpen("OQ-1", "also uses x.ts"),
-    affects: [{ kind: "file", id: "src/x.ts" }],
-  });
-
-  const traces = await traceEntity(s, { kind: "file", id: "src/x.ts" }, stubResolver);
-  const ids = traces.map((t) => t.decision.id).sort();
-  assert.deepEqual(ids, ["D-1", "OQ-1"]);
-});
-
-test("traceEntity returns empty for an unknown ref", async () => {
-  const s = freshStore();
-  s.putDecision(mkDecided("D-1", "test"));
-
-  const traces = await traceEntity(s, { kind: "file", id: "nope" }, stubResolver);
-  assert.deepEqual(traces, []);
+  const r = continueLast(s);
+  assert.ok(r);
+  assert.equal(r!.session.id, "ses-1");
+  assert.equal(r!.lastOutcome!.summary, "got far");
+  assert.equal(r!.lastPauseReason!.kind, "out_of_time");
 });

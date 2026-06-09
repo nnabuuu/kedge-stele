@@ -1,18 +1,39 @@
+// SQLite-backed graph store (0.1.0-snapshot).
+//
+// Owns nine tables: projects, features, milestones, sessions, decisions,
+// edges, affects, tags (+ taggings + tag_proposals + config — the 0.0.7
+// surface unchanged). The store answers entity-anchored queries
+// (`decisionsAffecting`) without any ontology — it keeps its own reverse
+// index of affects edges.
+//
+// Pre-0.1.0 databases are NOT auto-migrated. On open, if the file holds
+// the old 0.0.x schema (detected via `decisions.status_kind` column), the
+// store renames the file aside to `<path>.0.0.x.db` and creates a fresh
+// schema. The user's data is preserved in the backup file for manual export
+// via `sqlite3`; see CHANGELOG 0.1.0 for the migration story.
+
 import { DatabaseSync } from "node:sqlite";
+import { existsSync, renameSync } from "node:fs";
 import type {
   Decision,
   DecisionId,
+  DecisionResolutionStatus,
+  DecisionType,
   Edge,
+  EdgeRelation,
   EntityRef,
+  Feature,
+  FeatureId,
   Milestone,
   MilestoneId,
-  MilestoneStatus,
+  MilestoneState,
+  Project,
+  ProjectId,
+  ProjectStatus,
   ProposalOutcome,
   Session,
   SessionId,
   SessionSource,
-  Status,
-  StatusKind,
   Tag,
   TagId,
   TagProposal,
@@ -21,40 +42,135 @@ import type {
   TaggingTargetKind,
 } from "./types.ts";
 
-// The store owns the graph. It needs NO ontology to answer "which decisions
-// touched entity X" — it keeps its own reverse index of affects edges.
-//
-// 0.0.6 added milestones + sessions tables; decisions gained an optional
-// session_id column via a lazy ALTER on existing databases.
+// Sentinel exception so the CLI / MCP server can detect the legacy-rename
+// case and print a one-time hint without having to sniff stderr.
+export class SteleOldSchemaMigrated extends Error {
+  oldPath: string;
+  backupPath: string;
+  constructor(oldPath: string, backupPath: string) {
+    super(
+      `Stele detected an older (pre-0.1.0) schema at ${oldPath}. ` +
+        `The previous database has been preserved at ${backupPath}; a fresh ` +
+        `0.1.0 database has been created in its place. To export rows from ` +
+        `the backup, query it directly with sqlite3.`,
+    );
+    this.name = "SteleOldSchemaMigrated";
+    this.oldPath = oldPath;
+    this.backupPath = backupPath;
+  }
+}
+
+// One internal flag — set when the constructor renames a legacy DB aside.
+// The caller (CLI / MCP) reads `store.migratedFromLegacy` and prints a hint;
+// the store itself never writes to stderr.
 export class Store {
   private db: DatabaseSync;
+  /** Set to the backup path when the constructor renamed a pre-0.1.0 DB aside. */
+  readonly migratedFromLegacy: { oldPath: string; backupPath: string } | null = null;
 
   constructor(path: string) {
+    // ---------------------------------------------------------------------
+    // Pre-0.1.0 schema detection. We peek at the file first; if it has the
+    // legacy shape, we rename it aside and reopen fresh.
+    // ---------------------------------------------------------------------
+    if (path !== ":memory:" && existsSync(path)) {
+      const peek = new DatabaseSync(path);
+      const legacy = Store.isLegacySchema(peek);
+      peek.close();
+      if (legacy) {
+        const backupPath = Store.legacyBackupPath(path);
+        renameSync(path, backupPath);
+        this.migratedFromLegacy = { oldPath: path, backupPath };
+      }
+    }
+
     this.db = new DatabaseSync(path);
 
-    // 0.0.7 — enable WAL for better concurrent read perf and crash safety.
-    // No-op for :memory: DBs; idempotent for file DBs.
+    // 0.0.7+ — WAL for concurrent reads. No-op for :memory: DBs.
     try {
       this.db.exec(`PRAGMA journal_mode = WAL`);
     } catch {
-      // :memory: rejects WAL; fall back to default journal mode
+      /* :memory: rejects WAL */
     }
+    // Foreign keys help catch reference bugs in dev; we don't rely on cascade.
+    try { this.db.exec(`PRAGMA foreign_keys = ON`); } catch { /* ignore */ }
 
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS decisions (
+      -- 0.1.0 — projects (was 0.0.7's registry.json {slug,path,addedAt})
+      CREATE TABLE IF NOT EXISTS projects (
         id          TEXT PRIMARY KEY,
-        status_kind TEXT NOT NULL,
-        title       TEXT NOT NULL,
+        name        TEXT NOT NULL,
+        code        TEXT,
+        path        TEXT NOT NULL,
+        status      TEXT NOT NULL CHECK(status IN ('active','winding','dormant','archived')),
         created_at  TEXT NOT NULL,
-        data        TEXT NOT NULL          -- full Decision as JSON
+        data        TEXT NOT NULL
       );
+
+      -- 0.1.0 — features (between project and milestone)
+      CREATE TABLE IF NOT EXISTS features (
+        id          TEXT PRIMARY KEY,
+        project_id  TEXT NOT NULL REFERENCES projects(id),
+        name        TEXT NOT NULL,
+        data        TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_features_project ON features(project_id);
+
+      -- 0.1.0 — milestones (5-state, scoped to a feature)
+      CREATE TABLE IF NOT EXISTS milestones (
+        id          TEXT PRIMARY KEY,
+        feature_id  TEXT NOT NULL REFERENCES features(id),
+        state       TEXT NOT NULL CHECK(state IN ('draft','going','winding','done','paused')),
+        name        TEXT NOT NULL,
+        started_at  TEXT NOT NULL,
+        data        TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_milestones_feature ON milestones(feature_id);
+      CREATE INDEX IF NOT EXISTS idx_milestones_state ON milestones(state);
+
+      -- 0.1.0 — sessions (provenance + outcome + pause_reason live in the data column)
+      CREATE TABLE IF NOT EXISTS sessions (
+        id              TEXT PRIMARY KEY,
+        milestone_id    TEXT NOT NULL REFERENCES milestones(id),
+        source          TEXT NOT NULL,
+        source_sess_id  TEXT,
+        started_at      TEXT NOT NULL,
+        ended_at        TEXT,
+        data            TEXT NOT NULL,
+        UNIQUE(source, source_sess_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_sessions_milestone ON sessions(milestone_id);
+
+      -- 0.1.0 — decisions (split shape: type + status + resolved_by + superseded_by)
+      CREATE TABLE IF NOT EXISTS decisions (
+        id              TEXT PRIMARY KEY,
+        milestone_id    TEXT NOT NULL REFERENCES milestones(id),
+        session_id      TEXT REFERENCES sessions(id),
+        type            TEXT NOT NULL CHECK(type IN ('decision','deferred','open')),
+        status          TEXT CHECK(status IN ('open','resolved')),  -- nullable for type='decision'
+        resolved_by     TEXT,                                       -- FK self-reference
+        superseded_by   TEXT,                                       -- FK self-reference
+        title           TEXT NOT NULL,
+        created_at      TEXT NOT NULL,
+        data            TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_decisions_milestone ON decisions(milestone_id);
+      CREATE INDEX IF NOT EXISTS idx_decisions_session   ON decisions(session_id);
+      CREATE INDEX IF NOT EXISTS idx_decisions_type      ON decisions(type);
+      CREATE INDEX IF NOT EXISTS idx_decisions_status    ON decisions(status);
+
+      -- 0.1.0 — edges (column rename: kind → relation; adds depends_on)
       CREATE TABLE IF NOT EXISTS edges (
-        from_id TEXT NOT NULL,
-        to_id   TEXT NOT NULL,
-        kind    TEXT NOT NULL,
-        note    TEXT,
-        UNIQUE(from_id, to_id, kind)
+        from_id   TEXT NOT NULL,
+        to_id     TEXT NOT NULL,
+        relation  TEXT NOT NULL CHECK(relation IN ('resolves','supersedes','reconciles','relates','depends_on')),
+        note      TEXT,
+        UNIQUE(from_id, to_id, relation)
       );
+      CREATE INDEX IF NOT EXISTS idx_edges_to       ON edges(to_id);
+      CREATE INDEX IF NOT EXISTS idx_edges_relation ON edges(relation);
+
+      -- affects reverse index (unchanged)
       CREATE TABLE IF NOT EXISTS affects (
         decision_id TEXT NOT NULL,
         entity_kind TEXT NOT NULL,
@@ -63,30 +179,7 @@ export class Store {
       );
       CREATE INDEX IF NOT EXISTS idx_affects_entity ON affects(entity_kind, entity_id);
 
-      -- 0.0.6 — milestones + sessions
-      CREATE TABLE IF NOT EXISTS milestones (
-        id          TEXT PRIMARY KEY,
-        status      TEXT NOT NULL,            -- 'active' | 'shipped' | 'abandoned'
-        title       TEXT NOT NULL,
-        started_at  TEXT NOT NULL,
-        data        TEXT NOT NULL             -- full Milestone JSON
-      );
-      CREATE INDEX IF NOT EXISTS idx_milestones_status ON milestones(status);
-
-      CREATE TABLE IF NOT EXISTS sessions (
-        id              TEXT PRIMARY KEY,
-        milestone_id    TEXT NOT NULL,
-        source          TEXT NOT NULL,
-        source_sess_id  TEXT,                 -- nullable
-        started_at      TEXT NOT NULL,
-        data            TEXT NOT NULL,
-        UNIQUE(source, source_sess_id)
-      );
-      CREATE INDEX IF NOT EXISTS idx_sessions_milestone ON sessions(milestone_id);
-
-      CREATE INDEX IF NOT EXISTS idx_decisions_session ON decisions(json_extract(data, '$.sessionId'));
-
-      -- 0.0.7 — tag system
+      -- 0.0.7 — tag system (unchanged)
       CREATE TABLE IF NOT EXISTS tags (
         id          TEXT PRIMARY KEY,
         name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -111,50 +204,335 @@ export class Store {
         name            TEXT NOT NULL,
         suggested_color TEXT,
         reason          TEXT,
-        targets         TEXT NOT NULL,        -- JSON array
+        targets         TEXT NOT NULL,
         outcome         TEXT NOT NULL CHECK(outcome IN ('pending','blocked','auto_adopted')),
         created_at      TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_proposals_outcome ON tag_proposals(outcome);
-      -- Loose dedup index: one open pending proposal per (name, outcome). We
-      -- enforce idempotency in code rather than via UNIQUE because outcomes
-      -- can repeat across name + history.
-      CREATE INDEX IF NOT EXISTS idx_proposals_name ON tag_proposals(name COLLATE NOCASE);
+      CREATE INDEX IF NOT EXISTS idx_proposals_name    ON tag_proposals(name COLLATE NOCASE);
 
       CREATE TABLE IF NOT EXISTS config (
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
     `);
+  }
 
-    // ALTER TABLE decisions ADD COLUMN session_id — idempotent. SQLite's
-    // ALTER throws if the column exists; we catch and ignore. Pre-0.0.6
-    // databases get the column with NULL for every existing row.
-    try {
-      this.db.exec(`ALTER TABLE decisions ADD COLUMN session_id TEXT`);
-    } catch {
-      // column already exists
+  // ---- legacy detection helpers --------------------------------------------
+
+  private static isLegacySchema(db: DatabaseSync): boolean {
+    // The reliable tell: old `decisions` table has a `status_kind` column.
+    // New schema doesn't.
+    const hasDecisions = !!db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='decisions'`)
+      .get();
+    if (!hasDecisions) return false;
+    const cols = db.prepare(`PRAGMA table_info(decisions)`).all() as Array<{ name: string }>;
+    return cols.some((c) => c.name === "status_kind");
+  }
+
+  private static legacyBackupPath(path: string): string {
+    // Increment suffix until a free filename is found.
+    let i = 0;
+    for (;;) {
+      const candidate = i === 0
+        ? `${path}.0.0.x.db`
+        : `${path}.0.0.x.${i}.db`;
+      if (!existsSync(candidate)) return candidate;
+      i++;
     }
   }
 
-  // ---- decisions -----------------------------------------------------------
+  // =========================================================================
+  // 0.1.0 — projects
+  // =========================================================================
+
+  putProject(p: Project): void {
+    this.db
+      .prepare(
+        `INSERT INTO projects (id, name, code, path, status, created_at, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name       = excluded.name,
+           code       = excluded.code,
+           path       = excluded.path,
+           status     = excluded.status,
+           data       = excluded.data`,
+      )
+      .run(p.id, p.name, p.code ?? null, p.path, p.status, p.createdAt, JSON.stringify(p));
+  }
+
+  getProject(id: ProjectId): Project | null {
+    const row = this.db.prepare(`SELECT data FROM projects WHERE id = ?`).get(id) as
+      | { data: string }
+      | undefined;
+    return row ? (JSON.parse(row.data) as Project) : null;
+  }
+
+  allProjects(): Project[] {
+    const rows = this.db.prepare(`SELECT data FROM projects ORDER BY created_at, id`).all() as {
+      data: string;
+    }[];
+    return rows.map((r) => JSON.parse(r.data) as Project);
+  }
+
+  byProjectStatus(status: ProjectStatus): Project[] {
+    const rows = this.db
+      .prepare(`SELECT data FROM projects WHERE status = ? ORDER BY created_at, id`)
+      .all(status) as { data: string }[];
+    return rows.map((r) => JSON.parse(r.data) as Project);
+  }
+
+  /**
+   * Each .stele/decisions.db is per-project; in normal flow there is exactly
+   * one Project row. Returns it, or null if none exists yet (which usually
+   * means `stele init` hasn't been run).
+   */
+  theProject(): Project | null {
+    const all = this.allProjects();
+    return all[0] ?? null;
+  }
+
+  nextProjectId(): ProjectId {
+    return this.nextSequencedId("projects", "P");
+  }
+
+  // =========================================================================
+  // 0.1.0 — features
+  // =========================================================================
+
+  putFeature(f: Feature): void {
+    // The `__unscoped:` sentinel is reserved for the per-project auto-created
+    // unscoped feature.
+    if (f.id.startsWith("__unscoped:") && f.id !== `__unscoped:${f.projectId}`) {
+      throw new Error(`reserved feature id "${f.id}" — use ensureUnscopedFeature`);
+    }
+    this.db
+      .prepare(
+        `INSERT INTO features (id, project_id, name, data)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           project_id = excluded.project_id,
+           name       = excluded.name,
+           data       = excluded.data`,
+      )
+      .run(f.id, f.projectId, f.name, JSON.stringify(f));
+  }
+
+  getFeature(id: FeatureId): Feature | null {
+    const row = this.db.prepare(`SELECT data FROM features WHERE id = ?`).get(id) as
+      | { data: string }
+      | undefined;
+    return row ? (JSON.parse(row.data) as Feature) : null;
+  }
+
+  featuresIn(projectId: ProjectId): Feature[] {
+    const rows = this.db
+      .prepare(`SELECT data FROM features WHERE project_id = ? ORDER BY name, id`)
+      .all(projectId) as { data: string }[];
+    return rows.map((r) => JSON.parse(r.data) as Feature);
+  }
+
+  nextFeatureId(): FeatureId {
+    return this.nextSequencedId("features", "F");
+  }
+
+  /**
+   * Find-or-create the per-project "unscoped" Feature. Used by the
+   * `milestone.mode='unscoped'` capture path so unscoped decisions still
+   * live under a real Feature → Milestone parent.
+   */
+  ensureUnscopedFeature(projectId: ProjectId): Feature {
+    // Use double-underscore sentinel so user-chosen ids can't collide:
+    // putFeature/putMilestone reject ids matching `__unscoped:*`.
+    const id = `__unscoped:${projectId}`;
+    const existing = this.getFeature(id);
+    if (existing) return existing;
+    const f: Feature = { id, projectId, name: "unscoped" };
+    this.putFeature(f);
+    return f;
+  }
+
+  // =========================================================================
+  // 0.1.0 — milestones (revised shape)
+  // =========================================================================
+
+  putMilestone(m: Milestone): void {
+    // Milestone ids appear inside Decision ids as `<milestoneId>/<local>`,
+    // so a milestone id with `/` would break that format. Reject early.
+    // The `__unscoped-M:` sentinel is reserved for the auto-created
+    // unscoped milestone — see ensureUnscopedMilestone.
+    if (m.id.includes("/")) {
+      throw new Error(`milestone id must not contain '/': got "${m.id}"`);
+    }
+    if (m.id.startsWith("__unscoped-M:") && m.featureId !== `__unscoped:${m.id.slice("__unscoped-M:".length)}`) {
+      throw new Error(`reserved milestone id "${m.id}" — use ensureUnscopedMilestone`);
+    }
+    this.db
+      .prepare(
+        `INSERT INTO milestones (id, feature_id, state, name, started_at, data)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           feature_id = excluded.feature_id,
+           state      = excluded.state,
+           name       = excluded.name,
+           data       = excluded.data`,
+      )
+      .run(m.id, m.featureId, m.state, m.name, m.startedAt, JSON.stringify(m));
+  }
+
+  getMilestone(id: MilestoneId): Milestone | null {
+    const row = this.db.prepare(`SELECT data FROM milestones WHERE id = ?`).get(id) as
+      | { data: string }
+      | undefined;
+    return row ? (JSON.parse(row.data) as Milestone) : null;
+  }
+
+  allMilestones(): Milestone[] {
+    const rows = this.db
+      .prepare(`SELECT data FROM milestones ORDER BY started_at, id`)
+      .all() as { data: string }[];
+    return rows.map((r) => JSON.parse(r.data) as Milestone);
+  }
+
+  byMilestoneState(state: MilestoneState): Milestone[] {
+    const rows = this.db
+      .prepare(`SELECT data FROM milestones WHERE state = ? ORDER BY started_at, id`)
+      .all(state) as { data: string }[];
+    return rows.map((r) => JSON.parse(r.data) as Milestone);
+  }
+
+  milestonesInFeature(featureId: FeatureId): Milestone[] {
+    const rows = this.db
+      .prepare(`SELECT data FROM milestones WHERE feature_id = ? ORDER BY started_at, id`)
+      .all(featureId) as { data: string }[];
+    return rows.map((r) => JSON.parse(r.data) as Milestone);
+  }
+
+  nextMilestoneId(): MilestoneId {
+    return this.nextSequencedId("milestones", "M");
+  }
+
+  /**
+   * Find-or-create the per-project unscoped milestone (under the unscoped
+   * feature). Used by `milestone.mode='unscoped'` capture path.
+   */
+  ensureUnscopedMilestone(projectId: ProjectId): Milestone {
+    const feature = this.ensureUnscopedFeature(projectId);
+    // Sentinel id with `__unscoped:` prefix can't collide with `M-NN`.
+    const id = `__unscoped-M:${projectId}`;
+    const existing = this.getMilestone(id);
+    if (existing) return existing;
+    const m: Milestone = {
+      id,
+      featureId: feature.id,
+      name: "unscoped",
+      state: "going",
+      about: "Decisions captured without an explicit milestone.",
+      startedAt: new Date().toISOString(),
+    };
+    this.putMilestone(m);
+    return m;
+  }
+
+  /** Update milestone state without rewriting the whole record. */
+  setMilestoneState(id: MilestoneId, state: MilestoneState): void {
+    const m = this.getMilestone(id);
+    if (!m) throw new Error(`no such milestone: ${id}`);
+    m.state = state;
+    if (state === "done") m.completedAt = m.completedAt ?? new Date().toISOString();
+    this.putMilestone(m);
+  }
+
+  // =========================================================================
+  // 0.1.0 — sessions (provenance / outcome / pause_reason)
+  // =========================================================================
+
+  putSession(s: Session): void {
+    this.db
+      .prepare(
+        `INSERT INTO sessions (id, milestone_id, source, source_sess_id, started_at, ended_at, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           milestone_id   = excluded.milestone_id,
+           source         = excluded.source,
+           source_sess_id = excluded.source_sess_id,
+           ended_at       = excluded.ended_at,
+           data           = excluded.data`,
+      )
+      .run(
+        s.id, s.milestoneId, s.source, s.sourceSessionId ?? null,
+        s.startedAt, s.endedAt ?? null, JSON.stringify(s),
+      );
+  }
+
+  getSession(id: SessionId): Session | null {
+    const row = this.db.prepare(`SELECT data FROM sessions WHERE id = ?`).get(id) as
+      | { data: string }
+      | undefined;
+    return row ? (JSON.parse(row.data) as Session) : null;
+  }
+
+  findSession(source: SessionSource, sourceSessionId: string): Session | null {
+    const row = this.db
+      .prepare(`SELECT data FROM sessions WHERE source = ? AND source_sess_id = ? LIMIT 1`)
+      .get(source, sourceSessionId) as { data: string } | undefined;
+    return row ? (JSON.parse(row.data) as Session) : null;
+  }
+
+  sessionsInMilestone(id: MilestoneId): Session[] {
+    const rows = this.db
+      .prepare(`SELECT data FROM sessions WHERE milestone_id = ? ORDER BY started_at, id`)
+      .all(id) as { data: string }[];
+    return rows.map((r) => JSON.parse(r.data) as Session);
+  }
+
+  /** Latest session across the whole store (used for "what's the resume strip"). */
+  latestSession(): Session | null {
+    const row = this.db
+      .prepare(`SELECT data FROM sessions ORDER BY started_at DESC LIMIT 1`)
+      .get() as { data: string } | undefined;
+    return row ? (JSON.parse(row.data) as Session) : null;
+  }
+
+  latestSessionInMilestone(id: MilestoneId): Session | null {
+    const row = this.db
+      .prepare(`SELECT data FROM sessions WHERE milestone_id = ? ORDER BY started_at DESC LIMIT 1`)
+      .get(id) as { data: string } | undefined;
+    return row ? (JSON.parse(row.data) as Session) : null;
+  }
+
+  // =========================================================================
+  // 0.1.0 — decisions (new split shape)
+  // =========================================================================
 
   putDecision(d: Decision): void {
     this.db
       .prepare(
-        `INSERT INTO decisions (id, status_kind, title, created_at, data, session_id)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO decisions
+           (id, milestone_id, session_id, type, status, resolved_by, superseded_by, title, created_at, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
-           status_kind = excluded.status_kind,
-           title       = excluded.title,
-           data        = excluded.data,
-           session_id  = excluded.session_id`
+           milestone_id  = excluded.milestone_id,
+           session_id    = excluded.session_id,
+           type          = excluded.type,
+           status        = excluded.status,
+           resolved_by   = excluded.resolved_by,
+           superseded_by = excluded.superseded_by,
+           title         = excluded.title,
+           data          = excluded.data`,
       )
-      .run(d.id, d.status.kind, d.title, d.raisedBy.at, JSON.stringify(d), d.sessionId ?? null);
+      .run(
+        d.id, d.milestoneId, d.sessionId ?? null,
+        d.type, d.status ?? null,
+        d.resolvedBy ?? null, d.supersededBy ?? null,
+        d.title, d.createdAt, JSON.stringify(d),
+      );
 
+    // Refresh the affects reverse index.
     this.db.prepare(`DELETE FROM affects WHERE decision_id = ?`).run(d.id);
     const ins = this.db.prepare(
-      `INSERT OR IGNORE INTO affects (decision_id, entity_kind, entity_id) VALUES (?, ?, ?)`
+      `INSERT OR IGNORE INTO affects (decision_id, entity_kind, entity_id) VALUES (?, ?, ?)`,
     );
     for (const e of d.affects) ins.run(d.id, e.kind, e.id);
   }
@@ -173,161 +551,27 @@ export class Store {
     return rows.map((r) => JSON.parse(r.data) as Decision);
   }
 
-  setStatus(id: DecisionId, status: Status): void {
-    const d = this.getDecision(id);
-    if (!d) throw new Error(`no such decision: ${id}`);
-    d.status = status;
-    this.putDecision(d);
-  }
-
-  // ---- edges ----------------------------------------------------------------
-
-  // Adding a resolves/supersedes edge flips the *target* status. This is the
-  // whole point: DEF-02 from one report becomes "resolved by D-B" three weeks
-  // later, and every projection updates because it reads the node, not a snapshot.
-  addEdge(e: Edge): void {
-    this.db
-      .prepare(`INSERT OR IGNORE INTO edges (from_id, to_id, kind, note) VALUES (?, ?, ?, ?)`)
-      .run(e.from, e.to, e.kind, e.note ?? null);
-
-    if (e.kind === "resolves") this.setStatus(e.to, { kind: "resolved", by: e.from });
-    if (e.kind === "supersedes") this.setStatus(e.to, { kind: "superseded", by: e.from });
-  }
-
-  edgesFrom(id: DecisionId): Edge[] {
-    return (
-      this.db.prepare(`SELECT from_id, to_id, kind, note FROM edges WHERE from_id = ?`).all(id) as any[]
-    ).map((r) => ({ from: r.from_id, to: r.to_id, kind: r.kind, note: r.note ?? undefined }));
-  }
-
-  edgesTo(id: DecisionId): Edge[] {
-    return (
-      this.db.prepare(`SELECT from_id, to_id, kind, note FROM edges WHERE to_id = ?`).all(id) as any[]
-    ).map((r) => ({ from: r.from_id, to: r.to_id, kind: r.kind, note: r.note ?? undefined }));
-  }
-
-  // ---- queries the store answers WITHOUT ontology --------------------------
-
-  decisionsAffecting(ref: EntityRef): Decision[] {
-    const rows = this.db
-      .prepare(`SELECT decision_id FROM affects WHERE entity_kind = ? AND entity_id = ?`)
-      .all(ref.kind, ref.id) as { decision_id: string }[];
-    return rows.map((r) => this.getDecision(r.decision_id)!).filter(Boolean);
-  }
-
-  byStatusKind(kind: StatusKind): Decision[] {
-    const rows = this.db
-      .prepare(`SELECT data FROM decisions WHERE status_kind = ? ORDER BY created_at, id`)
-      .all(kind) as { data: string }[];
+  /**
+   * Query decisions by type, optionally also by status.
+   * Pass `status: null` to mean "WHERE status IS NULL" (i.e. type='decision'
+   * rows that have no resolution state). Pass undefined to ignore status.
+   */
+  byDecisionType(
+    type: DecisionType,
+    status?: DecisionResolutionStatus | null,
+  ): Decision[] {
+    let sql = `SELECT data FROM decisions WHERE type = ?`;
+    const params: string[] = [type];
+    if (status === null) {
+      sql += ` AND status IS NULL`;
+    } else if (status !== undefined) {
+      sql += ` AND status = ?`;
+      params.push(status);
+    }
+    sql += ` ORDER BY created_at, id`;
+    const rows = this.db.prepare(sql).all(...params) as { data: string }[];
     return rows.map((r) => JSON.parse(r.data) as Decision);
   }
-
-  // has any incoming "resolves" edge?
-  isResolved(id: DecisionId): boolean {
-    const row = this.db
-      .prepare(`SELECT 1 FROM edges WHERE to_id = ? AND kind = 'resolves' LIMIT 1`)
-      .get(id);
-    return !!row;
-  }
-
-  // -------------------------------------------------------------------------
-  // 0.0.6 — milestones
-  // -------------------------------------------------------------------------
-
-  putMilestone(m: Milestone): void {
-    this.db
-      .prepare(
-        `INSERT INTO milestones (id, status, title, started_at, data)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           status     = excluded.status,
-           title      = excluded.title,
-           data       = excluded.data`
-      )
-      .run(m.id, m.status, m.title, m.startedAt, JSON.stringify(m));
-  }
-
-  getMilestone(id: MilestoneId): Milestone | null {
-    const row = this.db.prepare(`SELECT data FROM milestones WHERE id = ?`).get(id) as
-      | { data: string }
-      | undefined;
-    return row ? (JSON.parse(row.data) as Milestone) : null;
-  }
-
-  allMilestones(): Milestone[] {
-    const rows = this.db
-      .prepare(`SELECT data FROM milestones ORDER BY started_at, id`)
-      .all() as { data: string }[];
-    return rows.map((r) => JSON.parse(r.data) as Milestone);
-  }
-
-  byMilestoneStatus(status: MilestoneStatus): Milestone[] {
-    const rows = this.db
-      .prepare(`SELECT data FROM milestones WHERE status = ? ORDER BY started_at, id`)
-      .all(status) as { data: string }[];
-    return rows.map((r) => JSON.parse(r.data) as Milestone);
-  }
-
-  // Allocate the next free `M-NN` id. Centralised here so the MCP server,
-  // CLI, and any future call sites agree on the contract.
-  nextMilestoneId(): MilestoneId {
-    const pattern = /^M-(\d+)$/;
-    let max = 0;
-    for (const m of this.allMilestones()) {
-      const r = m.id.match(pattern);
-      if (r) {
-        const n = Number(r[1]);
-        if (Number.isFinite(n) && n > max) max = n;
-      }
-    }
-    return `M-${String(max + 1).padStart(2, "0")}`;
-  }
-
-  // -------------------------------------------------------------------------
-  // 0.0.6 — sessions
-  // -------------------------------------------------------------------------
-
-  putSession(s: Session): void {
-    this.db
-      .prepare(
-        `INSERT INTO sessions (id, milestone_id, source, source_sess_id, started_at, data)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           milestone_id    = excluded.milestone_id,
-           source          = excluded.source,
-           source_sess_id  = excluded.source_sess_id,
-           data            = excluded.data`
-      )
-      .run(s.id, s.milestoneId, s.source, s.sourceSessionId ?? null, s.startedAt, JSON.stringify(s));
-  }
-
-  getSession(id: SessionId): Session | null {
-    const row = this.db.prepare(`SELECT data FROM sessions WHERE id = ?`).get(id) as
-      | { data: string }
-      | undefined;
-    return row ? (JSON.parse(row.data) as Session) : null;
-  }
-
-  // Find an existing Session by the tool's native session id. The dedup key
-  // is (source, sourceSessionId) — same Claude Code session reusing across
-  // multiple captures collapses to one Session row.
-  findSession(source: SessionSource, sourceSessionId: string): Session | null {
-    const row = this.db
-      .prepare(`SELECT data FROM sessions WHERE source = ? AND source_sess_id = ? LIMIT 1`)
-      .get(source, sourceSessionId) as { data: string } | undefined;
-    return row ? (JSON.parse(row.data) as Session) : null;
-  }
-
-  sessionsInMilestone(id: MilestoneId): Session[] {
-    const rows = this.db
-      .prepare(`SELECT data FROM sessions WHERE milestone_id = ? ORDER BY started_at, id`)
-      .all(id) as { data: string }[];
-    return rows.map((r) => JSON.parse(r.data) as Session);
-  }
-
-  // -------------------------------------------------------------------------
-  // 0.0.6 — decisions × milestones/sessions
-  // -------------------------------------------------------------------------
 
   decisionsInSession(id: SessionId): Decision[] {
     const rows = this.db
@@ -337,30 +581,131 @@ export class Store {
   }
 
   decisionsInMilestone(id: MilestoneId): Decision[] {
-    // Two-step: collect session ids, then collect decisions. Cheaper than a
-    // multi-table join through json_extract for small Ns.
-    const sessionIds = (this.db
-      .prepare(`SELECT id FROM sessions WHERE milestone_id = ?`)
-      .all(id) as { id: string }[]).map((r) => r.id);
-    if (sessionIds.length === 0) return [];
-    const placeholders = sessionIds.map(() => "?").join(",");
     const rows = this.db
-      .prepare(`SELECT data FROM decisions WHERE session_id IN (${placeholders}) ORDER BY created_at, id`)
-      .all(...sessionIds) as { data: string }[];
+      .prepare(`SELECT data FROM decisions WHERE milestone_id = ? ORDER BY created_at, id`)
+      .all(id) as { data: string }[];
     return rows.map((r) => JSON.parse(r.data) as Decision);
   }
 
-  // Decisions with no sessionId (legacy / unscoped capture).
-  unscopedDecisions(): Decision[] {
+  /**
+   * Allocate the next `<milestoneId>/{D|DEF|OQ}-NN` slot for a milestone+type.
+   * The status-prefixed local id keeps a glance at the id telling you the
+   * shape (decided vs deferred vs open) without a JOIN.
+   */
+  nextLocalDecisionId(milestoneId: MilestoneId, type: DecisionType): DecisionId {
+    const prefix = type === "decision" ? "D" : type === "deferred" ? "DEF" : "OQ";
+    const escMs = milestoneId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`^${escMs}/${prefix}-(\\d+)$`);
     const rows = this.db
-      .prepare(`SELECT data FROM decisions WHERE session_id IS NULL ORDER BY created_at, id`)
-      .all() as { data: string }[];
-    return rows.map((r) => JSON.parse(r.data) as Decision);
+      .prepare(`SELECT id FROM decisions WHERE milestone_id = ? AND type = ?`)
+      .all(milestoneId, type) as { id: string }[];
+    let max = 0;
+    for (const r of rows) {
+      const m = r.id.match(pattern);
+      if (m) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n) && n > max) max = n;
+      }
+    }
+    return `${milestoneId}/${prefix}-${String(max + 1).padStart(2, "0")}`;
   }
 
-  // -------------------------------------------------------------------------
-  // 0.0.7 — tags
-  // -------------------------------------------------------------------------
+  /**
+   * Set the resolution side of a deferred/open decision.
+   * Used by addEdge(resolves) to flip target on `resolves` edge insert.
+   * Wrapped in BEGIN IMMEDIATE so a concurrent `setDecisionSuperseded`
+   * on the same row from the always-on daemon can't clobber the JSON
+   * `data` blob between read and write.
+   */
+  setDecisionResolved(id: DecisionId, resolvedBy: DecisionId): void {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const d = this.getDecision(id);
+      if (!d) throw new Error(`no such decision: ${id}`);
+      d.status = "resolved";
+      d.resolvedBy = resolvedBy;
+      this.putDecision(d);
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+  }
+
+  /**
+   * Mark a type='decision' as superseded by another decision.
+   * Used by addEdge(supersedes). See setDecisionResolved for the
+   * concurrency rationale.
+   */
+  setDecisionSuperseded(id: DecisionId, supersededBy: DecisionId): void {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const d = this.getDecision(id);
+      if (!d) throw new Error(`no such decision: ${id}`);
+      d.supersededBy = supersededBy;
+      this.putDecision(d);
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+  }
+
+  // =========================================================================
+  // 0.1.0 — edges (column rename: kind → relation; adds depends_on)
+  // =========================================================================
+
+  /**
+   * Adding a `resolves` edge flips the target's `status` to 'resolved' and
+   * writes `resolved_by`. `supersedes` writes `superseded_by`. The other
+   * relations (`relates`, `reconciles`, `depends_on`) are non-mutating —
+   * they just record the link.
+   *
+   * This is the core invariant: a deferred decision from one report becomes
+   * "resolved by D-B" three weeks later when someone adds the edge, and
+   * every projection updates because it reads the live node, not a snapshot.
+   */
+  addEdge(e: Edge): void {
+    this.db
+      .prepare(`INSERT OR IGNORE INTO edges (from_id, to_id, relation, note) VALUES (?, ?, ?, ?)`)
+      .run(e.from, e.to, e.relation, e.note ?? null);
+
+    if (e.relation === "resolves") this.setDecisionResolved(e.to, e.from);
+    if (e.relation === "supersedes") this.setDecisionSuperseded(e.to, e.from);
+  }
+
+  edgesFrom(id: DecisionId): Edge[] {
+    return (
+      this.db.prepare(`SELECT from_id, to_id, relation, note FROM edges WHERE from_id = ?`).all(id) as any[]
+    ).map((r) => ({ from: r.from_id, to: r.to_id, relation: r.relation as EdgeRelation, note: r.note ?? undefined }));
+  }
+
+  edgesTo(id: DecisionId): Edge[] {
+    return (
+      this.db.prepare(`SELECT from_id, to_id, relation, note FROM edges WHERE to_id = ?`).all(id) as any[]
+    ).map((r) => ({ from: r.from_id, to: r.to_id, relation: r.relation as EdgeRelation, note: r.note ?? undefined }));
+  }
+
+  // ---- queries the store answers WITHOUT an ontology ----------------------
+
+  decisionsAffecting(ref: EntityRef): Decision[] {
+    const rows = this.db
+      .prepare(`SELECT decision_id FROM affects WHERE entity_kind = ? AND entity_id = ?`)
+      .all(ref.kind, ref.id) as { decision_id: string }[];
+    return rows.map((r) => this.getDecision(r.decision_id)!).filter(Boolean);
+  }
+
+  /** True if any incoming `resolves` edge exists. */
+  isResolved(id: DecisionId): boolean {
+    const row = this.db
+      .prepare(`SELECT 1 FROM edges WHERE to_id = ? AND relation = 'resolves' LIMIT 1`)
+      .get(id);
+    return !!row;
+  }
+
+  // =========================================================================
+  // 0.0.7 — tags (carried over verbatim)
+  // =========================================================================
 
   putTag(t: Tag): Tag {
     this.db
@@ -368,10 +713,10 @@ export class Store {
         `INSERT INTO tags (id, name, color, kind, origin, status, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
-           name       = excluded.name,
-           color      = excluded.color,
-           kind       = excluded.kind,
-           status     = excluded.status`
+           name   = excluded.name,
+           color  = excluded.color,
+           kind   = excluded.kind,
+           status = excluded.status`,
       )
       .run(t.id, t.name, t.color, t.kind ?? "scope", t.origin, t.status, t.createdAt);
     return t;
@@ -381,17 +726,12 @@ export class Store {
     const row = this.db
       .prepare(`SELECT id, name, color, kind, origin, status, created_at FROM tags WHERE id = ?`)
       .get(id) as
-      | { id: string; name: string; color: string; kind: string; origin: TagStatus; status: TagStatus; created_at: string }
+      | { id: string; name: string; color: string; kind: string; origin: string; status: TagStatus; created_at: string }
       | undefined;
     if (!row) return null;
     return {
-      id: row.id,
-      name: row.name,
-      color: row.color,
-      kind: row.kind,
-      origin: row.origin as Tag["origin"],
-      status: row.status,
-      createdAt: row.created_at,
+      id: row.id, name: row.name, color: row.color, kind: row.kind,
+      origin: row.origin as Tag["origin"], status: row.status, createdAt: row.created_at,
     };
   }
 
@@ -403,13 +743,8 @@ export class Store {
       | undefined;
     if (!row) return null;
     return {
-      id: row.id,
-      name: row.name,
-      color: row.color,
-      kind: row.kind,
-      origin: row.origin as Tag["origin"],
-      status: row.status,
-      createdAt: row.created_at,
+      id: row.id, name: row.name, color: row.color, kind: row.kind,
+      origin: row.origin as Tag["origin"], status: row.status, createdAt: row.created_at,
     };
   }
 
@@ -429,28 +764,19 @@ export class Store {
   renameTag(id: TagId, name: string): void {
     this.db.prepare(`UPDATE tags SET name = ? WHERE id = ?`).run(name, id);
   }
-
   recolorTag(id: TagId, color: string): void {
     this.db.prepare(`UPDATE tags SET color = ? WHERE id = ?`).run(color, id);
   }
-
   archiveTag(id: TagId): void {
     this.db.prepare(`UPDATE tags SET status = 'archived' WHERE id = ?`).run(id);
   }
-
   restoreTag(id: TagId): void {
     this.db.prepare(`UPDATE tags SET status = 'active' WHERE id = ?`).run(id);
   }
 
-  // -------------------------------------------------------------------------
-  // 0.0.7 — taggings (tag ↔ milestone|decision M:N)
-  // -------------------------------------------------------------------------
-
   upsertTagging(tag: Tagging): void {
     this.db
-      .prepare(
-        `INSERT OR IGNORE INTO taggings (tag_id, target_kind, target_id) VALUES (?, ?, ?)`,
-      )
+      .prepare(`INSERT OR IGNORE INTO taggings (tag_id, target_kind, target_id) VALUES (?, ?, ?)`)
       .run(tag.tagId, tag.targetKind, tag.targetId);
   }
 
@@ -485,10 +811,6 @@ export class Store {
     return rows.map((r) => ({ kind: r.target_kind, id: r.target_id }));
   }
 
-  // -------------------------------------------------------------------------
-  // 0.0.7 — tag proposals (pending queue)
-  // -------------------------------------------------------------------------
-
   putTagProposal(p: TagProposal): TagProposal {
     this.db
       .prepare(
@@ -508,8 +830,6 @@ export class Store {
     return p;
   }
 
-  // Merge new targets into an existing pending/blocked proposal for the same
-  // name, or insert a fresh one. Idempotency: same (name, outcome) collapses.
   upsertProposalByName(p: TagProposal): TagProposal {
     const existing = this.db
       .prepare(
@@ -521,10 +841,7 @@ export class Store {
       .get(p.name, p.outcome) as
       | { id: string; name: string; suggested_color: string | null; reason: string | null; targets: string; outcome: ProposalOutcome; created_at: string }
       | undefined;
-    if (!existing) {
-      return this.putTagProposal(p);
-    }
-    // Merge target sets (dedup by kind+id)
+    if (!existing) return this.putTagProposal(p);
     const existingTargets = JSON.parse(existing.targets) as { kind: TaggingTargetKind; id: string }[];
     const merged = new Map<string, { kind: TaggingTargetKind; id: string }>();
     for (const t of [...existingTargets, ...p.targets]) merged.set(`${t.kind}:${t.id}`, t);
@@ -542,22 +859,17 @@ export class Store {
 
   getTagProposal(id: string): TagProposal | null {
     const row = this.db
-      .prepare(
-        `SELECT id, name, suggested_color, reason, targets, outcome, created_at
-         FROM tag_proposals WHERE id = ?`,
-      )
+      .prepare(`SELECT id, name, suggested_color, reason, targets, outcome, created_at FROM tag_proposals WHERE id = ?`)
       .get(id) as
       | { id: string; name: string; suggested_color: string | null; reason: string | null; targets: string; outcome: ProposalOutcome; created_at: string }
       | undefined;
     if (!row) return null;
     return {
-      id: row.id,
-      name: row.name,
+      id: row.id, name: row.name,
       suggestedColor: row.suggested_color ?? undefined,
       reason: row.reason ?? undefined,
       targets: JSON.parse(row.targets) as { kind: TaggingTargetKind; id: string }[],
-      outcome: row.outcome,
-      createdAt: row.created_at,
+      outcome: row.outcome, createdAt: row.created_at,
     };
   }
 
@@ -569,13 +881,11 @@ export class Store {
       id: string; name: string; suggested_color: string | null; reason: string | null; targets: string; outcome: ProposalOutcome; created_at: string;
     }>;
     return rows.map((r) => ({
-      id: r.id,
-      name: r.name,
+      id: r.id, name: r.name,
       suggestedColor: r.suggested_color ?? undefined,
       reason: r.reason ?? undefined,
       targets: JSON.parse(r.targets) as { kind: TaggingTargetKind; id: string }[],
-      outcome: r.outcome,
-      createdAt: r.created_at,
+      outcome: r.outcome, createdAt: r.created_at,
     }));
   }
 
@@ -584,16 +894,13 @@ export class Store {
     return r.changes > 0;
   }
 
-  // -------------------------------------------------------------------------
-  // 0.0.7 — config key/value (local machine preferences)
-  // -------------------------------------------------------------------------
+  // =========================================================================
+  // 0.0.7 — config (carried over)
+  // =========================================================================
 
   setConfig(key: string, value: string): void {
     this.db
-      .prepare(
-        `INSERT INTO config (key, value) VALUES (?, ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-      )
+      .prepare(`INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
       .run(key, value);
   }
 
@@ -609,5 +916,24 @@ export class Store {
     const out: Record<string, string> = {};
     for (const r of rows) out[r.key] = r.value;
     return out;
+  }
+
+  // =========================================================================
+  // Private helpers
+  // =========================================================================
+
+  /** Allocate `<prefix>-NN` for projects / features / milestones. */
+  private nextSequencedId(table: "projects" | "features" | "milestones", prefix: string): string {
+    const pattern = new RegExp(`^${prefix}-(\\d+)$`);
+    const rows = this.db.prepare(`SELECT id FROM ${table}`).all() as { id: string }[];
+    let max = 0;
+    for (const r of rows) {
+      const m = r.id.match(pattern);
+      if (m) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n) && n > max) max = n;
+      }
+    }
+    return `${prefix}-${String(max + 1).padStart(2, "0")}`;
   }
 }

@@ -1,10 +1,6 @@
-// Tests for src/consolidate.ts — the proposeEdges heuristic that runs on
-// every capture and suggests edges to existing pending nodes.
-//
-// The heuristic combines token-jaccard similarity + shared-entity boost.
-// We're not testing exact numeric thresholds (those are tunable) — we test
-// that the *direction* of behaviour is correct: similar pending nodes get
-// proposed, dissimilar ones don't, and shared entity counts more than tokens.
+// Tests for src/consolidate.ts (0.1.0). proposeEdges runs on every capture
+// and suggests edges to existing pending nodes via token-jaccard + shared-
+// entity boost.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -12,185 +8,150 @@ import { Store } from "./store.ts";
 import { proposeEdges } from "./consolidate.ts";
 import type { Decision } from "./types.ts";
 
-const baseRaisedBy = {
-  trigger: "trigger text",
-  actor: "tester",
-  layer: "personal" as const,
-  at: "2026-06-01T00:00:00Z",
-};
+function bootProject(s: Store): { projectId: string; featureId: string; milestoneId: string } {
+  const projectId = s.nextProjectId();
+  s.putProject({
+    id: projectId, name: "test", path: "/test", status: "active",
+    createdAt: "2026-06-09T00:00:00Z",
+  });
+  const f = s.ensureUnscopedFeature(projectId);
+  const m = s.ensureUnscopedMilestone(projectId);
+  return { projectId, featureId: f.id, milestoneId: m.id };
+}
 
-function mkOpen(id: string, title: string, affects: { kind: string; id: string }[] = []): Decision {
+function mkDecided(milestoneId: string, id: string, title: string, affects: { kind: string; id: string }[] = []): Decision {
   return {
-    id, title,
-    raisedBy: baseRaisedBy,
-    status: { kind: "open", question: title },
+    id: `${milestoneId}/${id}`,
+    milestoneId,
+    type: "decision",
+    title,
+    raisedBy: { trigger: "t", actor: "a", layer: "personal", at: "2026-06-09T00:00:00Z" },
+    detail: { options: [{ name: "A", verdict: "chosen", chosen: true }] },
     affects,
+    createdAt: "2026-06-09T00:00:00Z",
   };
 }
 
-function mkDeferred(id: string, title: string, reason: string, affects: { kind: string; id: string }[] = []): Decision {
+function mkOpen(milestoneId: string, id: string, title: string, trigger?: string, affects: { kind: string; id: string }[] = []): Decision {
   return {
-    id, title,
-    raisedBy: baseRaisedBy,
-    status: { kind: "deferred", current: "x", reason, revisitWhen: { kind: "manual" } },
+    id: `${milestoneId}/${id}`,
+    milestoneId,
+    type: "open",
+    status: "open",
+    title,
+    raisedBy: { trigger: "t", actor: "a", layer: "personal", at: "2026-06-09T00:00:00Z" },
+    detail: trigger ? { trigger } : undefined,
     affects,
+    createdAt: "2026-06-09T00:00:00Z",
   };
 }
 
-function mkDecided(id: string, title: string, affects: { kind: string; id: string }[] = []): Decision {
+function mkDeferred(milestoneId: string, id: string, title: string, trigger: string): Decision {
   return {
-    id, title,
-    raisedBy: baseRaisedBy,
-    status: {
-      kind: "decided",
-      options: [{ label: "A", summary: "a", verdict: "chosen" }],
-      rationale: "because",
-    },
-    affects,
+    id: `${milestoneId}/${id}`,
+    milestoneId,
+    type: "deferred",
+    status: "open",
+    title,
+    raisedBy: { trigger: "t", actor: "a", layer: "personal", at: "2026-06-09T00:00:00Z" },
+    revisit: { trigger: { kind: "manual" } },
+    detail: { trigger },
+    affects: [],
+    createdAt: "2026-06-09T00:00:00Z",
   };
 }
 
-function freshStore(): Store {
-  return new Store(":memory:");
-}
+// ---- baseline behaviour ----------------------------------------------------
 
-// ---- Empty / trivial -----------------------------------------------------
-
-test("proposeEdges returns [] on an empty store", () => {
-  const s = freshStore();
-  const incoming = mkDecided("D-NEW", "anything", []);
+test("proposeEdges · no pending nodes → empty", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  const incoming = mkDecided(milestoneId, "D-01", "anything");
   assert.deepEqual(proposeEdges(s, incoming), []);
 });
 
-test("proposeEdges skips fully-decided nodes (only open + deferred are candidates)", () => {
-  const s = freshStore();
-  s.putDecision(mkDecided("D-OLD", "completely matching title here", []));
-  const incoming = mkDecided("D-NEW", "completely matching title here", []);
-  assert.deepEqual(
-    proposeEdges(s, incoming),
-    [],
-    "matching DECIDED node should not be a candidate",
-  );
+test("proposeEdges · skips itself (already stored)", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  const d = mkOpen(milestoneId, "OQ-01", "self-referential question");
+  s.putDecision(d);
+  const out = proposeEdges(s, d);
+  assert.equal(out.length, 0);
 });
 
-test("proposeEdges skips already-resolved deferred nodes", () => {
-  const s = freshStore();
-  s.putDecision(mkDeferred("DEF-1", "the same exact topic", "reason"));
-  // resolve it
-  s.putDecision(mkDecided("D-1", "earlier resolver"));
-  s.addEdge({ from: "D-1", to: "DEF-1", kind: "resolves" });
+// ---- token overlap drives proposal -----------------------------------------
 
-  const incoming = mkOpen("OQ-NEW", "the same exact topic");
-  const proposals = proposeEdges(s, incoming);
-  const targets = proposals.map((p) => p.edge.to);
-  assert.ok(!targets.includes("DEF-1"), "resolved deferred should not be a candidate");
+test("proposeEdges · strong title overlap → proposes resolves edge", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  s.putDecision(mkOpen(milestoneId, "OQ-01", "should we use sqlite for storage backend"));
+  const incoming = mkDecided(milestoneId, "D-02", "decided to use sqlite for storage backend");
+  const out = proposeEdges(s, incoming);
+  assert.ok(out.length >= 1);
+  assert.equal(out[0].edge.relation, "resolves");
 });
 
-// ---- Title overlap → relates ---------------------------------------------
-
-test("proposeEdges surfaces a pending node when the incoming shares words", () => {
-  const s = freshStore();
-  s.putDecision(mkOpen("OQ-1", "worktree isolation strategy per session", []));
-  const incoming = mkDecided("D-NEW", "worktree isolation strategy per session", []);
-
-  const proposals = proposeEdges(s, incoming);
-  assert.equal(proposals.length, 1);
-  assert.equal(proposals[0].edge.to, "OQ-1");
-  // Same-title overlap should be high enough to propose "resolves"
-  assert.equal(proposals[0].edge.kind, "resolves");
+test("proposeEdges · low title overlap with no shared entity → skipped", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  s.putDecision(mkOpen(milestoneId, "OQ-01", "completely unrelated frontend question"));
+  const incoming = mkDecided(milestoneId, "D-02", "backend something entirely different");
+  const out = proposeEdges(s, incoming);
+  assert.equal(out.length, 0);
 });
 
-test("proposeEdges returns no proposals when titles are unrelated and no shared entity", () => {
-  const s = freshStore();
-  s.putDecision(mkOpen("OQ-1", "database backup retention policy", []));
-  const incoming = mkDecided("D-NEW", "color of the dashboard sidebar", []);
+// ---- entity overlap is a boost ---------------------------------------------
 
-  const proposals = proposeEdges(s, incoming);
-  assert.deepEqual(proposals, []);
+test("proposeEdges · shared entity raises low-overlap pairs above threshold", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  s.putDecision(mkOpen(milestoneId, "OQ-01", "renderer concerns", undefined, [
+    { kind: "file", id: "src/render.ts" },
+  ]));
+  const incoming = mkDecided(milestoneId, "D-02", "html output detail tweaks", [
+    { kind: "file", id: "src/render.ts" },
+  ]);
+  const out = proposeEdges(s, incoming);
+  assert.ok(out.length >= 1, "shared entity should be enough to propose");
 });
 
-// ---- Shared entity boost ------------------------------------------------
+// ---- deferred-decision reading uses detail.trigger -------------------------
 
-test("shared entity is enough to surface even when titles barely overlap", () => {
-  const s = freshStore();
-  // Use vocabularies with zero overlap (incl. baseRaisedBy.trigger words)
-  s.putDecision(mkOpen("OQ-1", "blue car forest", [{ kind: "file", id: "src/foo.ts" }]));
-  const incoming = mkDecided(
-    "D-NEW",
-    "red bicycle desert",
-    [{ kind: "file", id: "src/foo.ts" }],
-  );
-
-  const proposals = proposeEdges(s, incoming);
-  assert.equal(proposals.length, 1, "shared entity alone should yield a proposal");
-  assert.equal(proposals[0].edge.to, "OQ-1");
-  // Shared entity but no title overlap → relates, not resolves
-  assert.equal(proposals[0].edge.kind, "relates");
+test("proposeEdges · reads deferred's detail.trigger as part of the corpus", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  s.putDecision(mkDeferred(milestoneId, "DEF-01", "later", "we punted the migration tooling for now"));
+  const incoming = mkDecided(milestoneId, "D-02", "migration tooling design");
+  const out = proposeEdges(s, incoming);
+  // The token "migration tooling" appears in both detail.trigger and incoming title.
+  assert.ok(out.length >= 1);
 });
 
-test("shared entity counts more confidence than title overlap alone", () => {
-  const s = freshStore();
-  s.putDecision(mkOpen("OQ-WITH-ENTITY", "the topic at hand here", [{ kind: "file", id: "src/foo.ts" }]));
-  s.putDecision(mkOpen("OQ-WITHOUT", "the topic at hand here", []));
-  const incoming = mkDecided(
-    "D-NEW",
-    "the topic at hand here",
-    [{ kind: "file", id: "src/foo.ts" }],
-  );
+// ---- never proposes depends_on (authored only) ----------------------------
 
-  const proposals = proposeEdges(s, incoming);
-  assert.equal(proposals.length, 2);
-  // Both should appear; the one with the shared entity should be ranked higher
-  const byId = new Map(proposals.map((p) => [p.edge.to, p]));
-  const withEntity = byId.get("OQ-WITH-ENTITY")!;
-  const without = byId.get("OQ-WITHOUT")!;
-  assert.ok(
-    withEntity.confidence > without.confidence,
-    `shared-entity confidence (${withEntity.confidence}) should exceed title-only (${without.confidence})`,
-  );
-});
-
-test("proposals are sorted by descending confidence", () => {
-  const s = freshStore();
-  s.putDecision(mkOpen("OQ-LOW", "barely related text here", [{ kind: "file", id: "x.ts" }]));
-  s.putDecision(mkOpen("OQ-HIGH", "the exact same topic", [{ kind: "file", id: "x.ts" }]));
-  const incoming = mkDecided("D-NEW", "the exact same topic", [{ kind: "file", id: "x.ts" }]);
-
-  const proposals = proposeEdges(s, incoming);
-  for (let i = 1; i < proposals.length; i++) {
-    assert.ok(
-      proposals[i - 1].confidence >= proposals[i].confidence,
-      "proposals not sorted by descending confidence",
-    );
+test("proposeEdges · only emits 'resolves' or 'relates' (never depends_on)", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  s.putDecision(mkOpen(milestoneId, "OQ-01", "shared entity question", undefined, [{ kind: "file", id: "a.ts" }]));
+  s.putDecision(mkOpen(milestoneId, "OQ-02", "another shared", undefined, [{ kind: "file", id: "a.ts" }]));
+  const incoming = mkDecided(milestoneId, "D-03", "decided shared thing", [{ kind: "file", id: "a.ts" }]);
+  const out = proposeEdges(s, incoming);
+  for (const c of out) {
+    assert.ok(c.edge.relation === "resolves" || c.edge.relation === "relates", `unexpected relation: ${c.edge.relation}`);
   }
 });
 
-// ---- Edge payload shape -------------------------------------------------
+// ---- resolved pending is filtered out -------------------------------------
 
-test("each EdgeCandidate carries edge, confidence (0..1), and reason", () => {
-  const s = freshStore();
-  s.putDecision(mkOpen("OQ-1", "shared topic here", [{ kind: "file", id: "x.ts" }]));
-  const incoming = mkDecided("D-NEW", "shared topic here", [{ kind: "file", id: "x.ts" }]);
-
-  const [p] = proposeEdges(s, incoming);
-  assert.ok(p);
-  assert.equal(p.edge.from, "D-NEW");
-  assert.equal(p.edge.to, "OQ-1");
-  assert.ok(["resolves", "relates"].includes(p.edge.kind));
-  assert.ok(p.confidence >= 0 && p.confidence <= 1);
-  assert.equal(typeof p.reason, "string");
-  assert.ok(p.reason.length > 0);
-});
-
-test("proposeEdges never proposes a self-edge", () => {
-  const s = freshStore();
-  // Edge case: incoming has same id as an existing pending node (shouldn't happen
-  // in normal capture, but the function should defend against it).
-  s.putDecision(mkOpen("D-NEW", "same title here", []));
-  const incoming = mkDecided("D-NEW", "same title here", []);
-
-  const proposals = proposeEdges(s, incoming);
-  for (const p of proposals) {
-    assert.notEqual(p.edge.from, p.edge.to, "self-edge proposed");
-  }
+test("proposeEdges · skips pending that are already status='resolved'", () => {
+  const s = new Store(":memory:");
+  const { milestoneId } = bootProject(s);
+  s.putDecision({
+    ...mkOpen(milestoneId, "OQ-01", "matching question"),
+    status: "resolved",
+    resolvedBy: `${milestoneId}/D-99`,
+  });
+  const incoming = mkDecided(milestoneId, "D-02", "matching question answered");
+  const out = proposeEdges(s, incoming);
+  assert.equal(out.length, 0);
 });

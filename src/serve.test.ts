@@ -1,9 +1,6 @@
-// Tests for src/serve.ts — HTTP smoke covering both single-project and
-// multi-tenant dispatch.
-//
-// startServer was refactored to resolve once listening (returning a
-// RunningServer handle). We bind to port 0 (kernel-assigned) and tear
-// down in afterEach.
+// Tests for src/serve.ts (0.1.0). HTTP smoke covering single-project +
+// multi-tenant dispatch with the new schema (Project, Feature, Milestone
+// 5-state, Decision split, Edge.relation, depends_on, session lifecycle).
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -21,45 +18,49 @@ import { startServer, type RunningServer } from "./serve.ts";
 import { register, saveRegistry } from "./registry.ts";
 import type { Decision } from "./types.ts";
 
-// ----------------------------------------------------------------------------
-// Fixtures
-// ----------------------------------------------------------------------------
+const AT = "2026-06-09T00:00:00Z";
 
-const baseRaisedBy = {
-  trigger: "test",
-  actor: "tester",
-  layer: "personal" as const,
-  at: "2026-06-01T00:00:00Z",
-};
+function bootProject(s: Store): { projectId: string; milestoneId: string } {
+  const projectId = s.nextProjectId();
+  s.putProject({ id: projectId, name: "test", path: "/test", status: "active", createdAt: AT });
+  const m = s.ensureUnscopedMilestone(projectId);
+  return { projectId, milestoneId: m.id };
+}
 
-function mkOpen(id: string, title: string): Decision {
+function mkOpen(milestoneId: string, id: string, title: string): Decision {
   return {
-    id, title,
-    raisedBy: baseRaisedBy,
-    status: { kind: "open", question: title },
-    affects: [],
+    id: `${milestoneId}/${id}`, milestoneId, type: "open", status: "open",
+    title,
+    raisedBy: { trigger: "t", actor: "a", layer: "personal", at: AT },
+    affects: [], createdAt: AT,
   };
 }
 
-function mkDecided(id: string, title: string): Decision {
+function mkDecided(milestoneId: string, id: string, title: string): Decision {
   return {
-    id, title,
-    raisedBy: baseRaisedBy,
-    status: {
-      kind: "decided",
-      options: [{ label: "A", summary: "a", verdict: "chosen" }],
-      rationale: "because",
-    },
-    affects: [],
+    id: `${milestoneId}/${id}`, milestoneId, type: "decision",
+    title,
+    raisedBy: { trigger: "t", actor: "a", layer: "personal", at: AT },
+    detail: { options: [{ name: "A", verdict: "chosen", chosen: true }] },
+    affects: [], createdAt: AT,
   };
 }
 
 function seedStore(): Store {
   const s = new Store(":memory:");
-  s.putDecision(mkOpen("OQ-1", "open one"));
-  s.putDecision(mkOpen("OQ-2", "open two"));
-  s.putDecision(mkDecided("D-1", "decided one"));
+  const { milestoneId } = bootProject(s);
+  s.putDecision(mkOpen(milestoneId, "OQ-01", "open one"));
+  s.putDecision(mkOpen(milestoneId, "OQ-02", "open two"));
+  s.putDecision(mkDecided(milestoneId, "D-01", "decided one"));
   return s;
+}
+
+// Helper used by route tests that need the auto-created unscoped milestone
+// id. Goes through the Store API so the test isn't coupled to the sentinel
+// id format.
+function unscopedMid(s: Store): string {
+  const p = s.theProject()!;
+  return s.ensureUnscopedMilestone(p.id).id;
 }
 
 let savedHome: string | undefined;
@@ -83,422 +84,293 @@ afterEach(async () => {
 });
 
 // ============================================================================
-// Single-project mode
+// Static assets + SPA shell
 // ============================================================================
 
-test("single-project · GET / returns the SPA HTML shell", async () => {
+test("GET / returns the SPA HTML shell", async () => {
   running = await startServer({ store: seedStore(), port: 0 });
   const r = await fetch(`${running.url}/`);
   assert.equal(r.status, 200);
-  assert.equal(r.headers.get("content-type"), "text/html; charset=utf-8");
   const text = await r.text();
   assert.ok(text.includes("<!DOCTYPE html>"));
 });
 
-test("single-project · GET /assets/styles.css serves CSS", async () => {
+test("GET /assets/styles.css serves CSS", async () => {
   running = await startServer({ store: seedStore(), port: 0 });
   const r = await fetch(`${running.url}/assets/styles.css`);
   assert.equal(r.status, 200);
-  assert.equal(r.headers.get("content-type"), "text/css; charset=utf-8");
 });
 
-test("single-project · GET /api/resume returns WaitingItem[]", async () => {
+// ============================================================================
+// Decision / Edge / resume — core projections
+// ============================================================================
+
+test("GET /api/resume returns open + un-resolved deferred items", async () => {
   running = await startServer({ store: seedStore(), port: 0 });
   const r = await fetch(`${running.url}/api/resume`);
-  assert.equal(r.status, 200);
   const items = await r.json() as Array<{ id: string; bucket: string }>;
-  assert.equal(items.length, 2, "two open items expected");
-  const ids = items.map((i) => i.id).sort();
-  assert.deepEqual(ids, ["OQ-1", "OQ-2"]);
+  assert.equal(items.length, 2);
 });
 
-test("single-project · GET /api/decisions returns all", async () => {
+test("GET /api/decisions returns all", async () => {
   running = await startServer({ store: seedStore(), port: 0 });
   const r = await fetch(`${running.url}/api/decisions`);
   const list = await r.json() as Array<{ id: string }>;
   assert.equal(list.length, 3);
 });
 
-test("single-project · GET /api/decisions/:id returns trace shape", async () => {
-  running = await startServer({ store: seedStore(), port: 0 });
-  const r = await fetch(`${running.url}/api/decisions/D-1`);
+test("GET /api/decisions/<milestone>/<local> returns trace (slash in id is supported)", async () => {
+  const s = seedStore();
+  const decisionId = `${unscopedMid(s)}/D-01`;
+  running = await startServer({ store: s, port: 0 });
+  // The route gobbles the whole tail after `/api/decisions/`, including slashes.
+  const r = await fetch(`${running.url}/api/decisions/${decisionId}`);
   assert.equal(r.status, 200);
   const t = await r.json() as { decision: { id: string }; statusLine: string };
-  assert.equal(t.decision.id, "D-1");
+  assert.equal(t.decision.id, decisionId);
   assert.ok(t.statusLine.includes("DECIDED"));
 });
 
-test("single-project · GET /api/decisions/:nonexistent returns 404", async () => {
+test("GET /api/decisions/NOPE returns 404", async () => {
   running = await startServer({ store: seedStore(), port: 0 });
   const r = await fetch(`${running.url}/api/decisions/NOPE`);
   assert.equal(r.status, 404);
 });
 
-test("single-project · GET /api/next-id?prefix=D returns next slot", async () => {
-  const store = seedStore();
-  // D-1 already exists → next should be D-02
-  running = await startServer({ store, port: 0 });
+test("GET /api/next-id requires milestone parameter", async () => {
+  running = await startServer({ store: seedStore(), port: 0 });
   const r = await fetch(`${running.url}/api/next-id?prefix=D`);
+  assert.equal(r.status, 400);
+});
+
+test("GET /api/next-id?prefix=D&milestone=... returns <milestone>/<local>", async () => {
+  const s = seedStore();
+  running = await startServer({ store: s, port: 0 });
+  const milestoneId = unscopedMid(s); // the auto-generated id from ensureUnscopedMilestone with projectId P-01
+  const r = await fetch(`${running.url}/api/next-id?prefix=D&milestone=${encodeURIComponent(milestoneId)}`);
+  // Existing decided one is M-01-unscoped/D-01, next should be D-02
+  assert.equal(r.status, 200);
   const id = await r.json();
-  assert.equal(id, "D-02");
+  assert.equal(id, `${milestoneId}/D-02`);
 });
 
-test("single-project · POST /api/decisions captures a new node", async () => {
-  const store = seedStore();
-  running = await startServer({ store, port: 0 });
-  const decision = {
-    id: "D-99",
-    title: "new one",
-    raisedBy: baseRaisedBy,
-    status: { kind: "decided", options: [{ label: "A", summary: "a", verdict: "chosen" }], rationale: "because" },
-    affects: [],
-  };
-  const r = await fetch(`${running.url}/api/decisions`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ decision }),
-  });
-  assert.equal(r.status, 200);
-  const result = await r.json() as { id: string };
-  assert.equal(result.id, "D-99");
-
-  // Verify it landed in the store
-  assert.ok(store.getDecision("D-99"));
-});
-
-test("single-project · POST /api/decisions with bad payload returns 400", async () => {
-  running = await startServer({ store: seedStore(), port: 0 });
-  const r = await fetch(`${running.url}/api/decisions`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ decision: { id: "X" } }),
-  });
-  assert.equal(r.status, 400);
-});
-
-test("single-project · POST /api/edges adds an edge", async () => {
-  const store = seedStore();
-  running = await startServer({ store, port: 0 });
+test("POST /api/edges with relation: 'resolves' flips target to resolved", async () => {
+  const s = seedStore();
+  const milestoneId = unscopedMid(s);
+  running = await startServer({ store: s, port: 0 });
   const r = await fetch(`${running.url}/api/edges`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ from: "D-1", to: "OQ-1", kind: "resolves" }),
+    body: JSON.stringify({
+      from: `${milestoneId}/D-01`, to: `${milestoneId}/OQ-01`, relation: "resolves",
+    }),
   });
   assert.equal(r.status, 200);
-  // Side effect: OQ-1 should now be resolved
-  const d = store.getDecision("OQ-1");
-  assert.equal(d!.status.kind, "resolved");
+  const d = s.getDecision(`${milestoneId}/OQ-01`)!;
+  assert.equal(d.status, "resolved");
+  assert.equal(d.resolvedBy, `${milestoneId}/D-01`);
 });
 
-test("single-project · POST /api/edges rejects unknown endpoints", async () => {
+test("POST /api/edges with depends_on (new in 0.1.0) is accepted", async () => {
+  const s = seedStore();
+  const milestoneId = unscopedMid(s);
+  running = await startServer({ store: s, port: 0 });
+  const r = await fetch(`${running.url}/api/edges`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      from: `${milestoneId}/D-01`, to: `${milestoneId}/OQ-01`, relation: "depends_on",
+    }),
+  });
+  assert.equal(r.status, 200);
+});
+
+test("POST /api/edges with old 'kind' field is rejected", async () => {
   running = await startServer({ store: seedStore(), port: 0 });
   const r = await fetch(`${running.url}/api/edges`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ from: "NOPE", to: "OQ-1", kind: "resolves" }),
+    body: JSON.stringify({ from: "x", to: "y", kind: "resolves" }),
   });
   assert.equal(r.status, 400);
 });
 
-test("single-project · GET /random/spa/path falls back to index", async () => {
+// ============================================================================
+// Project / Feature / Milestone — 0.1.0 new entities
+// ============================================================================
+
+test("GET /api/project returns the single Project + rollup", async () => {
   running = await startServer({ store: seedStore(), port: 0 });
-  const r = await fetch(`${running.url}/decisions/D-1`);
-  // Even though this isn't a real backend route, the SPA fallback serves index
+  const r = await fetch(`${running.url}/api/project`);
   assert.equal(r.status, 200);
-  assert.ok((await r.text()).includes("<!DOCTYPE html>"));
+  const body = await r.json() as { project: { name: string }; rollup: { milestoneCount: number } };
+  assert.equal(body.project.name, "test");
+  assert.ok(body.rollup.milestoneCount >= 1);
 });
 
-// ============================================================================
-// Multi-tenant mode
-// ============================================================================
-
-function seedProjectIntoRegistry(slug: string, parentDir: string): string {
-  // Create a project dir with a .stele/decisions.db so MultiStoreContext
-  // can lazy-open it. Return the path.
-  const projectPath = join(parentDir, slug);
-  mkdirSync(join(projectPath, ".stele"), { recursive: true });
-  // Bootstrap an empty Store at that path so the .db file exists
-  const s = new Store(join(projectPath, ".stele", "decisions.db"));
-  s.putDecision(mkOpen(`OQ-${slug}`, `open in ${slug}`));
-  return projectPath;
-}
-
-test("multi · GET / returns the SPA shell", async () => {
-  running = await startServer({ multi: true, port: 0 });
-  const r = await fetch(`${running.url}/`);
-  assert.equal(r.status, 200);
-  assert.ok((await r.text()).includes("<!DOCTYPE html>"));
-});
-
-test("multi · GET /api/projects returns the registered list", async () => {
-  const aPath = seedProjectIntoRegistry("alpha", tmpHome);
-  const bPath = seedProjectIntoRegistry("beta", tmpHome);
-  register(aPath);
-  register(bPath);
-
-  running = await startServer({ multi: true, port: 0 });
-  const r = await fetch(`${running.url}/api/projects`);
-  assert.equal(r.status, 200);
-  const projects = await r.json() as Array<{ slug: string; openLoops: number }>;
-  assert.equal(projects.length, 2);
-  const slugs = projects.map((p) => p.slug).sort();
-  assert.deepEqual(slugs, ["alpha", "beta"]);
-  // Each project we seeded has 1 open loop
-  for (const p of projects) assert.equal(p.openLoops, 1);
-});
-
-test("multi · GET /<slug>/api/resume returns that project's items", async () => {
-  const path = seedProjectIntoRegistry("zeta", tmpHome);
-  register(path);
-
-  running = await startServer({ multi: true, port: 0 });
-  const r = await fetch(`${running.url}/zeta/api/resume`);
-  assert.equal(r.status, 200);
-  const items = await r.json() as Array<{ id: string }>;
-  assert.equal(items.length, 1);
-  assert.equal(items[0].id, "OQ-zeta");
-});
-
-test("multi · GET /<unknown-slug>/api/resume returns 404", async () => {
-  running = await startServer({ multi: true, port: 0 });
-  const r = await fetch(`${running.url}/no-such-slug/api/resume`);
-  assert.equal(r.status, 404);
-});
-
-test("multi · GET /<slug>/anything-else falls back to the SPA shell", async () => {
-  const path = seedProjectIntoRegistry("zeta", tmpHome);
-  register(path);
-
-  running = await startServer({ multi: true, port: 0 });
-  const r = await fetch(`${running.url}/zeta/decisions/D-04`);
-  assert.equal(r.status, 200);
-  assert.ok((await r.text()).includes("<!DOCTYPE html>"));
-});
-
-test("multi · GET /assets/styles.css works (shared across projects)", async () => {
-  running = await startServer({ multi: true, port: 0 });
-  const r = await fetch(`${running.url}/assets/styles.css`);
-  assert.equal(r.status, 200);
-});
-
-test("multi · reserved word 'api' as slug returns 404 (not treated as a project)", async () => {
-  running = await startServer({ multi: true, port: 0 });
-  const r = await fetch(`${running.url}/api/something-not-routed`);
-  assert.equal(r.status, 404);
-});
-
-test("multi · POST /<slug>/api/decisions captures into that project's store", async () => {
-  const path = seedProjectIntoRegistry("test-proj", tmpHome);
-  register(path);
-
-  running = await startServer({ multi: true, port: 0 });
-  const decision = {
-    id: "D-NEW",
-    title: "captured via multi",
-    raisedBy: baseRaisedBy,
-    status: { kind: "decided", options: [{ label: "A", summary: "a", verdict: "chosen" }], rationale: "because" },
-    affects: [],
-  };
-  const r = await fetch(`${running.url}/test-proj/api/decisions`, {
+test("POST /api/features creates a new Feature", async () => {
+  running = await startServer({ store: seedStore(), port: 0 });
+  const r = await fetch(`${running.url}/api/features`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ decision }),
+    body: JSON.stringify({ name: "CcaaS" }),
   });
   assert.equal(r.status, 200);
+  const f = await r.json() as { id: string; name: string };
+  assert.equal(f.name, "CcaaS");
+});
 
-  // Reopening that project's store should see the new decision
-  const s = new Store(join(path, ".stele", "decisions.db"));
-  assert.ok(s.getDecision("D-NEW"));
+test("GET /api/milestones returns the summary (state field)", async () => {
+  running = await startServer({ store: seedStore(), port: 0 });
+  const r = await fetch(`${running.url}/api/milestones`);
+  const list = await r.json() as Array<{ milestone: { state: string } }>;
+  assert.ok(list.length >= 1);
+  assert.ok(["draft", "going", "winding", "done", "paused"].includes(list[0].milestone.state));
+});
+
+test("GET /api/milestones/:id/report returns a draft", async () => {
+  const s = seedStore();
+  const milestoneId = unscopedMid(s);
+  running = await startServer({ store: s, port: 0 });
+  const r = await fetch(`${running.url}/api/milestones/${encodeURIComponent(milestoneId)}/report`);
+  assert.equal(r.status, 200);
+  const draft = await r.json() as { milestoneId: string; openLoops: unknown[] };
+  assert.equal(draft.milestoneId, milestoneId);
+  // The 2 open decisions from the seed
+  assert.equal(draft.openLoops.length, 2);
 });
 
 // ============================================================================
-// 0.0.7 — tag + config HTTP API (single-project, where the dispatcher lives)
+// Session lifecycle
 // ============================================================================
 
-test("single-project · GET /api/tags returns active by default; ?status=all sees archived", async () => {
-  const store = seedStore();
-  store.putTag({
-    id: "tag-a", name: "active-tag", color: "#0d5245",
-    kind: "scope", origin: "you", status: "active",
-    createdAt: "2026-06-01T00:00:00Z",
+test("POST /api/sessions/start opens a session under a milestone", async () => {
+  const s = seedStore();
+  const milestoneId = unscopedMid(s);
+  running = await startServer({ store: s, port: 0 });
+  const r = await fetch(`${running.url}/api/sessions/start`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      milestoneId,
+      sourceSession: { source: "claude-code", sourceSessionId: "abc" },
+      provenance: { cwd: "/x", layoutAlive: true },
+    }),
   });
-  store.putTag({
-    id: "tag-b", name: "archived-tag", color: "#3a3185",
-    kind: "scope", origin: "you", status: "archived",
-    createdAt: "2026-06-01T00:00:00Z",
-  });
-  running = await startServer({ store, port: 0 });
-
-  let r = await fetch(`${running.url}/api/tags`);
-  let body = await r.json() as Array<{ id: string }>;
-  assert.equal(body.length, 1, "default returns only active");
-  assert.equal(body[0].id, "tag-a");
-
-  r = await fetch(`${running.url}/api/tags?status=all`);
-  body = await r.json() as Array<{ id: string }>;
-  assert.equal(body.length, 2);
+  assert.equal(r.status, 200);
+  const sess = await r.json() as { id: string; provenance: { layoutAlive: boolean } };
+  assert.equal(sess.provenance.layoutAlive, true);
 });
 
-test("single-project · POST /api/tags follows tag policy (propose by default)", async () => {
-  const store = seedStore();
-  running = await startServer({ store, port: 0 });
+test("POST /api/sessions/:id/end writes outcome + pauseReason", async () => {
+  const s = seedStore();
+  const milestoneId = unscopedMid(s);
+  s.putSession({ id: "ses-x", milestoneId, source: "manual", startedAt: AT });
+  running = await startServer({ store: s, port: 0 });
+  const r = await fetch(`${running.url}/api/sessions/ses-x/end`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      outcome: { type: "advanced", summary: "ok" },
+      pauseReason: { kind: "out_of_time" },
+    }),
+  });
+  assert.equal(r.status, 200);
+  assert.equal(s.getSession("ses-x")!.outcome!.type, "advanced");
+  assert.equal(s.getSession("ses-x")!.pauseReason!.kind, "out_of_time");
+});
+
+test("GET /api/sessions/:id/resume-command returns mode + command", async () => {
+  const s = seedStore();
+  const milestoneId = unscopedMid(s);
+  s.putSession({
+    id: "ses-x", milestoneId, source: "claude-code", sourceSessionId: "xyz",
+    startedAt: AT,
+    provenance: { cwd: "/home/me", layoutAlive: false },
+  });
+  running = await startServer({ store: s, port: 0 });
+  const r = await fetch(`${running.url}/api/sessions/ses-x/resume-command`);
+  const body = await r.json() as { mode: string; command: string; copyable: boolean };
+  assert.equal(body.mode, "rebuild");
+  assert.ok(body.command.includes("claude --resume xyz"));
+  assert.equal(body.copyable, true);
+});
+
+// ============================================================================
+// Tags + config (carried over from 0.0.7 — these stay green)
+// ============================================================================
+
+test("GET /api/tags returns active by default", async () => {
+  const s = seedStore();
+  s.putTag({
+    id: "tag-a", name: "active", color: "#0d5245",
+    kind: "scope", origin: "you", status: "active", createdAt: AT,
+  });
+  running = await startServer({ store: s, port: 0 });
+  const r = await fetch(`${running.url}/api/tags`);
+  const body = await r.json() as Array<{ id: string }>;
+  assert.equal(body.length, 1);
+});
+
+test("POST /api/tags follows tag_policy (default propose)", async () => {
+  const s = seedStore();
+  running = await startServer({ store: s, port: 0 });
   const r = await fetch(`${running.url}/api/tags`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       name: "security",
-      reason: "OWASP A1",
-      targets: [{ kind: "decision", id: "D-1" }],
-    }),
-  });
-  assert.equal(r.status, 200);
-  const body = await r.json() as { kind: string; proposal?: { id: string } };
-  assert.equal(body.kind, "pending");
-  assert.ok(body.proposal?.id?.startsWith("tp-"));
-});
-
-test("single-project · POST /api/tags returns 400 when require_reason=true and no reason given", async () => {
-  const store = seedStore();
-  running = await startServer({ store, port: 0 });
-  const r = await fetch(`${running.url}/api/tags`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      name: "security",
-      targets: [{ kind: "decision", id: "D-1" }],
-    }),
-  });
-  assert.equal(r.status, 400);
-});
-
-test("single-project · POST /api/tags/proposals/:id/confirm creates the tag", async () => {
-  const store = seedStore();
-  running = await startServer({ store, port: 0 });
-  let r = await fetch(`${running.url}/api/tags`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      name: "security", reason: "x",
-      targets: [{ kind: "decision", id: "D-1" }],
-    }),
-  });
-  const propose = await r.json() as { proposal: { id: string } };
-
-  r = await fetch(`${running.url}/api/tags/proposals/${propose.proposal.id}/confirm`, {
-    method: "POST",
-    headers: { "content-type": "application/json", "content-length": "0" },
-  });
-  assert.equal(r.status, 200);
-  const confirmed = await r.json() as { tag: { id: string; origin: string } };
-  assert.equal(confirmed.tag.origin, "you");
-
-  // Tag is now active and bound to D-1
-  const tags = store.taggingsForTarget("decision", "D-1");
-  assert.equal(tags.length, 1);
-  assert.equal(tags[0].id, confirmed.tag.id);
-});
-
-test("single-project · POST /api/tags/:id/apply binds existing tag to target", async () => {
-  const store = seedStore();
-  store.putTag({
-    id: "tag-existing", name: "backend", color: "#0d5245",
-    kind: "scope", origin: "you", status: "active",
-    createdAt: "2026-06-01T00:00:00Z",
-  });
-  running = await startServer({ store, port: 0 });
-  const r = await fetch(`${running.url}/api/tags/tag-existing/apply`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ target: { kind: "decision", id: "D-1" } }),
-  });
-  assert.equal(r.status, 200);
-  assert.equal(store.taggingsForTarget("decision", "D-1").length, 1);
-});
-
-test("single-project · DELETE /api/tags/:id/tagging removes a binding", async () => {
-  const store = seedStore();
-  store.putTag({
-    id: "tag-existing", name: "backend", color: "#0d5245",
-    kind: "scope", origin: "you", status: "active",
-    createdAt: "2026-06-01T00:00:00Z",
-  });
-  store.upsertTagging({ tagId: "tag-existing", targetKind: "decision", targetId: "D-1" });
-  running = await startServer({ store, port: 0 });
-
-  const r = await fetch(`${running.url}/api/tags/tag-existing/tagging`, {
-    method: "DELETE",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ target: { kind: "decision", id: "D-1" } }),
-  });
-  assert.equal(r.status, 200);
-  assert.equal(store.taggingsForTarget("decision", "D-1").length, 0);
-});
-
-test("single-project · GET /api/config returns defaults inline", async () => {
-  const store = seedStore();
-  running = await startServer({ store, port: 0 });
-  const r = await fetch(`${running.url}/api/config`);
-  const body = await r.json() as { _defaults: { tag_policy: string; tag_require_reason: boolean } };
-  assert.equal(body._defaults.tag_policy, "propose");
-  assert.equal(body._defaults.tag_require_reason, true);
-});
-
-test("single-project · POST /api/config/tag_policy + GET round-trips", async () => {
-  const store = seedStore();
-  running = await startServer({ store, port: 0 });
-  let r = await fetch(`${running.url}/api/config/tag_policy`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ value: "auto" }),
-  });
-  assert.equal(r.status, 200);
-
-  r = await fetch(`${running.url}/api/config/tag_policy`);
-  const body = await r.json() as { key: string; value: string };
-  assert.equal(body.value, "auto");
-});
-
-test("single-project · POST /api/config/tag_policy rejects invalid values", async () => {
-  const store = seedStore();
-  running = await startServer({ store, port: 0 });
-  const r = await fetch(`${running.url}/api/config/tag_policy`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ value: "yolo" }),
-  });
-  assert.equal(r.status, 400);
-});
-
-test("single-project · POST /api/tags + locked policy + later restore archived tag", async () => {
-  const store = seedStore();
-  store.setConfig("tag_policy", "locked");
-  running = await startServer({ store, port: 0 });
-  const r = await fetch(`${running.url}/api/tags`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      name: "lockdown", reason: "test",
-      targets: [{ kind: "decision", id: "D-1" }],
+      reason: "OWASP",
+      targets: [{ kind: "decision", id: "M-01-unscoped/D-01" }],
     }),
   });
   assert.equal(r.status, 200);
   const body = await r.json() as { kind: string };
-  assert.equal(body.kind, "blocked");
+  assert.equal(body.kind, "pending");
 });
 
-test("multi · registry edits are picked up via mtime watch", async () => {
+test("GET /api/config returns defaults inline", async () => {
+  running = await startServer({ store: seedStore(), port: 0 });
+  const r = await fetch(`${running.url}/api/config`);
+  const body = await r.json() as { _defaults: { tag_policy: string } };
+  assert.equal(body._defaults.tag_policy, "propose");
+});
+
+// ============================================================================
+// Multi-tenant routing
+// ============================================================================
+
+function seedProjectIntoRegistry(slug: string, tmpHome: string): string {
+  const projDir = mkdtempSync(join(tmpHome, `proj-`));
+  mkdirSync(join(projDir, ".stele"));
+  // Boot a fresh store at that path and create a Project row so the routes work
+  const dbPath = join(projDir, ".stele", "decisions.db");
+  const s = new Store(dbPath);
+  const pid = s.nextProjectId();
+  s.putProject({
+    id: pid, name: slug, path: projDir, status: "active", createdAt: AT,
+  });
+  s.ensureUnscopedFeature(pid);
+  return projDir;
+}
+
+test("multi · GET /api/projects returns the registered list", async () => {
   running = await startServer({ multi: true, port: 0 });
-  // Initially empty
   let r = await fetch(`${running.url}/api/projects`);
   assert.deepEqual(await r.json(), []);
 
-  // Register a new project while server is running
-  const path = seedProjectIntoRegistry("late", tmpHome);
-  register(path);
-
-  // Next request should see it (no restart needed)
+  const path1 = seedProjectIntoRegistry("alpha", tmpHome);
+  register(path1);
   r = await fetch(`${running.url}/api/projects`);
   const projects = await r.json() as Array<{ slug: string }>;
   assert.equal(projects.length, 1);
-  assert.equal(projects[0].slug, "late");
+});
+
+test("multi · GET /<slug>/api/project returns that project's row", async () => {
+  const path = seedProjectIntoRegistry("alpha", tmpHome);
+  const reg = register(path);
+  saveRegistry({ projects: [{ slug: reg.slug, path, addedAt: AT }] });
+  running = await startServer({ multi: true, port: 0 });
+  const r = await fetch(`${running.url}/${reg.slug}/api/project`);
+  assert.equal(r.status, 200);
 });

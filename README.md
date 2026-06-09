@@ -216,7 +216,12 @@ stele init [--port N] [--skip-daemon] [--skip-hooks]
                                     bootstrap a project: .stele/, .mcp.json, register, daemon, hooks
 stele daemon <install|uninstall|status>  always-on multi-tenant serve via launchd / systemd
 stele projects <list|remove <slug>>      view/manage the global project registry
-stele milestones <list|open|close|show>  0.0.6+: group decisions by milestone + session
+stele project <show|set-status>     0.1.0+: current project's DB row + rollup
+stele features <list|open>          0.1.0+: Feature (between Project and Milestone)
+stele milestones <list|open|report|show|set-state>
+                                    0.1.0+: 5-state Milestone (draft/going/winding/done/paused)
+stele sessions <list|start|end|resume|continue>
+                                    0.1.0+: Session lifecycle + jumpback
 stele tags <list|propose|apply|confirm|reject|recolor|rename|archive|restore|proposals>
                                     0.0.7+: cross-cutting labels for milestones/decisions
 stele config <list|get|set>         0.0.7+: per-project preferences (e.g. tag_policy)
@@ -225,10 +230,10 @@ stele serve [--multi] [--port N] [--open]   browser UI (default http://127.0.0.1
 stele resume [--html out.html]      what's waiting on me — open loops, needs-check first
 stele trace <id>                    a decision + its graph neighbourhood
 stele trace-entity <kind> <id>      everything touching an entity (file/feature/skill...)
-stele list                          all decisions by status
+stele list                          all decisions by nodeState
+stele depends-on <from> <to> [note] author a depends_on edge between decisions
 stele resolve <byId> <defId> [note] manually stitch a later decision as resolving an old one
 stele relate <a> <b> [note]         link two decisions
-stele seed <report.html>            cold-start: ingest an HTML feature-report
 ```
 
 ## Tags (0.0.7+)

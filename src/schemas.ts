@@ -1,12 +1,132 @@
-// Zod schemas — moderately strict mirror of src/types.ts. Shared between
-// adapters (mcp.ts validates tool-call inputs; serve.ts validates HTTP POST
-// bodies). Keep these in lockstep with types.ts — if you change Status or
-// EdgeKind there, change them here too, otherwise one adapter will accept
-// payloads the other rejects.
+// Zod schemas — Strict mirror of src/types.ts (0.1.0). Shared by:
+//   • mcp.ts — validates MCP tool inputs
+//   • serve.ts — validates HTTP POST bodies
 //
-// Strictness note: the leaf objects use the default Zod behaviour (extra keys
-// dropped). The runtime store enforces the strict TS types as a second pass.
+// Keep these in lockstep with types.ts. If the enum lists drift, the two
+// adapters will accept payloads that the other rejects.
+//
+// Strictness note: leaf objects use Zod's default (extra keys dropped). The
+// runtime `Store` enforces the strict TS types as a second pass on write.
 import { z } from "zod";
+
+// ===========================================================================
+// Primitives
+// ===========================================================================
+
+export const EntityRefSchema = z.object({ kind: z.string(), id: z.string() });
+
+export const GovLayerSchema = z.enum(["district", "school", "personal"]);
+
+// ===========================================================================
+// Project / Feature
+// ===========================================================================
+
+export const ProjectStatusSchema = z.enum(["active", "winding", "dormant", "archived"]);
+
+export const ProjectSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  code: z.string().optional(),
+  path: z.string(),
+  status: ProjectStatusSchema,
+  createdAt: z.string(),
+});
+
+export const FeatureLinkRelationSchema = z.enum(["depends-on", "depended-on-by"]);
+
+export const FeatureLinkSchema = z.object({
+  to: z.string(),
+  relation: FeatureLinkRelationSchema,
+});
+
+export const FeatureSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  name: z.string(),
+  links: z.array(FeatureLinkSchema).optional(),
+});
+
+// ===========================================================================
+// Milestone
+// ===========================================================================
+
+export const MilestoneStateSchema = z.enum(["draft", "going", "winding", "done", "paused"]);
+
+export const MilestoneSchema = z.object({
+  id: z.string(),
+  featureId: z.string(),
+  name: z.string(),
+  state: MilestoneStateSchema,
+  about: z.string().optional(),
+  sequenceAfter: z.array(z.string()).optional(),
+  startedAt: z.string(),
+  completedAt: z.string().optional(),
+});
+
+// ===========================================================================
+// Session
+// ===========================================================================
+
+export const SessionSourceSchema = z.enum([
+  "claude-code",
+  "codex",
+  "opencode",
+  "cursor",
+  "manual",
+  "unknown",
+]);
+
+export const SessionProvenanceSchema = z.object({
+  cwd: z.string(),
+  zellijSession: z.string().optional(),
+  zellijTab: z.string().optional(),
+  zellijPane: z.string().optional(),
+  layoutAlive: z.boolean(),
+});
+
+export const SessionOutcomeTypeSchema = z.enum(["advanced", "resolved", "touched"]);
+
+export const SessionOutcomeSchema = z.object({
+  type: SessionOutcomeTypeSchema,
+  summary: z.string().optional(),
+  resolves: z.array(z.string()).optional(),
+  via: z.string().optional(),
+});
+
+export const PauseReasonKindSchema = z.enum([
+  "blocked",
+  "waiting_dep",
+  "out_of_time",
+  "lost_thread",
+  "done_enough",
+  "other",
+]);
+
+export const PauseReasonSchema = z.object({
+  kind: PauseReasonKindSchema,
+  note: z.string().optional(),
+});
+
+export const SessionSchema = z.object({
+  id: z.string(),
+  milestoneId: z.string(),
+  source: SessionSourceSchema,
+  sourceSessionId: z.string().optional(),
+  startedAt: z.string(),
+  endedAt: z.string().optional(),
+  provenance: SessionProvenanceSchema.optional(),
+  outcome: SessionOutcomeSchema.optional(),
+  pauseReason: PauseReasonSchema.optional(),
+  summary: z.string().optional(),
+});
+
+// ===========================================================================
+// Decision  (new split shape)
+// ===========================================================================
+
+export const DecisionTypeSchema = z.enum(["decision", "deferred", "open"]);
+export const DecisionResolutionStatusSchema = z.enum(["open", "resolved"]);
+export const VerdictSchema = z.enum(["chosen", "rejected"]);
 
 export const TriggerSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("manual") }),
@@ -15,11 +135,37 @@ export const TriggerSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("dependency"), on: z.string() }),
 ]);
 
-export const OptionSchema = z.object({
-  label: z.string(),
-  summary: z.string(),
-  verdict: z.enum(["chosen", "rejected"]),
+export const RevisitSchema = z.object({
+  trigger: TriggerSchema,
+  cond: z.string().optional(),
+});
+
+export const DecisionOptionSchema = z.object({
+  name: z.string(),
+  desc: z.string().optional(),
+  verdict: VerdictSchema,
   why: z.string().optional(),
+  chosen: z.boolean().optional(),
+});
+
+export const DecisionLocksSchema = z.object({
+  in: z.string().optional(),
+  out: z.string().optional(),
+});
+
+export const DecisionArtifactSchema = z.object({
+  file: z.string().optional(),
+  commit: z.string().optional(),
+});
+
+export const DecisionDetailSchema = z.object({
+  optionAxis: z.string().optional(),
+  trigger: z.string().optional(),
+  constraint: z.string().optional(),
+  options: z.array(DecisionOptionSchema).optional(),
+  why: z.array(z.string()).optional(),
+  locks: DecisionLocksSchema.optional(),
+  artifact: DecisionArtifactSchema.optional(),
 });
 
 export const IntentDeltaSchema = z
@@ -35,116 +181,79 @@ export const IntentDeltaSchema = z
   })
   .optional();
 
-export const StatusSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("open"), question: z.string() }),
-  z.object({
-    kind: z.literal("decided"),
-    options: z.array(OptionSchema),
-    rationale: z.string(),
-    delta: IntentDeltaSchema,
-  }),
-  z.object({
-    kind: z.literal("deferred"),
-    current: z.string(),
-    reason: z.string(),
-    revisitWhen: TriggerSchema,
-    draftDelta: IntentDeltaSchema,
-  }),
-  z.object({ kind: z.literal("superseded"), by: z.string() }),
-  z.object({ kind: z.literal("resolved"), by: z.string() }),
-  z.object({
-    kind: z.literal("conflicted"),
-    between: z.array(z.string()),
-    path: z.string(),
-  }),
-]);
-
-export const EntityRefSchema = z.object({ kind: z.string(), id: z.string() });
-
-export const DecisionSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  scope: z.string().optional(),
-  raisedBy: z.object({
-    trigger: z.string(),
-    actor: z.string(),
-    layer: z.enum(["district", "school", "personal"]),
-    session: z.string().optional(),
-    at: z.string(),
-  }),
-  constraint: z.string().optional(),
-  status: StatusSchema,
-  consequences: z
-    .object({ lockedIn: z.string().optional(), lockedOut: z.string().optional() })
-    .optional(),
-  affects: z.array(EntityRefSchema),
-  artifacts: z
-    .array(z.object({ file: z.string(), commit: z.string().optional() }))
-    .optional(),
-  sourceReport: z.string().optional(),
-  sessionId: z.string().optional(),    // 0.0.6+: ties to a Session
-});
-
-// -----------------------------------------------------------------------------
-// Milestone + Session (added 0.0.6) — mirror src/types.ts
-// -----------------------------------------------------------------------------
-
-export const MilestoneSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  intent: z.string().optional(),
-  status: z.enum(["active", "shipped", "abandoned"]),
-  startedAt: z.string(),
-  completedAt: z.string().optional(),
-});
-
-export const SessionSourceSchema = z.enum([
-  "claude-code",
-  "codex",
-  "opencode",
-  "cursor",
-  "manual",
-  "unknown",
-]);
-
-export const SessionSchema = z.object({
-  id: z.string(),
-  milestoneId: z.string(),
-  source: SessionSourceSchema,
-  sourceSessionId: z.string().optional(),
-  startedAt: z.string(),
-  endedAt: z.string().optional(),
-  summary: z.string().optional(),
-});
-
-// The skill's milestone judgment — discriminated on `mode`.
-export const CaptureMilestoneModeSchema = z.discriminatedUnion("mode", [
-  z.object({ mode: z.literal("continue"), id: z.string() }),
-  z.object({
-    mode: z.literal("new"),
-    draft: z.object({
-      title: z.string(),
-      intent: z.string().optional(),
+export const DecisionSchema = z
+  .object({
+    id: z.string(),
+    milestoneId: z.string(),
+    sessionId: z.string().optional(),
+    type: DecisionTypeSchema,
+    status: DecisionResolutionStatusSchema.optional(),
+    resolvedBy: z.string().optional(),
+    supersededBy: z.string().optional(),
+    title: z.string(),
+    scope: z.string().optional(),
+    raisedBy: z.object({
+      trigger: z.string(),
+      actor: z.string(),
+      layer: GovLayerSchema,
+      at: z.string(),
     }),
-  }),
-  z.object({ mode: z.literal("unscoped") }),
-]);
+    revisit: RevisitSchema.optional(),
+    detail: DecisionDetailSchema.optional(),
+    affects: z.array(EntityRefSchema),
+    artifacts: z
+      .array(z.object({ file: z.string(), commit: z.string().optional() }))
+      .optional(),
+    sourceReport: z.string().optional(),
+    createdAt: z.string(),
+  })
+  // Cross-field rule: type='decision' demands a detail body with options
+  // OR an explicit empty options array (a no-fork decision is allowed,
+  // but the agent has to assert it by passing []).
+  .superRefine((d, ctx) => {
+    if (d.type === "decision") {
+      if (!d.detail) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "type='decision' requires `detail` (at minimum detail.options, even if empty)",
+          path: ["detail"],
+        });
+      } else if (d.detail.options === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "type='decision' requires detail.options (pass [] to assert no real fork)",
+          path: ["detail", "options"],
+        });
+      }
+    }
+    if ((d.type === "deferred" || d.type === "open") && d.status === undefined) {
+      // Default reading: when omitted treat as 'open'. We don't reject, just
+      // hint via store layer; the schema accepts.
+    }
+  });
 
-export const CaptureSourceSessionSchema = z.object({
-  source: SessionSourceSchema,
-  sourceSessionId: z.string().optional(),
-});
+// ===========================================================================
+// Edge
+// ===========================================================================
+
+export const EdgeRelationSchema = z.enum([
+  "resolves",
+  "supersedes",
+  "reconciles",
+  "relates",
+  "depends_on",
+]);
 
 export const EdgeSchema = z.object({
   from: z.string(),
   to: z.string(),
-  kind: z.enum(["resolves", "supersedes", "reconciles", "relates"]),
+  relation: EdgeRelationSchema,
   note: z.string().optional(),
 });
 
-// -----------------------------------------------------------------------------
-// Tag system (added 0.0.7) — mirror src/types.ts
-// -----------------------------------------------------------------------------
+// ===========================================================================
+// Tags  (carried over from 0.0.7 unchanged)
+// ===========================================================================
 
 export const TagOriginSchema = z.enum(["you", "agent"]);
 export const TagStatusSchema = z.enum(["active", "archived"]);
@@ -183,15 +292,73 @@ export const CaptureTagRequestSchema = z.object({
   suggestedColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
 });
 
+// ===========================================================================
+// CapturePayload  (extended for 0.1.0)
+// ===========================================================================
+
+export const CaptureMilestoneModeSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("continue"), id: z.string() }),
+  z.object({
+    mode: z.literal("new"),
+    draft: z.object({
+      name: z.string(),
+      about: z.string().optional(),
+      featureId: z.string().optional(),
+      featureDraft: z.object({ name: z.string() }).optional(),
+    }),
+  }),
+  z.object({ mode: z.literal("unscoped") }),
+]);
+
+export const CaptureSourceSessionSchema = z.object({
+  source: SessionSourceSchema,
+  sourceSessionId: z.string().optional(),
+});
+
 export const CapturePayloadSchema = z.object({
   decision: DecisionSchema,
   edges: z.array(EdgeSchema).optional(),
-  // 0.0.6+: skill expresses its milestone judgment and per-tool session
-  // identity in one round-trip so the MCP server can wire up the
-  // Milestone + Session + Decision relationship in a single putDecision.
   milestone: CaptureMilestoneModeSchema.optional(),
   sourceSession: CaptureSourceSessionSchema.optional(),
-  // 0.0.7+: tag the new decision; each request is routed through the
-  // ensureTag policy engine before the response comes back.
+  sessionId: z.string().optional(),
   tags: z.array(CaptureTagRequestSchema).optional(),
+});
+
+// ===========================================================================
+// Milestone report draft (/milestone-report)
+// ===========================================================================
+
+export const MilestoneReportDraftSchema = z.object({
+  milestoneId: z.string(),
+  summary: z.string(),
+  resumeEdge: z.string().optional(),
+  suggestedPauseReason: PauseReasonSchema.optional(),
+  openLoops: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      type: DecisionTypeSchema,
+    }),
+  ),
+  nextStateSuggestion: MilestoneStateSchema.optional(),
+});
+
+// ===========================================================================
+// Resume command (/resume)
+// ===========================================================================
+
+export const ResumeModeSchema = z.enum(["jump", "rebuild"]);
+
+export const ResumeCommandResultSchema = z.object({
+  mode: ResumeModeSchema,
+  command: z.string(),
+  copyable: z.literal(true),
+  lastSession: z
+    .object({
+      id: z.string(),
+      endedAt: z.string().optional(),
+      outcome: SessionOutcomeSchema.optional(),
+      pauseReason: PauseReasonSchema.optional(),
+    })
+    .optional(),
 });
