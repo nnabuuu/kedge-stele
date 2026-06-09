@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实录 · Stele — 决策溯源</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+SC:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --bg:#ECE7DD;            /* 石灰岩 */
+  --bg-2:#E5DFCF;          /* 略深石面 */
+  --surface:#F4F0E8;       /* 浅石 / 卡片 */
+  --surface-2:#EFEADF;
+  --ink:#211C16;           /* 暖墨,近黑非纯黑 */
+  --ink-2:#574D40;         /* 次级墨 */
+  --ink-3:#8C8473;         /* 风化 / 弱化 */
+  --line:rgba(33,28,22,.14);
+  --line-2:rgba(33,28,22,.08);
+  --seal:#A23A29;          /* 朱砂 */
+  --seal-deep:#86301F;
+  --warm:#B49A7E;          /* 金石暖调,克制点缀 */
+  --on-dark:#E7E0D1;       /* 墨地上的石灰岩字(拓片) */
+  --on-dark-2:#A49B8A;
+  --line-dark:rgba(231,224,209,.16);
+  --seal-dark:#CD6450;     /* 朱砂在墨地上提亮 */
+  --serif:"Spectral","Noto Serif SC",Georgia,serif;
+  --body:"Spectral","Noto Serif SC",Georgia,serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",monospace;
+  --maxw:1140px;
+  --prose:660px;
+  --ease:cubic-bezier(.16,1,.3,1);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:var(--body);
+  background:var(--bg);
+  color:var(--ink);
+  font-size:18px;
+  line-height:1.72;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  position:relative;
+  overflow-x:hidden;
+}
+/* 石面微噪 —— 极低不透明度 */
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  mix-blend-mode:multiply;opacity:.03;
+}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 40px;position:relative;z-index:1}
+::selection{background:rgba(162,58,41,.18)}
+
+/* ---------- typography atoms ---------- */
+.eyebrow{font-family:var(--mono);font-size:11.5px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:var(--seal);display:inline-flex;align-items:center;gap:10px;white-space:nowrap}
+.eyebrow::before{content:"";width:18px;height:1px;background:var(--seal);opacity:.7}
+h1,h2,h3{font-family:var(--serif);font-weight:500;letter-spacing:-.012em;line-height:1.14}
+:lang(zh-CN) h1,:lang(zh-CN) h2{letter-spacing:.005em}
+.mono{font-family:var(--mono)}
+.muted{color:var(--ink-3)}
+a{color:inherit}
+
+/* ---------- seal ---------- */
+.seal{
+  display:inline-grid;place-items:center;
+  background:var(--seal);color:#F4EFE6;
+  font-family:var(--serif);font-weight:600;
+  border-radius:5px;
+  box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.18);
+  transform:rotate(-3deg);
+  line-height:1;
+}
+
+/* ---------- nav ---------- */
+nav{position:sticky;top:0;z-index:30;background:rgba(236,231,221,.8);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--line)}
+.nav-in{max-width:var(--maxw);margin:0 auto;padding:14px 40px;display:flex;align-items:center;justify-content:space-between;gap:24px}
+.brand{display:flex;align-items:center;gap:12px;text-decoration:none}
+.brand .seal{width:27px;height:27px;font-size:14px}
+.brand .wm{font-family:var(--serif);font-size:20px;font-weight:500;letter-spacing:.02em;display:inline-flex;align-items:baseline;gap:9px;white-space:nowrap}
+.brand .wm i{font-style:normal;font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.2em;color:var(--ink-3);text-transform:uppercase;transform:translateY(-1px)}
+.nav-right{display:flex;align-items:center;gap:26px}
+.nav-links{display:flex;gap:26px;align-items:center}
+.nav-links a,.gh{font-family:var(--mono);font-size:12.5px;letter-spacing:.03em;color:var(--ink-2);text-decoration:none;transition:color .2s;white-space:nowrap}
+.nav-links a:hover,.gh:hover{color:var(--seal)}
+.lang{font-family:var(--mono);font-size:11.5px;font-weight:600;letter-spacing:.08em;color:var(--ink-2);background:transparent;border:1px solid var(--line);border-radius:var(--radius,5px);border-radius:5px;padding:5px 11px;cursor:pointer;transition:all .2s;min-width:42px}
+.lang:hover{border-color:var(--ink);color:var(--ink)}
+@media(max-width:760px){.nav-links{display:none}.nav-in{padding:12px 22px}}
+
+/* ---------- hero ---------- */
+.hero{padding:92px 0 104px}
+.hero-grid{display:grid;grid-template-columns:1fr 372px;gap:72px;align-items:center}
+.hero h1{font-size:clamp(38px,5.6vw,70px);margin:24px 0 0;font-weight:500}
+.hero .sub{font-size:19.5px;line-height:1.7;color:var(--ink-2);max-width:528px;margin-top:26px;text-wrap:pretty}
+.hero-meta{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--ink-3);text-transform:uppercase;margin-top:36px;display:flex;flex-wrap:wrap;gap:9px 14px;align-items:center}
+.hero-meta span{white-space:nowrap;display:inline-flex;align-items:center;gap:14px}
+.hero-meta span::after{content:"";width:3px;height:3px;border-radius:50%;background:var(--ink-3);opacity:.6}
+.hero-meta span:last-child::after{display:none}
+.cta-row{display:flex;gap:14px;margin-top:36px;flex-wrap:wrap}
+.btn{font-family:var(--mono);font-size:13px;font-weight:500;letter-spacing:.02em;padding:13px 22px;border-radius:5px;text-decoration:none;border:1px solid var(--ink);transition:all .2s var(--ease);cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center;gap:8px}
+.btn-solid{background:var(--ink);color:var(--bg)}
+.btn-solid:hover{background:var(--seal);border-color:var(--seal);transform:translateY(-1px)}
+.btn-ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+.btn-ghost:hover{border-color:var(--ink)}
+.hero-art{position:relative}
+@media(max-width:900px){.hero-grid{grid-template-columns:1fr;gap:52px}.hero-art{max-width:330px;justify-self:start}}
+
+/* ---------- section frame ---------- */
+section{padding:104px 0;position:relative}
+.sec-head{max-width:var(--prose)}
+.sec-head h2{font-size:clamp(28px,3.6vw,42px);margin-top:18px;font-weight:500;text-wrap:balance}
+.usage-env{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--ink-3);text-transform:uppercase;margin-top:20px}
+
+/* ---------- dark (拓片) ---------- */
+.stone{background:var(--bg-2)}
+.rubbing{background:var(--ink);color:var(--on-dark);position:relative;overflow:hidden}
+.rubbing::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='m'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23m)' opacity='0.55'/%3E%3C/svg%3E");
+  mix-blend-mode:screen;opacity:.05}
+.rubbing .eyebrow{color:var(--seal-dark)}
+.rubbing .eyebrow::before{background:var(--seal-dark)}
+.rubbing h2,.rubbing h3{color:var(--on-dark)}
+.inscription{margin-top:60px;max-width:880px}
+.insc-row{display:grid;grid-template-columns:88px 1fr;gap:32px;padding:32px 0;border-top:1px solid var(--line-dark);align-items:start}
+.insc-row:last-child{border-bottom:1px solid var(--line-dark)}
+.insc-k{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;color:var(--seal-dark);text-transform:uppercase;padding-top:6px}
+.insc-row p{font-size:18.5px;line-height:1.66;color:var(--on-dark);text-wrap:pretty}
+.insc-row b{font-family:var(--serif);font-weight:500;color:var(--on-dark)}
+.rubbing-cap{margin-top:34px;font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;color:var(--on-dark-2);line-height:1.7}
+
+/* ---------- shift ---------- */
+.shift-grid{display:grid;grid-template-columns:1fr 392px;gap:80px;margin-top:46px;align-items:center}
+.shift-grid p.lead{font-size:19px;line-height:1.76;color:var(--ink-2);text-wrap:pretty}
+.shift-grid b{font-weight:500;color:var(--ink)}
+.pullquote{font-family:var(--serif);font-size:clamp(23px,2.8vw,30px);line-height:1.34;font-weight:400;color:var(--ink);margin:40px 0 0;padding-left:26px;border-left:2px solid var(--seal);max-width:var(--prose);text-wrap:balance}
+@media(max-width:900px){.shift-grid{grid-template-columns:1fr;gap:44px}}
+
+/* edge diagram card */
+.edge-card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:30px 30px;transition:border-color .2s,box-shadow .2s,transform .2s var(--ease)}
+.edge-card:hover{border-color:var(--ink-3);box-shadow:0 2px 18px rgba(33,28,22,.06);transform:translateY(-2px)}
+.edge-node{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.edge-id{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ink)}
+.edge-title{font-size:15px;color:var(--ink-2);margin-top:4px}
+.edge-state{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:4px 9px;border-radius:5px;white-space:nowrap}
+.st-def{background:#EFE6D4;color:#8A6712}
+.st-res{background:#E4EDDE;color:#3D6536}
+.edge-when{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:7px;letter-spacing:.02em}
+.edge-link{display:flex;align-items:center;gap:12px;margin:18px 2px;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;color:var(--seal);text-transform:uppercase}
+.edge-link .bar{flex:1;height:1px;background:linear-gradient(90deg,var(--seal),rgba(162,58,41,.25))}
+.edge-cap{font-family:var(--mono);font-size:11px;line-height:1.78;color:var(--ink-3);margin-top:22px;padding-top:20px;border-top:1px solid var(--line-2)}
+.edge-cap code{color:var(--ink-2)}
+
+/* ---------- two views ---------- */
+.views{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:60px}
+.view{padding:36px 34px;border:1px solid var(--line);border-radius:12px;background:var(--surface);transition:border-color .2s,box-shadow .2s,transform .2s var(--ease)}
+.view:hover{border-color:var(--ink-3);box-shadow:0 2px 18px rgba(33,28,22,.06);transform:translateY(-2px)}
+.view .tool{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--seal);letter-spacing:.01em}
+.view h3{font-size:24px;margin:14px 0 13px;font-weight:500}
+.view h3:first-child{margin-top:0}
+.view p{font-size:16.5px;line-height:1.68;color:var(--ink-2);text-wrap:pretty}
+@media(max-width:780px){.views{grid-template-columns:1fr}}
+
+/* ---------- usage ---------- */
+.tools-frame{margin-top:58px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+.tools-bar{display:flex;align-items:center;gap:7px;padding:14px 20px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+.tools-bar i{width:9px;height:9px;border-radius:2px;background:var(--ink);opacity:.26;display:block}
+.tools-bar span{font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;color:var(--ink-3);margin-left:8px}
+.tool-row{display:grid;grid-template-columns:208px 1fr;gap:24px;padding:22px 26px;border-bottom:1px solid var(--line-2);align-items:baseline}
+.tool-row:last-child{border-bottom:none}
+.tool-row code{font-family:var(--mono);font-size:14px;font-weight:600;color:var(--ink)}
+.tool-row p{font-size:15px;color:var(--ink-2);line-height:1.62;text-wrap:pretty}
+@media(max-width:680px){.tool-row{grid-template-columns:1fr;gap:7px}}
+.steps{margin-top:56px;max-width:var(--prose)}
+.step{display:grid;grid-template-columns:auto 1fr;gap:24px;padding:24px 0;border-top:1px solid var(--line);align-items:baseline}
+.step:last-child{border-bottom:1px solid var(--line)}
+.step .n{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--seal)}
+.step p{font-size:17px;color:var(--ink-2);line-height:1.6;text-wrap:pretty}
+.step code{font-family:var(--mono);font-size:13.5px;background:var(--bg-2);padding:2px 7px;border-radius:4px;color:var(--ink)}
+.usage-note{margin-top:30px;font-family:var(--mono);font-size:11.5px;letter-spacing:.03em;color:var(--ink-3)}
+.usage-note code{color:var(--ink-2)}
+
+/* ---------- closing ---------- */
+.closing{text-align:center;padding:132px 0}
+.closing .seal{width:62px;height:62px;font-size:33px;margin:0 auto 42px}
+.closing h2{font-size:clamp(30px,4.6vw,54px);max-width:760px;margin:0 auto;font-weight:500;line-height:1.22;text-wrap:balance}
+.closing .pron{font-family:var(--mono);font-size:12px;letter-spacing:.12em;color:var(--on-dark-2);margin-top:32px;text-transform:uppercase}
+.closing .cta-row{justify-content:center;margin-top:46px}
+.btn-seal{background:var(--seal-dark);border-color:var(--seal-dark);color:#1c130f}
+.btn-seal:hover{background:#d97560;border-color:#d97560;transform:translateY(-1px)}
+
+/* ---------- footer ---------- */
+footer{border-top:1px solid var(--line);padding:46px 0}
+.foot-in{max-width:var(--maxw);margin:0 auto;padding:0 40px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:18px}
+.foot-in .left{font-family:var(--mono);font-size:11.5px;letter-spacing:.05em;color:var(--ink-3)}
+.foot-in .right{font-family:var(--serif);font-size:15px;color:var(--ink-3);font-style:italic}
+
+/* ---------- reveal motion ---------- */
+html.js .reveal{opacity:0;transform:translateY(14px)}
+html.js .reveal.in{opacity:1;transform:none;transition:opacity .7s var(--ease),transform .7s var(--ease)}
+html.js .stamp{opacity:0;transform:rotate(-3deg) scale(1.14)}
+html.js .stamp.in{opacity:1;transform:rotate(-3deg) scale(1);transition:opacity .5s ease,transform .55s cubic-bezier(.34,1.4,.5,1)}
+@media(prefers-reduced-motion:reduce){html.js .reveal,html.js .stamp{opacity:1!important;transform:none!important;transition:none!important}}
+
+/* ---------- decision graph (GSAP-driven) ---------- */
+/* Static SVG state IS the final composition (DEF-02 deferred) — GSAP only enhances,
+   so the graph renders correctly with no JS, reduced motion, or a frozen frame clock. */
+.dgraph{width:100%;height:auto;display:block;overflow:visible}
+.ge{stroke:var(--ink);stroke-width:1.3;opacity:.22;fill:none;stroke-linecap:round}
+.ge-key{stroke:var(--seal);stroke-width:1.9;fill:none;stroke-linecap:round}
+.nf-res{fill:var(--ink)}
+.nf-open{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.n-ring{fill:none;stroke:var(--surface);stroke-width:1.1;opacity:.4}
+.n3-ring{fill:var(--surface);stroke:var(--warm);stroke-width:1.9;stroke-dasharray:2.6 3}
+.n3-fill{fill:var(--ink)}
+.nf-cur{fill:var(--seal)}
+.cur-ring{fill:none;stroke:#F4EFE6;stroke-width:1.3;opacity:.5}
+.token{fill:var(--seal)}
+.pulse{fill:none;stroke:var(--seal);stroke-width:1.4}
+.g-label{fill:var(--ink-3);font-family:var(--mono);font-size:9.5px;font-weight:500;letter-spacing:.1em}
+.g-lead{stroke:var(--ink-3);stroke-width:1;opacity:.4}
+.def-state{fill:var(--warm);font-family:var(--mono);font-size:8px;font-weight:600;letter-spacing:.14em;text-transform:uppercase}
+.def-state.on{fill:#3D6536}
+.key-label{fill:var(--seal);font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.18em;text-transform:uppercase}
+.gn,.gseal-i,.pulse,.token,.n3-fill,.glow{transform-box:fill-box;transform-origin:center}
+
+/* ---------- mobile ---------- */
+@media(max-width:560px){
+  body{font-size:17px}
+  .wrap{padding:0 22px}
+  .foot-in{padding:0 22px}
+  .hero{padding:60px 0 72px}
+  section{padding:76px 0}
+  .eyebrow{white-space:normal}
+  .hero .sub{font-size:17.5px}
+  .inscription{margin-top:44px}
+  .insc-row{grid-template-columns:1fr;gap:9px;padding:26px 0}
+  .insc-k{padding-top:0}
+  .insc-row p{font-size:17px}
+  .shift-grid{margin-top:36px}
+  .views{margin-top:44px}
+  .view{padding:30px 26px}
+  .tools-frame{margin-top:42px}
+  .steps{margin-top:42px}
+  .closing{padding:92px 0}
+  .foot-in .right{font-size:14px}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-in">
+    <a class="brand" href="#top">
+      <span class="seal">刻</span>
+      <span class="wm">实录<i>Stele</i></span>
+    </a>
+    <div class="nav-right">
+      <div class="nav-links">
+        <a data-i="nav.idea" href="#problem">理念</a>
+        <a data-i="nav.views" href="#views">两个视图</a>
+        <a data-i="nav.usage" href="#usage">用法</a>
+      </div>
+      <a class="gh" href="#">GitHub ↗</a>
+      <button id="langtgl" class="lang" type="button" aria-label="Switch language">EN</button>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div class="reveal">
+      <div class="eyebrow" data-i="hero.eyebrow">决策溯源 · Decision Provenance</div>
+      <h1 data-i="hero.h1">决策会蒸发。<br>实录把它刻下来。</h1>
+      <p class="sub" data-i="hero.sub">你做的每个决定，背后有它的理由、放弃掉的选项，还有一堆先搁着没定的事。过几天，这些常常只剩一个结论。实录在你决定的当下就把它们一起刻下来，日后落在任何一件事上，都能回看它当初是怎么定的。</p>
+      <div class="cta-row">
+        <a class="btn btn-solid" href="#" data-i="hero.cta1">在 GitHub 查看 →</a>
+        <a class="btn btn-ghost" href="#problem" data-i="hero.cta2">读理念</a>
+      </div>
+      <div class="hero-meta">
+        <span data-i="hero.m1">本地优先</span><span data-i="hero.m2">数据不出本机</span><span data-i="hero.m3">零追踪</span>
+      </div>
+    </div>
+
+    <div class="hero-art reveal">
+      <svg class="dgraph" viewBox="0 0 400 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="决策图：节点是决策，朱砂线是一次跨 session 的 resolves，将旧的待决决策闭合">
+        <defs>
+          <marker id="ah" markerWidth="7" markerHeight="7" refX="4.6" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+            <path d="M0 0 L6 3 L0 6 Z" fill="var(--seal)"/>
+          </marker>
+          <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="var(--seal)" stop-opacity="0.20"/>
+            <stop offset="55%" stop-color="var(--seal)" stop-opacity="0.07"/>
+            <stop offset="100%" stop-color="var(--seal)" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+
+        <!-- soft halo behind the live node -->
+        <circle class="glow" cx="204" cy="322" r="38" fill="url(#glow)"/>
+
+        <!-- structural edges (carved grooves) -->
+        <path class="ge" d="M150 68 C 120 104 100 152 92 186"/>
+        <path class="ge" d="M164 56 C 212 64 258 80 294 95"/>
+        <path class="ge" d="M303 110 C 313 152 314 196 313 229"/>
+        <path class="ge" d="M305 249 C 286 286 248 303 217 317"/>
+        <path class="ge" d="M214 330 C 252 347 288 362 313 374"/>
+        <path class="ge" d="M193 332 C 166 353 140 378 117 393"/>
+
+        <!-- the stitch: D-07 resolves DEF-02, reaching back across sessions -->
+        <path class="ge-key" id="resolvesPath" d="M195 314 C 120 322 60 262 86 205" marker-end="url(#ah)"/>
+        <circle class="token" cx="195" cy="314" r="4" style="opacity:0"/>
+        <text class="key-label" x="138" y="300" text-anchor="middle">resolves</text>
+
+        <!-- nodes -->
+        <g class="gn"><circle class="nf-res" cx="152" cy="60" r="10"/><circle class="n-ring" cx="152" cy="60" r="4.5"/></g>
+        <g class="gn"><circle class="nf-open" cx="300" cy="100" r="10"/></g>
+        <g class="gn gn-def">
+          <circle class="n3-ring" cx="90" cy="198" r="11"/>
+          <circle class="n3-fill" cx="90" cy="198" r="11" style="opacity:0"/>
+        </g>
+        <g class="gn"><circle class="nf-res" cx="314" cy="240" r="10"/><circle class="n-ring" cx="314" cy="240" r="4.5"/></g>
+        <g class="gn gn-cur">
+          <circle class="pulse" cx="204" cy="322" r="15" style="opacity:0"/>
+          <circle class="nf-cur" cx="204" cy="322" r="13"/>
+          <circle class="cur-ring" cx="204" cy="322" r="6.5"/>
+        </g>
+        <g class="gn"><circle class="nf-open" cx="322" cy="378" r="9"/></g>
+        <g class="gn"><circle class="nf-res" cx="110" cy="400" r="9"/><circle class="n-ring" cx="110" cy="400" r="4"/></g>
+
+        <!-- labels -->
+        <line class="g-lead" x1="78" y1="198" x2="62" y2="198"/>
+        <text class="g-label" x="58" y="195" text-anchor="end">DEF-02</text>
+        <text class="def-state" x="58" y="208" text-anchor="end">deferred</text>
+        <line class="g-lead" x1="219" y1="322" x2="234" y2="322"/>
+        <text class="g-label" x="238" y="325" text-anchor="start">D-07</text>
+
+        <!-- brand seal, top-left -->
+        <g transform="translate(6 10)">
+          <g class="gseal-i">
+            <rect width="32" height="32" rx="4.5" fill="var(--seal)" transform="rotate(-3 16 16)"/>
+            <rect x="3" y="3" width="26" height="26" rx="3" fill="none" stroke="#F4EFE6" stroke-width="1" opacity=".5" transform="rotate(-3 16 16)"/>
+            <text x="16" y="23" text-anchor="middle" font-family="Noto Serif SC, serif" font-size="18" font-weight="600" fill="#F4EFE6" transform="rotate(-3 16 16)">实</text>
+          </g>
+        </g>
+      </svg>
+    </div>
+  </div>
+</header>
+
+<section id="problem" class="rubbing">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow" data-i="pb.eyebrow">问题</div>
+      <h2 data-i="pb.h2">你留得下结论，留不下当时怎么想的</h2>
+    </div>
+    <div class="inscription">
+      <div class="insc-row reveal"><div class="insc-k" data-i="pb.k1">理由</div><p data-i="pb.git"><b>当时为什么这么定，又否掉了哪些别的做法，</b>定完没几天就模糊了。</p></div>
+      <div class="insc-row reveal"><div class="insc-k" data-i="pb.k2">搁置</div><p data-i="pb.tasks"><b>那些先搁着、等某个条件再说的事，</b>放下就沉了下去。等条件真到了，也没人想起回头看。</p></div>
+      <div class="insc-row reveal"><div class="insc-k" data-i="pb.k3">回溯</div><p data-i="pb.chat"><b>几个月后翻到一个文件、一段结论，</b>想不起它是经过哪些取舍，才一步步走到今天的。</p></div>
+    </div>
+    <p class="rubbing-cap reveal" data-i="pb.cap">↑ 黑地白字，是碑被拓下来的样子。</p>
+  </div>
+</section>
+
+<section id="shift">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow" data-i="sh.eyebrow">视角</div>
+      <h2 data-i="sh.h2">原子是决策，不是报告</h2>
+    </div>
+    <div class="shift-grid">
+      <div class="reveal">
+        <p class="lead" data-i="sh.lead">一个 feature 是一串决策串起来的。推迟做某件事本身是一个决策；某件事还悬着，是一个待决的决策。底层存的就是这样一张<b>决策的图</b>，节点是决策，边是它们之间的关系。报告、待办、回顾，全都是这张图的投影。</p>
+        <blockquote class="pullquote" data-i="sh.quote">视图都是当场从图里查的。图一变，旧报告自己就跟着变了。</blockquote>
+      </div>
+      <div class="edge-card reveal">
+        <div class="edge-node">
+          <div><div class="edge-id">DEF-02</div><div class="edge-title" data-i="sh.def">实体级联删除</div></div>
+          <div class="edge-state st-def">deferred</div>
+        </div>
+        <div class="edge-when" data-i="sh.defwhen">三周前 · 先不做</div>
+        <div class="edge-link"><span>resolves</span><span class="bar"></span><span>↑</span></div>
+        <div class="edge-node">
+          <div><div class="edge-id">D-07</div><div class="edge-title" data-i="sh.res">级联删除协议落地</div></div>
+          <div class="edge-state st-res">resolved</div>
+        </div>
+        <div class="edge-when" data-i="sh.reswhen">今天 · 另一次工作里</div>
+        <p class="edge-cap" data-i="sh.cap">记下这一条边，旧报告里它变成已解决，待办里它消失，溯源里能看到 <code>raised → deferred → resolved</code> 的整条弧线。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="views" class="stone">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow" data-i="vw.eyebrow">每天在用的两件事</div>
+      <h2 data-i="vw.h2">把脑子里悬着的事，外化成图</h2>
+    </div>
+    <div class="views">
+      <div class="view reveal">
+        <h3 data-i="vw.v1h">什么在等我</h3>
+        <p data-i="vw.v1p">所有未闭合的回路一次倒出来，open 的问题、还没被解决的 deferred。可能到期的（触发条件刚满足）该复查的排在前面。悬着的事不用靠脑子记，都落在这张表上。</p>
+      </div>
+      <div class="view reveal">
+        <h3 data-i="vw.v2h">这件事怎么发生的</h3>
+        <p data-i="vw.v2p">指着一个文件、一个决定，顺着图回看它的来历，谁提的、当时什么约束、否决了什么、为什么这么选。入口是这件事本身，不用从头把时间线翻一遍。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="usage">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="eyebrow" data-i="us.eyebrow">用法</div>
+      <h2 data-i="us.h2">一个本地 MCP server，四个工具</h2>
+      <div class="usage-env" data-i="us.env">Node ≥ 22.6 · 连接 Claude Code · stdio 传输</div>
+    </div>
+    <div class="tools-frame reveal">
+      <div class="tools-bar"><i></i><i></i><i></i><span>stele · ~/.provenance/decisions.db</span></div>
+      <div class="tool-row"><code>decision_capture</code><p data-i="us.t1">记一个决策。agent 从对话里起草全字段，你只确认；落库后返回它提议的关联边。</p></div>
+      <div class="tool-row"><code>decision_resume</code><p data-i="us.t2">「什么在等我」，所有未闭合回路，可能到期的在前。</p></div>
+      <div class="tool-row"><code>decision_trace</code><p data-i="us.t3">「怎么发生的」，按决策 id 看图邻域，或按 entity 看所有碰过它的决策。</p></div>
+      <div class="tool-row"><code>decision_resolve</code><p data-i="us.t4">连一条边。resolves 把目标翻成已解决，这就是那个跨 session 的缝合。</p></div>
+    </div>
+    <div class="steps">
+      <div class="step reveal"><div class="n">01</div><p data-i="us.s1">装好后把 <code>stele</code> 配进 Claude Code 的 MCP server。</p></div>
+      <div class="step reveal"><div class="n">02</div><p data-i="us.s2">讨论完一个设计，敲 <code>/decision</code>，agent 起草，你确认。</p></div>
+      <div class="step reveal"><div class="n">03</div><p data-i="us.s3">下次回来先 <code>decision_resume</code>，一眼看清有哪些开放回路。</p></div>
+    </div>
+    <p class="usage-note reveal" data-i="us.note">数据落在 <code>~/.provenance</code>，本地 SQLite，不出你的机器。</p>
+  </div>
+</section>
+
+<section class="closing rubbing">
+  <div class="wrap">
+    <span class="seal stamp">刻</span>
+    <h2 class="reveal" data-i="cl.h2">把决策当下刻下，<br>日后可溯。</h2>
+    <div class="cta-row reveal"><a class="btn btn-seal" href="#" data-i="cl.cta">在 GitHub 查看 →</a></div>
+    <p class="pron reveal" data-i="cl.pron">Stele · /ˈstiːli/ · 碑，刻下来，不蒸发。</p>
+  </div>
+</section>
+
+<footer>
+  <div class="foot-in">
+    <div class="left" data-i="ft.left">实录 · STELE · 决策溯源 · MIT · 本地优先 · 无追踪</div>
+    <div class="right" data-i="ft.right">名取史录之「实录」，形取金石之「碑」。</div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/MotionPathPlugin.min.js"></script>
+<script>
+document.documentElement.classList.add('js');
+
+/* ---------- i18n ---------- */
+const I18N = {
+  zh:{
+    'nav.idea':'理念','nav.views':'两个视图','nav.usage':'用法',
+    'hero.eyebrow':'决策溯源 · Decision Provenance',
+    'hero.h1':'决策会蒸发。<br>实录把它刻下来。',
+    'hero.sub':'你做的每个决定，背后有它的理由、放弃掉的选项，还有一堆先搁着没定的事。过几天，这些常常只剩一个结论。实录在你决定的当下就把它们一起刻下来，日后落在任何一件事上，都能回看它当初是怎么定的。',
+    'hero.cta1':'在 GitHub 查看 →','hero.cta2':'读理念',
+    'hero.m1':'本地优先','hero.m2':'数据不出本机','hero.m3':'零追踪',
+    'pb.eyebrow':'问题','pb.h2':'你留得下结论，留不下当时怎么想的',
+    'pb.k1':'理由','pb.k2':'搁置','pb.k3':'回溯',
+    'pb.git':'<b>当时为什么这么定，又否掉了哪些别的做法，</b>定完没几天就模糊了。',
+    'pb.tasks':'<b>那些先搁着、等某个条件再说的事，</b>放下就沉了下去。等条件真到了，也没人想起回头看。',
+    'pb.chat':'<b>几个月后翻到一个文件、一段结论，</b>想不起它是经过哪些取舍，才一步步走到今天的。',
+    'pb.cap':'↑ 黑地白字，是碑被拓下来的样子。',
+    'sh.eyebrow':'视角','sh.h2':'原子是决策，不是报告',
+    'sh.lead':'一个 feature 是一串决策串起来的。推迟做某件事本身是一个决策；某件事还悬着，是一个待决的决策。底层存的就是这样一张<b>决策的图</b>，节点是决策，边是它们之间的关系。报告、待办、回顾，全都是这张图的投影。',
+    'sh.quote':'视图都是当场从图里查的。图一变，旧报告自己就跟着变了。',
+    'sh.def':'实体级联删除','sh.defwhen':'三周前 · 先不做',
+    'sh.res':'级联删除协议落地','sh.reswhen':'今天 · 另一次工作里',
+    'sh.cap':'记下这一条边，旧报告里它变成已解决，待办里它消失，溯源里能看到 <code>raised → deferred → resolved</code> 的整条弧线。',
+    'vw.eyebrow':'每天在用的两件事','vw.h2':'把脑子里悬着的事，外化成图',
+    'vw.v1h':'什么在等我',
+    'vw.v1p':'所有未闭合的回路一次倒出来，open 的问题、还没被解决的 deferred。可能到期的（触发条件刚满足）该复查的排在前面。悬着的事不用靠脑子记，都落在这张表上。',
+    'vw.v2h':'这件事怎么发生的',
+    'vw.v2p':'指着一个文件、一个决定，顺着图回看它的来历，谁提的、当时什么约束、否决了什么、为什么这么选。入口是这件事本身，不用从头把时间线翻一遍。',
+    'us.eyebrow':'用法','us.h2':'一个本地 MCP server，四个工具',
+    'us.env':'Node ≥ 22.6 · 连接 Claude Code · stdio 传输',
+    'us.t1':'记一个决策。agent 从对话里起草全字段，你只确认；落库后返回它提议的关联边。',
+    'us.t2':'「什么在等我」，所有未闭合回路，可能到期的在前。',
+    'us.t3':'「怎么发生的」，按决策 id 看图邻域，或按 entity 看所有碰过它的决策。',
+    'us.t4':'连一条边。resolves 把目标翻成已解决，这就是那个跨 session 的缝合。',
+    'us.s1':'装好后把 <code>stele</code> 配进 Claude Code 的 MCP server。',
+    'us.s2':'讨论完一个设计，敲 <code>/decision</code>，agent 起草，你确认。',
+    'us.s3':'下次回来先 <code>decision_resume</code>，一眼看清有哪些开放回路。',
+    'us.note':'数据落在 <code>~/.provenance</code>，本地 SQLite，不出你的机器。',
+    'cl.h2':'把决策当下刻下，<br>日后可溯。','cl.cta':'在 GitHub 查看 →',
+    'cl.pron':'Stele · /ˈstiːli/ · 碑，刻下来，不蒸发。',
+    'ft.left':'实录 · STELE · 决策溯源 · MIT · 本地优先 · 无追踪',
+    'ft.right':'名取史录之「实录」，形取金石之「碑」。'
+  },
+  en:{
+    'nav.idea':'Idea','nav.views':'Two views','nav.usage':'Usage',
+    'hero.eyebrow':'Decision provenance',
+    'hero.h1':'Decisions evaporate.<br>Stele carves them in.',
+    'hero.sub':'Every decision you make carries its reasoning, the options you ruled out, and a pile of things left unsettled. A few days on, all that’s usually left is the conclusion. Stele carves them all in the moment you decide, so later you can land on anything and see how it was settled.',
+    'hero.cta1':'View on GitHub →','hero.cta2':'Read the idea',
+    'hero.m1':'Local-first','hero.m2':'Stays on your machine','hero.m3':'No tracking',
+    'pb.eyebrow':'The problem','pb.h2':'You keep the conclusion, not how you got there',
+    'pb.k1':'Reasoning','pb.k2':'On hold','pb.k3':'Looking back',
+    'pb.git':'<b>Why you settled on this, and which other paths you ruled out</b> — a few days on, it all blurs.',
+    'pb.tasks':'<b>The things you set aside until some condition is met</b> sink out of sight. When the condition finally arrives, no one thinks to look back.',
+    'pb.chat':'<b>Months later you hit a file, a conclusion,</b> and can’t recall the trade-offs that walked it step by step to where it is.',
+    'pb.cap':'↑ White on black, a stele lifted as a rubbing.',
+    'sh.eyebrow':'The shift','sh.h2':'The atom is the decision, not the report',
+    'sh.lead':'A feature is a chain of decisions. Deferring something is itself a decision; something left unsettled is an open one. Underneath sits a <b>graph of decisions</b>, where nodes are decisions and edges are the relationships between them. Reports, to-dos, retrospectives: all projections of that graph.',
+    'sh.quote':'Every view is queried live from the graph. Change the graph and the old report changes with it.',
+    'sh.def':'Cascade delete on entities','sh.defwhen':'3 weeks ago · not yet',
+    'sh.res':'Cascade-delete protocol landed','sh.reswhen':'today · another sitting',
+    'sh.cap':'Record this one edge, and the old report shows it resolved, it drops off the to-do list, and the trace carries the whole arc <code>raised → deferred → resolved</code>.',
+    'vw.eyebrow':'Two things you use daily','vw.h2':'Externalize what’s hanging in your head',
+    'vw.v1h':'What’s waiting on me',
+    'vw.v1p':'Every unclosed loop in one dump, open questions and unresolved deferrals. Anything that may now be due, its trigger condition just met, surfaces near the top. The things hanging over you don’t ride on memory; they sit on this list.',
+    'vw.v2h':'How this came to be',
+    'vw.v2p':'Point at a file or a choice and follow the graph back through its lineage: who raised it, the constraints at the time, what was rejected, why this path. You enter through the thing itself, without scrolling the whole timeline from the top.',
+    'us.eyebrow':'Usage','us.h2':'One local MCP server, four tools',
+    'us.env':'Node ≥ 22.6 · Works with Claude Code · stdio transport',
+    'us.t1':'Record a decision. The agent drafts every field from the conversation; you just confirm. On save it returns the edges it proposes.',
+    'us.t2':'“What’s waiting on me”: every unclosed loop, the possibly-due ones first.',
+    'us.t3':'“How it happened”: view a decision’s neighborhood by id, or every decision that touched an entity.',
+    'us.t4':'Draw an edge. “resolves” flips the target to resolved, the cross-session stitch.',
+    'us.s1':'Install, then add <code>stele</code> as an MCP server in Claude Code.',
+    'us.s2':'Finish discussing a design, type <code>/decision</code>, the agent drafts, you confirm.',
+    'us.s3':'Next time you return, run <code>decision_resume</code> first to see every open loop at a glance.',
+    'us.note':'Data lives in <code>~/.provenance</code> — local SQLite, never leaves your machine.',
+    'cl.h2':'Carve the decision now.<br>Trace it forever.','cl.cta':'View on GitHub →',
+    'cl.pron':'Stele · /ˈstiːli/ · a stone tablet, carved, not evaporated.',
+    'ft.left':'STELE · Decision provenance · MIT · Local-first · No tracking',
+    'ft.right':'Named for the veritable records of history; shaped after stone & bronze inscriptions.'
+  }
+};
+
+function setLang(l){
+  if(l!=='en'&&l!=='zh') l='zh';
+  try{localStorage.setItem('stele-lang',l);}catch(e){}
+  document.documentElement.setAttribute('data-lang',l);
+  document.documentElement.lang = l==='en' ? 'en' : 'zh-CN';
+  const dict = I18N[l];
+  document.querySelectorAll('[data-i]').forEach(el=>{
+    const v = dict[el.getAttribute('data-i')];
+    if(v!=null) el.innerHTML = v;
+  });
+  const btn = document.getElementById('langtgl');
+  if(btn) btn.textContent = l==='en' ? '中' : 'EN';
+}
+let saved='zh';
+try{ saved = localStorage.getItem('stele-lang') || 'zh'; }catch(e){}
+setLang(saved);
+document.getElementById('langtgl').addEventListener('click',()=>{
+  let cur='zh'; try{cur=localStorage.getItem('stele-lang')||'zh';}catch(e){}
+  setLang(cur==='en'?'zh':'en');
+});
+
+/* ---------- reveal motion (hardened) ---------- */
+const reveals = [...document.querySelectorAll('.reveal,.stamp')];
+function show(el,instant){ if(instant) el.style.transition='none'; el.classList.add('in'); }
+if('IntersectionObserver' in window){
+  const io = new IntersectionObserver((es)=>{
+    es.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+  },{threshold:.12, rootMargin:'0px 0px -6% 0px'});
+  reveals.forEach((el,i)=>{ el.style.transitionDelay = (Math.min(i%4,3)*70)+'ms'; io.observe(el); });
+  // fallback 1 — near-viewport content shown statically (covers non-painting / throttled environments)
+  setTimeout(()=>{ reveals.forEach(el=>{ if(!el.classList.contains('in') && el.getBoundingClientRect().top < innerHeight*1.05) show(el,true); }); }, 1700);
+  // fallback 2 — ultimate safety: never leave anything hidden
+  setTimeout(()=>{ reveals.forEach(el=>{ if(!el.classList.contains('in')) show(el,true); }); }, 4000);
+} else {
+  reveals.forEach(el=>show(el,true));
+}
+
+/* ---------- decision graph: GSAP choreography ---------- */
+/* The static SVG already shows the finished composition (DEF-02 deferred), so if GSAP
+   is unavailable / reduced-motion / the frame clock is frozen, the graph still reads. */
+(function(){
+  const svg = document.querySelector('.dgraph');
+  if(!svg) return;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(reduce || !window.gsap){ return; }
+
+  gsap.registerPlugin(ScrollTrigger, MotionPathPlugin);
+
+  const q = s => svg.querySelector(s);
+  const qa = s => gsap.utils.toArray(svg.querySelectorAll(s));
+  const edges   = qa('.ge');
+  const keyEdge = q('.ge-key');
+  const nodes   = qa('.gn');
+  const labels  = qa('.g-label, .def-state, .g-lead, .key-label');
+  const seal    = q('.gseal-i');
+  const glow    = q('.glow');
+  const token   = q('.token');
+  const pulse   = q('.pulse');
+  const defRing = q('.n3-ring');
+  const defFill = q('.n3-fill');
+  const defState= q('.def-state');
+
+  // hidden starting state (applied synchronously via gsap.set — renders even when throttled)
+  [...edges, keyEdge].forEach(p=>{ const L = p.getTotalLength(); gsap.set(p,{strokeDasharray:L, strokeDashoffset:L}); });
+  gsap.set(nodes, {opacity:0, scale:.35});
+  gsap.set([labels, seal, glow], {opacity:0});
+
+  let entranceDone = false;
+  function finalState(){
+    gsap.set([...edges, keyEdge], {strokeDashoffset:0});
+    gsap.set(nodes, {opacity:1, scale:1});
+    gsap.set([labels, seal], {opacity:1});
+    gsap.set(glow, {opacity:1});
+  }
+
+  const enter = gsap.timeline({
+    scrollTrigger:{ trigger: svg, start:'top 88%', once:true },
+    defaults:{ ease:'power2.out' },
+    onComplete(){ entranceDone = true; startLoop(); }
+  });
+  enter
+    .to(edges, {strokeDashoffset:0, duration:.85, stagger:.07, ease:'power1.inOut'})
+    .to(nodes, {opacity:1, scale:1, duration:.5, stagger:.06, ease:'back.out(1.7)'}, '-=.55')
+    .to(glow,  {opacity:1, duration:.6}, '-=.4')
+    .to(labels,{opacity:1, duration:.4}, '-=.35')
+    .to(keyEdge,{strokeDashoffset:0, duration:.8, ease:'power1.inOut'}, '-=.3')
+    .to(seal,  {opacity:1, scale:1, duration:.5, ease:'back.out(1.6)'}, '-=.45');
+
+  // safety: if the frame clock never advances (offscreen/throttled renderers), force the final frame.
+  // early check detects a frozen clock (entrance hasn't progressed) without cutting a real entrance;
+  // the later one is an ultimate fallback.
+  setTimeout(()=>{ if(!entranceDone && enter.progress() === 0) finalState(); }, 1100);
+  setTimeout(()=>{ if(!entranceDone) finalState(); }, 2600);
+
+  function startLoop(){
+    // calm "live" breathing on the active node
+    gsap.fromTo(pulse, {opacity:.5, scale:1},
+      {opacity:0, scale:2, duration:2.6, ease:'power1.out', repeat:-1, repeatDelay:.4});
+
+    // the stitch: a vermillion token travels D-07 → DEF-02 and resolves the old loop
+    const en = () => document.documentElement.getAttribute('data-lang') === 'en';
+    const stitch = gsap.timeline({ repeat:-1, repeatDelay:2.6, delay:1.4 });
+    stitch
+      .set(token, {opacity:1})
+      .to(token, {duration:1.5, ease:'power1.inOut',
+        motionPath:{ path:keyEdge, align:keyEdge, alignOrigin:[.5,.5] }})
+      .to(token, {opacity:0, duration:.25})
+      .to(defRing,{opacity:0, duration:.4}, '<')
+      .fromTo(defFill, {opacity:0, scale:0}, {opacity:1, scale:1, duration:.5, ease:'back.out(1.8)'}, '<')
+      .add(()=>{ defState.textContent = 'resolved'; defState.classList.add('on'); }, '<')
+      .to({}, {duration:2.4})                              // hold on resolved
+      .to(defFill,{opacity:0, scale:0, duration:.4})
+      .to(defRing,{opacity:1, duration:.4}, '<')
+      .add(()=>{ defState.textContent = 'deferred'; defState.classList.remove('on'); }, '<');
+  }
+})();
+</script>
+</body>
+</html>
