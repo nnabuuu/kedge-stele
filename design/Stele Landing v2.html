@@ -63,22 +63,34 @@ h1,h2,h3{font-family:var(--serif);font-weight:500;letter-spacing:-.012em;line-he
 .muted{color:var(--ink-3)}
 a{color:inherit}
 
-/* ---------- seal ---------- */
+/* ---------- seal (monoline mark) ---------- */
 .seal{
   display:inline-grid;place-items:center;
-  background:var(--seal);color:#F4EFE6;
-  font-family:var(--serif);font-weight:600;
-  border-radius:5px;
-  box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.18);
-  transform:rotate(-3deg);
+  background:transparent;color:var(--ink);
+  font-family:"Noto Serif SC",var(--serif);font-weight:400;
+  border-radius:7px;
+  box-shadow:inset 0 0 0 1.6px var(--ink);
+  transform:none;
   line-height:1;
+}
+.rubbing .seal{
+  color:var(--on-dark);
+  box-shadow:inset 0 0 0 1.6px var(--on-dark);
+}
+/* inline mark for 实录 / Stele in body prose (leading 朱砂 tick) */
+.pn-mark{font-weight:500}
+.pn-mark::before{
+  content:"";display:inline-block;width:7px;height:7px;border-radius:1.5px;
+  background:var(--seal);
+  transform:translateY(-3px) rotate(-6deg);
+  margin-right:5px;
 }
 
 /* ---------- nav ---------- */
 nav{position:sticky;top:0;z-index:30;background:rgba(236,231,221,.8);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid var(--line)}
 .nav-in{max-width:var(--maxw);margin:0 auto;padding:14px 40px;display:flex;align-items:center;justify-content:space-between;gap:24px}
 .brand{display:flex;align-items:center;gap:12px;text-decoration:none}
-.brand .seal{width:27px;height:27px;font-size:14px}
+.brand .seal{width:27px;height:27px;font-size:16px}
 .brand .wm{font-family:var(--serif);font-size:20px;font-weight:500;letter-spacing:.02em;display:inline-flex;align-items:baseline;gap:9px;white-space:nowrap}
 .brand .wm i{font-style:normal;font-family:var(--mono);font-size:10.5px;font-weight:500;letter-spacing:.2em;color:var(--ink-3);text-transform:uppercase;transform:translateY(-1px)}
 .nav-right{display:flex;align-items:center;gap:26px}
@@ -199,8 +211,8 @@ footer{border-top:1px solid var(--line);padding:46px 0}
 /* ---------- reveal motion ---------- */
 html.js .reveal{opacity:0;transform:translateY(14px)}
 html.js .reveal.in{opacity:1;transform:none;transition:opacity .7s var(--ease),transform .7s var(--ease)}
-html.js .stamp{opacity:0;transform:rotate(-3deg) scale(1.14)}
-html.js .stamp.in{opacity:1;transform:rotate(-3deg) scale(1);transition:opacity .5s ease,transform .55s cubic-bezier(.34,1.4,.5,1)}
+html.js .stamp{opacity:0;transform:scale(1.14)}
+html.js .stamp.in{opacity:1;transform:scale(1);transition:opacity .5s ease,transform .55s cubic-bezier(.34,1.4,.5,1)}
 @media(prefers-reduced-motion:reduce){html.js .reveal,html.js .stamp{opacity:1!important;transform:none!important;transition:none!important}}
 
 /* ---------- decision graph (GSAP-driven) ---------- */
@@ -461,8 +473,8 @@ const I18N = {
   zh:{
     'nav.idea':'理念','nav.views':'两个视图','nav.usage':'用法',
     'hero.eyebrow':'决策溯源 · Decision Provenance',
-    'hero.h1':'决策会蒸发。<br>实录把它刻下来。',
-    'hero.sub':'你做的每个决定，背后有它的理由、放弃掉的选项，还有一堆先搁着没定的事。过几天，这些常常只剩一个结论。实录在你决定的当下就把它们一起刻下来，日后落在任何一件事上，都能回看它当初是怎么定的。',
+    'hero.h1':'决策会蒸发。<br><span class="pn-mark">实录</span>把它刻下来。',
+    'hero.sub':'你做的每个决定，背后有它的理由、放弃掉的选项，还有一堆先搁着没定的事。过几天，这些常常只剩一个结论。<span class="pn-mark">实录</span>在你决定的当下就把它们一起刻下来，日后落在任何一件事上，都能回看它当初是怎么定的。',
     'hero.cta1':'在 GitHub 查看 →','hero.cta2':'读理念',
     'hero.m1':'本地优先','hero.m2':'数据不出本机','hero.m3':'零追踪',
     'pb.eyebrow':'问题','pb.h2':'你留得下结论，留不下当时怎么想的',
@@ -500,8 +512,8 @@ const I18N = {
   en:{
     'nav.idea':'Idea','nav.views':'Two views','nav.usage':'Usage',
     'hero.eyebrow':'Decision provenance',
-    'hero.h1':'Decisions evaporate.<br>Stele carves them in.',
-    'hero.sub':'Every decision you make carries its reasoning, the options you ruled out, and a pile of things left unsettled. A few days on, all that’s usually left is the conclusion. Stele carves them all in the moment you decide, so later you can land on anything and see how it was settled.',
+    'hero.h1':'Decisions evaporate.<br><span class="pn-mark">Stele</span> carves them in.',
+    'hero.sub':'Every decision you make carries its reasoning, the options you ruled out, and a pile of things left unsettled. A few days on, all that’s usually left is the conclusion. <span class="pn-mark">Stele</span> carves them all in the moment you decide, so later you can land on anything and see how it was settled.',
     'hero.cta1':'View on GitHub →','hero.cta2':'Read the idea',
     'hero.m1':'Local-first','hero.m2':'Stays on your machine','hero.m3':'No tracking',
     'pb.eyebrow':'The problem','pb.h2':'You keep the conclusion, not how you got there',
