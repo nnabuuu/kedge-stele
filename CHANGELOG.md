@@ -16,6 +16,51 @@ npm install -g stele-mcp@snapshot
 
 — nothing yet —
 
+## [0.4.1] · 2026-06-11
+
+**`main_language` — pin captures to a chosen language.** Per-project
+free-text config that tells the agent which language to write every
+free-text field of a captured Decision in (`title`, `detail.context`,
+`detail.options[].rationale`, `detail.decision`, `detail.consequences`,
+the rolling `Feature.summary`). Technical terms, ids, file paths,
+code identifiers, and proper nouns are preserved verbatim regardless.
+
+Unset by default — agent uses the conversation's language as before.
+No schema change, no new MCP tool: the existing per-project `config`
+table + `stele config get/set` carries it, and the SessionStart hook
+loads it once per session.
+
+```bash
+stele config set main_language 中文
+stele config set main_language English
+stele config set main_language "中文，专有名词保留英文"   # free-text
+stele config set main_language ""                          # clear → default
+```
+
+Surfaces
+
+- SessionStart hook (`.claude/hooks/stele-session-start.sh`) gains a
+  new section between `tag policy` and the standing capture criteria
+  with the bilingual directive line. Collapses silently when unset.
+- `stele-capture` skill `SKILL.md` gains a § Main language naming
+  the exact Decision fields the rule applies to.
+- `/stele:feature` step 5 (rewrite the rolling summary) cross-
+  references the rule.
+- `/stele:scan` anti-patterns now include "honour the main_language
+  setting" — historical sources can be in any language; the graph
+  ends up in one.
+- README.md gains a § Main language documenting the setting + the
+  clear-by-empty convention.
+
+Tests: 230/230 pass (was 229 + 1 regression guard against
+accidentally dropping the language section in a future template
+edit). `npx tsc --noEmit` clean.
+
+Migration: none. Existing 0.4.0 DBs open unchanged; the config key
+simply doesn't exist until you set it. Re-run `stele hooks install`
+on projects upgraded from 0.4.0 to pick up the new SessionStart
+template that reads the config.
+
 ## [0.4.0] · 2026-06-11
 
 **Auto-capture, three layers deep, with a shared dedup floor.** 0.3.0
