@@ -414,6 +414,101 @@ export function continueLast(store: Store, scope?: { milestoneId?: MilestoneId }
 }
 
 // ===========================================================================
+// Feature rail — left navigation on the Project page
+// ===========================================================================
+
+export interface FeatureRailMilestoneTag {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export interface FeatureRailMilestone {
+  id: MilestoneId;
+  name: string;
+  state: MilestoneState;
+  sessionCount: number;
+  decisionCount: number;
+  openLoops: number;
+  lastActivity: string | null;   // most recent session.startedAt, falls back to milestone.startedAt
+  tags: FeatureRailMilestoneTag[];
+}
+
+export interface FeatureRailEntry {
+  feature: Feature;
+  milestones: FeatureRailMilestone[];
+}
+
+/**
+ * The Project page's left rail: features → milestones, sorted so the
+ * milestone you most likely want to resume floats to the top.
+ *
+ * Milestones within a feature sort by state (going > winding > paused >
+ * draft > done) then by lastActivity desc. Features sort by count of
+ * active milestones desc. Empty features are dropped.
+ *
+ * Assumes single-project stores (the daemon's per-slug model); for
+ * multi-project stores we walk the first project's features.
+ */
+export function featureRail(store: Store): FeatureRailEntry[] {
+  const projects = store.allProjects();
+  const project = projects[0];
+  if (!project) return [];
+
+  const features = store.featuresIn(project.id);
+  const milestonesByFeature = new Map<string, Milestone[]>();
+  for (const m of store.allMilestones()) {
+    const arr = milestonesByFeature.get(m.featureId) ?? [];
+    arr.push(m);
+    milestonesByFeature.set(m.featureId, arr);
+  }
+
+  const STATE_RANK: Record<MilestoneState, number> = {
+    going: 0, winding: 1, paused: 2, draft: 3, done: 4,
+  };
+
+  const entries: FeatureRailEntry[] = features.map((feature) => {
+    const ms = milestonesByFeature.get(feature.id) ?? [];
+    const milestones: FeatureRailMilestone[] = ms.map((m) => {
+      const sessions = store.sessionsInMilestone(m.id);
+      const decisions = store.decisionsInMilestone(m.id);
+      const openLoops = decisions.filter((d) => {
+        const ns = nodeState(d);
+        return ns === "open" || ns === "deferred";
+      }).length;
+      const lastSession = sessions[sessions.length - 1];
+      const tags = store.taggingsForTarget("milestone", m.id).map((t) => ({
+        id: t.id, name: t.name, color: t.color,
+      }));
+      return {
+        id: m.id,
+        name: m.name,
+        state: m.state,
+        sessionCount: sessions.length,
+        decisionCount: decisions.length,
+        openLoops,
+        lastActivity: lastSession?.startedAt ?? m.startedAt ?? null,
+        tags,
+      };
+    });
+    milestones.sort((a, b) => {
+      const r = STATE_RANK[a.state] - STATE_RANK[b.state];
+      if (r !== 0) return r;
+      return (b.lastActivity ?? "").localeCompare(a.lastActivity ?? "");
+    });
+    return { feature, milestones };
+  });
+
+  entries.sort((a, b) => {
+    const active = (e: FeatureRailEntry) =>
+      e.milestones.filter((m) => m.state === "going" || m.state === "winding").length;
+    return active(b) - active(a);
+  });
+
+  return entries.filter((e) => e.milestones.length > 0);
+}
+
+// ===========================================================================
 // Multi-project overview — the data behind GET /api/projects
 // ===========================================================================
 

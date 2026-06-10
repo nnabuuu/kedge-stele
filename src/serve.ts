@@ -22,6 +22,7 @@ import { z } from "zod";
 import { Store } from "./store.ts";
 import { proposeEdges } from "./consolidate.ts";
 import {
+  featureRail,
   milestoneDetail,
   milestoneSummary,
   projectListSummary,
@@ -612,6 +613,10 @@ async function dispatchApi(
       const p = store.theProject();
       if (!p) return json(res, 200, []);
       return json(res, 200, store.featuresIn(p.id));
+    }
+    if (apiPath === "/api/feature-rail") {
+      // Project page's left rail — features grouped with milestone summaries.
+      return json(res, 200, featureRail(store));
     }
     const mFeature = apiPath.match(/^\/api\/features\/([^/]+)$/);
     if (mFeature) {
