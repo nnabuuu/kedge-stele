@@ -664,6 +664,18 @@ async function dispatchApi(
     // 0.3.0 — sessions/start, sessions/end, and feature-open POST endpoints
     // were removed. Writes happen through MCP (decision_capture / feature_open),
     // not HTTP.
+    // 0.3.0 — feature summary write (the /stele:feature step 5 sink)
+    const mFeatureSummary = apiPath.match(/^\/api\/features\/([^/]+)\/summary$/);
+    if (mFeatureSummary) {
+      const id = decodeURIComponent(mFeatureSummary[1]);
+      if (!store.getFeature(id)) return notFound(res);
+      let raw: unknown;
+      try { raw = await readJsonBody(req); } catch (e) { return badRequest(res, (e as Error).message); }
+      const body = validate(z.object({ summary: z.string() }), raw, res);
+      if (!body) return;
+      store.setFeatureSummary(id, body.summary);
+      return json(res, 200, { id, summary: body.summary });
+    }
     // 0.1.0 — project status
     const mProjectStatus = apiPath.match(/^\/api\/project\/status$/);
     if (mProjectStatus) return await handlePostProjectStatus(store, req, res);

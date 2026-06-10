@@ -9,12 +9,12 @@ See `gotchas.md` for the traps Zod will throw at you.
 
 ## Top-level fields
 
-- `id` — pass `"?"`. The tool reassigns to `<milestoneId>/<local>` after
-  milestone resolution. The local prefix follows `type`:
+- `id` — pass `"?"`. The tool reassigns to `<featureId>/<local>` after
+  feature resolution. The local prefix follows `type`:
   `"D-NN"` for `decision`, `"DEF-NN"` for `deferred`, `"OQ-NN"` for `open`.
   The only time the tool honors a passed id is when it already matches the
-  `<resolvedMilestoneId>/<correct-prefix>-NN` format AND doesn't collide.
-- `milestoneId` — pass `"?"`. The tool reassigns based on the `milestone`
+  `<resolvedFeatureId>/<correct-prefix>-NN` format AND doesn't collide.
+- `featureId` — pass `"?"`. The tool reassigns based on the `feature`
   field in the CapturePayload (NOT this field).
 - `sessionId` — usually omit (the tool stamps the resolved session).
   Pass it only when you previously called `session_start` and want to bind
@@ -99,7 +99,7 @@ alternatives." DO NOT omit `detail` entirely; the schema rejects that.
 { kind: "manual" }                          // user will check in periodically
 { kind: "metric",     expr: "schools > 50" }     // a numeric / observable condition
 { kind: "event",      name: "ccaas-v2 ships" }   // a named event
-{ kind: "dependency", on:   "M-04/D-01" }        // a specific other decision
+{ kind: "dependency", on:   "F-04/D-01" }        // a specific other decision
 ```
 
 For `dependency`, `on` is the **decision id**, not a sentence. Put the
@@ -111,7 +111,7 @@ sentence in `cond`.
 {
   decision: <Decision as above>,
   edges?:   Edge[],                        // authored edges, written verbatim
-  milestone?: CaptureMilestoneMode,        // see references/milestone-judgment.md
+  feature?: CaptureFeatureMode,          // see references/feature-judgment.md
   sourceSession?: { source: "claude-code", sourceSessionId: "<cc_session_id>" },
   sessionId?:    "ses-<short hash>",       // if you explicitly session_start'd earlier
   tags?:    CaptureTagRequest[]            // see references/tag-judgment.md
@@ -135,5 +135,5 @@ other three relations are non-mutating links.
 
 The MCP tool rejects edges whose endpoints don't exist yet — so you can
 author edges referencing the decision you're capturing in THIS call (using
-its eventual `<milestoneId>/<local>` id), but you can't reference one that
+its eventual `<featureId>/<local>` id), but you can't reference one that
 hasn't been captured yet from a future call.

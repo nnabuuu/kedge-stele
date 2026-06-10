@@ -1,7 +1,7 @@
 # Step 0.5 — Tag judgment
 
 Tags are a cross-cutting classification — `security`, `backend`, `perf`,
-`compliance`, etc. — that lives alongside (not instead of) milestones.
+`compliance`, etc. — that lives alongside (not instead of) features.
 A decision can carry several tags; same tag spans many decisions.
 
 The Stop hook injects the project's **active tags** and current
@@ -46,7 +46,7 @@ new name when nothing existing captures the cross-cutting concern.
 
 At most 2-3 tags per decision. Tagging everything `backend` defeats the
 point. A tag is for cross-cutting concerns the *human* will want to filter
-by later — not a redundant copy of the milestone name.
+by later — not a redundant copy of the feature name.
 
 ## Return value shape
 

@@ -472,6 +472,34 @@ server.registerTool(
 );
 
 server.registerTool(
+  "feature_set_summary",
+  {
+    description:
+      "Rewrite the rolling Feature.summary — used by /stele:feature step 5. " +
+      "Replaces (does not append) the existing summary so the field always reflects " +
+      "the CURRENT state, not the audit trail. Pass an empty string to clear.",
+    inputSchema: {
+      featureId: z.string(),
+      summary: z.string(),
+    },
+  },
+  async ({ featureId, summary }) => {
+    const f = store.getFeature(featureId);
+    if (!f) {
+      return { content: [{ type: "text", text: `no such feature: ${featureId}` }] };
+    }
+    store.setFeatureSummary(featureId, summary);
+    const preview = summary.length > 80 ? summary.slice(0, 80) + "…" : summary;
+    return {
+      content: [{
+        type: "text",
+        text: `${featureId} "${f.name}" summary updated:\n  ${preview || "<cleared>"}`,
+      }],
+    };
+  },
+);
+
+server.registerTool(
   "feature_report",
   {
     description:

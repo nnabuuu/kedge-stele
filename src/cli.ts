@@ -221,9 +221,8 @@ async function initCommand(args: string[]): Promise<void> {
       const r = installHooks(cwd);
       console.log(`  ${r.hook}`);
       console.log(`  ${r.skill}`);
-      console.log(`  ${r.command}`);
-      console.log(`  ${r.milestoneReport}`);
-      console.log(`  ${r.resume}`);
+      console.log(`  ${r.steleFeature}`);
+      console.log(`  ${r.legacyCommandsCleaned}`);
       console.log(`  ${r.settings}`);
     } catch (e) {
       console.error(`  ⚠ hooks install failed (continuing): ${(e as Error).message}`);
@@ -271,9 +270,8 @@ function hooksCommand(args: string[]): void {
       console.log(`hooks installed in ${cwd}:`);
       console.log(`  ${r.hook}`);
       console.log(`  ${r.skill}`);
-      console.log(`  ${r.command}`);
-      console.log(`  ${r.milestoneReport}`);
-      console.log(`  ${r.resume}`);
+      console.log(`  ${r.steleFeature}`);
+      console.log(`  ${r.legacyCommandsCleaned}`);
       console.log(`  ${r.settings}`);
     } catch (e) {
       console.error(`hooks install failed: ${(e as Error).message}`);
@@ -285,9 +283,8 @@ function hooksCommand(args: string[]): void {
       console.log(`hooks uninstalled from ${cwd}:`);
       console.log(`  ${r.hook}`);
       console.log(`  ${r.skill}`);
-      console.log(`  ${r.command}`);
-      console.log(`  ${r.milestoneReport}`);
-      console.log(`  ${r.resume}`);
+      console.log(`  ${r.steleFeature}`);
+      console.log(`  ${r.legacyCommandsCleaned}`);
       console.log(`  ${r.settings}`);
     } catch (e) {
       console.error(`hooks uninstall failed: ${(e as Error).message}`);
@@ -299,9 +296,7 @@ function hooksCommand(args: string[]): void {
     console.log(`stele hooks status (${cwd}):`);
     console.log(`  ${mark(s.hook)}  .claude/hooks/stele-stop.sh`);
     console.log(`  ${mark(s.skill)}  .claude/skills/stele-capture/SKILL.md`);
-    console.log(`  ${mark(s.command)}  .claude/commands/decision.md`);
-    console.log(`  ${mark(s.milestoneReport)}  .claude/commands/milestone-report.md`);
-    console.log(`  ${mark(s.resume)}  .claude/commands/resume.md`);
+    console.log(`  ${mark(s.steleFeature)}  .claude/commands/stele/feature.md`);
     console.log(`  ${mark(s.settingsHasEntry)}  Stop hook in .claude/settings.json`);
   } else {
     console.error(`unknown hooks subcommand: ${sub} — try install / uninstall / status`);

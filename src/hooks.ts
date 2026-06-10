@@ -22,9 +22,16 @@ import { fileURLToPath } from "node:url";
 const HOOK_PATH_REL = ".claude/hooks/stele-stop.sh";
 const SKILL_DIR_REL = ".claude/skills/stele-capture";
 const SKILL_FILE_REL = ".claude/skills/stele-capture/SKILL.md";
-const COMMAND_FILE_REL = ".claude/commands/decision.md";
-const MILESTONE_REPORT_FILE_REL = ".claude/commands/milestone-report.md";
-const RESUME_FILE_REL = ".claude/commands/resume.md";
+// 0.3.0 — single namespaced slash command `/stele:feature` replaces the
+// three 0.2.x commands (/decision, /milestone-report, /resume). The
+// namespaced sub-path matches how Claude Code reads `stele:feature`.
+const STELE_FEATURE_COMMAND_REL = ".claude/commands/stele/feature.md";
+const STELE_COMMAND_DIR_REL = ".claude/commands/stele";
+const LEGACY_COMMAND_RELS = [
+  ".claude/commands/decision.md",
+  ".claude/commands/milestone-report.md",
+  ".claude/commands/resume.md",
+];
 const SETTINGS_REL = ".claude/settings.json";
 
 function templatesDir(): string {
@@ -190,9 +197,8 @@ function unmergeSettings(projectRoot: string): { note: string } {
 export interface InstallReport {
   hook: string;
   skill: string;
-  command: string;
-  milestoneReport: string;
-  resume: string;
+  steleFeature: string;
+  legacyCommandsCleaned: string;
   settings: string;
 }
 
@@ -206,9 +212,30 @@ function installCommand(projectRoot: string, relPath: string, templateName: stri
   return `wrote ${relPath}`;
 }
 
+/**
+ * 0.3.0 dropped the three 0.2.x slash commands (/decision,
+ * /milestone-report, /resume). Re-running `stele init` on a project
+ * upgraded from 0.2.x should delete the orphaned command files so the
+ * user doesn't have unreachable / outdated commands lingering in their
+ * `.claude/commands/`. We delete unconditionally — these were
+ * tool-managed files, not user-authored content.
+ */
+function cleanLegacyCommands(projectRoot: string): string {
+  const removed: string[] = [];
+  for (const rel of LEGACY_COMMAND_RELS) {
+    const p = join(projectRoot, rel);
+    if (existsSync(p)) {
+      rmSync(p);
+      removed.push(rel);
+    }
+  }
+  if (removed.length === 0) return "no legacy commands to clean";
+  return `removed ${removed.length} legacy command${removed.length === 1 ? "" : "s"} (${removed.join(", ")})`;
+}
+
 export function installHooks(projectRoot: string): InstallReport {
   const report: InstallReport = {
-    hook: "", skill: "", command: "", milestoneReport: "", resume: "", settings: "",
+    hook: "", skill: "", steleFeature: "", legacyCommandsCleaned: "", settings: "",
   };
 
   // 1. Hook script
@@ -229,12 +256,13 @@ export function installHooks(projectRoot: string): InstallReport {
   const skillFileCount = copyTemplateDir("stele-capture-skill", skillDir);
   report.skill = `wrote ${SKILL_DIR_REL}/ (${skillFileCount} file${skillFileCount === 1 ? "" : "s"}: SKILL.md + gotchas + references)`;
 
-  // 3. Slash commands — only write if missing (don't overwrite user edits)
-  report.command = installCommand(projectRoot, COMMAND_FILE_REL, "decision-command.md");
-  report.milestoneReport = installCommand(projectRoot, MILESTONE_REPORT_FILE_REL, "milestone-report-command.md");
-  report.resume = installCommand(projectRoot, RESUME_FILE_REL, "resume-command.md");
+  // 3. The single 0.3.0 slash command — only write if missing.
+  report.steleFeature = installCommand(projectRoot, STELE_FEATURE_COMMAND_REL, "stele-feature-command.md");
 
-  // 4. Settings merge
+  // 4. Clean up legacy 0.2.x commands from prior installs.
+  report.legacyCommandsCleaned = cleanLegacyCommands(projectRoot);
+
+  // 5. Settings merge
   const s = mergeSettings(projectRoot);
   report.settings = s.note;
 
@@ -243,7 +271,7 @@ export function installHooks(projectRoot: string): InstallReport {
 
 export function uninstallHooks(projectRoot: string): InstallReport {
   const report: InstallReport = {
-    hook: "", skill: "", command: "", milestoneReport: "", resume: "", settings: "",
+    hook: "", skill: "", steleFeature: "", legacyCommandsCleaned: "", settings: "",
   };
 
   const hookPath = join(projectRoot, HOOK_PATH_REL);
@@ -262,10 +290,9 @@ export function uninstallHooks(projectRoot: string): InstallReport {
     report.skill = `${SKILL_DIR_REL} not present`;
   }
 
-  // Never delete the slash commands on uninstall — user may have customized.
-  report.command = `${COMMAND_FILE_REL} left in place (manual delete if you want)`;
-  report.milestoneReport = `${MILESTONE_REPORT_FILE_REL} left in place`;
-  report.resume = `${RESUME_FILE_REL} left in place`;
+  // Never delete the slash command on uninstall — user may have customized.
+  report.steleFeature = `${STELE_FEATURE_COMMAND_REL} left in place (manual delete if you want)`;
+  report.legacyCommandsCleaned = "uninstall doesn't touch legacy 0.2.x commands";
 
   const s = unmergeSettings(projectRoot);
   report.settings = s.note;
@@ -276,9 +303,7 @@ export function uninstallHooks(projectRoot: string): InstallReport {
 export interface StatusReport {
   hook: boolean;
   skill: boolean;
-  command: boolean;
-  milestoneReport: boolean;
-  resume: boolean;
+  steleFeature: boolean;
   settingsHasEntry: boolean;
 }
 
@@ -297,9 +322,7 @@ export function hooksStatus(projectRoot: string): StatusReport {
   return {
     hook: existsSync(join(projectRoot, HOOK_PATH_REL)),
     skill: existsSync(join(projectRoot, SKILL_FILE_REL)),
-    command: existsSync(join(projectRoot, COMMAND_FILE_REL)),
-    milestoneReport: existsSync(join(projectRoot, MILESTONE_REPORT_FILE_REL)),
-    resume: existsSync(join(projectRoot, RESUME_FILE_REL)),
+    steleFeature: existsSync(join(projectRoot, STELE_FEATURE_COMMAND_REL)),
     settingsHasEntry,
   };
 }

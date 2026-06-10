@@ -384,6 +384,19 @@ export class Store {
     this.putFeature(f);
   }
 
+  /**
+   * Write the rolling Feature.summary (the field /stele:feature rewrites on
+   * each reconcile pass). Replace, not append — the summary is meant to
+   * reflect the CURRENT state, not the audit trail. Passing an empty string
+   * clears the summary.
+   */
+  setFeatureSummary(id: FeatureId, summary: string): void {
+    const f = this.getFeature(id);
+    if (!f) throw new Error(`no such feature: ${id}`);
+    f.summary = summary || undefined;
+    this.putFeature(f);
+  }
+
   // =========================================================================
   // 0.3.0 — sessions (FK rename; provenance + legacy outcome/pause_reason in data)
   // =========================================================================

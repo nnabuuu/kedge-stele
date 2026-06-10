@@ -65,9 +65,14 @@ test("install writes the full skill folder (SKILL.md + gotchas + references)", (
   assert.ok(existsSync(join(root, "SKILL.md")));
   assert.ok(existsSync(join(root, "gotchas.md")));
   assert.ok(existsSync(join(root, "references/decision-schema.md")));
-  assert.ok(existsSync(join(root, "references/milestone-judgment.md")));
   assert.ok(existsSync(join(root, "references/feature-judgment.md")));
   assert.ok(existsSync(join(root, "references/tag-judgment.md")));
+  // 0.3.0 dropped the umbrella; milestone-judgment.md is retired.
+  assert.equal(
+    existsSync(join(root, "references/milestone-judgment.md")),
+    false,
+    "0.3.0 retired milestone-judgment.md but it's still being installed",
+  );
 });
 
 test("re-install replaces stale files (no leftover references from prior versions)", () => {
@@ -80,15 +85,33 @@ test("re-install replaces stale files (no leftover references from prior version
   assert.equal(existsSync(stale), false, "stale references file survived re-install");
 });
 
-test("install writes slash command if missing, leaves it if present", () => {
+test("install writes /stele:feature command if missing, leaves it if present", () => {
   // First install: writes
   installHooks(projectDir);
-  const cmdPath = join(projectDir, ".claude/commands/decision.md");
-  assert.ok(existsSync(cmdPath));
+  const cmdPath = join(projectDir, ".claude/commands/stele/feature.md");
+  assert.ok(existsSync(cmdPath), "stele/feature.md missing");
   // Pre-set custom content, reinstall, should preserve
   writeFileSync(cmdPath, "USER CUSTOMIZED");
   installHooks(projectDir);
   assert.equal(readFileSync(cmdPath, "utf8"), "USER CUSTOMIZED");
+});
+
+test("install cleans up legacy 0.2.x command files", () => {
+  // Simulate a project upgraded from 0.2.x: old commands sitting in
+  // .claude/commands/ from a prior `stele init`.
+  const cmdsDir = join(projectDir, ".claude/commands");
+  mkdirSync(cmdsDir, { recursive: true });
+  writeFileSync(join(cmdsDir, "decision.md"), "old /decision command body");
+  writeFileSync(join(cmdsDir, "milestone-report.md"), "old /milestone-report body");
+  writeFileSync(join(cmdsDir, "resume.md"), "old /resume body");
+
+  installHooks(projectDir);
+
+  assert.equal(existsSync(join(cmdsDir, "decision.md")), false, "legacy /decision survived install");
+  assert.equal(existsSync(join(cmdsDir, "milestone-report.md")), false, "legacy /milestone-report survived install");
+  assert.equal(existsSync(join(cmdsDir, "resume.md")), false, "legacy /resume survived install");
+  // ...and the new command landed
+  assert.ok(existsSync(join(cmdsDir, "stele/feature.md")), "new /stele:feature didn't write");
 });
 
 // ---- THE settings.json regression --------------------------------------
@@ -183,7 +206,7 @@ test("install preserves unrelated Stop hooks AND other event hooks", () => {
 
 // ---- Uninstall ---------------------------------------------------------
 
-test("uninstall removes hook script + skill dir, leaves /decision command", () => {
+test("uninstall removes hook script + skill dir, leaves /stele:feature command", () => {
   installHooks(projectDir);
   uninstallHooks(projectDir);
   assert.equal(
@@ -196,9 +219,9 @@ test("uninstall removes hook script + skill dir, leaves /decision command", () =
     false,
     "skill dir not removed",
   );
-  // /decision should stay (user may have customized)
+  // /stele:feature should stay (user may have customized)
   assert.ok(
-    existsSync(join(projectDir, ".claude/commands/decision.md")),
+    existsSync(join(projectDir, ".claude/commands/stele/feature.md")),
     "command removed unexpectedly",
   );
 });
@@ -250,12 +273,13 @@ test("status reports ✗ on fresh dir, ✓ after install", () => {
   let s = hooksStatus(projectDir);
   assert.equal(s.hook, false);
   assert.equal(s.skill, false);
+  assert.equal(s.steleFeature, false);
   assert.equal(s.settingsHasEntry, false);
 
   installHooks(projectDir);
   s = hooksStatus(projectDir);
   assert.equal(s.hook, true);
   assert.equal(s.skill, true);
-  assert.equal(s.command, true);
+  assert.equal(s.steleFeature, true);
   assert.equal(s.settingsHasEntry, true);
 });

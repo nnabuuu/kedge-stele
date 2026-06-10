@@ -60,14 +60,14 @@ if printf '%s' "$response_text" | grep -qE "$joined"; then
       >> "$cwd/.stele/hooks.log" 2>/dev/null || true
   fi
 
-  # 0.1.0 — fetch active milestones (state=going) so the skill can make a
+  # 0.3.0 — fetch active features (state=going) so the skill can make a
   # continue-vs-new judgment without a separate MCP roundtrip. Best-effort:
   # if stele isn't on PATH or the project isn't initialized, skip.
-  milestones_block=""
+  features_block=""
   if command -v stele >/dev/null 2>&1 && [ -n "$cwd" ] && [ -d "$cwd/.stele" ]; then
-    milestones_json="$(cd "$cwd" && stele milestones list --state going --json 2>/dev/null)"
-    if [ -n "$milestones_json" ] && [ "$milestones_json" != "[]" ]; then
-      milestones_block="$(printf '%s' "$milestones_json" | jq -r '.[] | "  - \(.milestone.id) \"\(.milestone.name)\" (started \(.milestone.startedAt[:10]), \(.openLoops) open loops)"' 2>/dev/null)"
+    features_json="$(cd "$cwd" && stele features list --state going --json 2>/dev/null)"
+    if [ -n "$features_json" ] && [ "$features_json" != "[]" ]; then
+      features_block="$(printf '%s' "$features_json" | jq -r '.[] | "  - \(.feature.id) \"\(.feature.name)\" (started \(.feature.startedAt[:10]), \(.openLoops) open loops)"' 2>/dev/null)"
     fi
   fi
 
@@ -93,11 +93,11 @@ if printf '%s' "$response_text" | grep -qE "$joined"; then
 
 如果对话中刚刚有一个决策 crystallize (an option chosen over alternatives, something explicitly deferred, a constraint locked in), 请加载 stele-capture skill 并按它的剧本起草 CapturePayload, 然后调用 decision_capture MCP 工具记录到 stele decision store。如果没真正定下来 (只是讨论选项), 忽略本提醒, 不要打扰用户。"
 
-  if [ -n "$milestones_block" ]; then
+  if [ -n "$features_block" ]; then
     context="$context
 
-Active milestones (consult before deciding milestone.mode):
-$milestones_block"
+Active features (consult before deciding feature.mode):
+$features_block"
   fi
 
   if [ -n "$tag_policy_block" ]; then

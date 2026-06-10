@@ -6,10 +6,10 @@ Concrete traps fresh-context agents fall into. Read this before drafting a
 ## 1. `decision.id` is REASSIGNED, not honored.
 
 You think you're picking it; the MCP tool overwrites with
-`<milestoneId>/<local>` based on the resolved milestone + the `type` field.
-Pass `"?"`. The ONLY exception: if you pass a valid `<resolvedMilestoneId>/<D|DEF|OQ>-NN`
+`<featureId>/<local>` based on the resolved feature + the `type` field.
+Pass `"?"`. The ONLY exception: if you pass a valid `<resolvedFeatureId>/<D|DEF|OQ>-NN`
 and that id doesn't already exist, the tool honors it. Pass anything else
-(e.g. a different milestone's prefix, or a non-slash format) and the tool
+(e.g. a different feature's prefix, or a non-slash format) and the tool
 silently regenerates.
 
 ## 2. `detail.options` is REQUIRED for `type='decision'`, even when there was no real fork.
@@ -21,23 +21,23 @@ NOT omitting `detail`.
 
 ## 3. `revisit.trigger.kind: "dependency"` wants the dep's `id`, not a description.
 
-`{kind: "dependency", on: "M-04/D-01"}`. The `on` field is the decision id,
+`{kind: "dependency", on: "F-04/D-01"}`. The `on` field is the decision id,
 NOT a sentence. The human-readable description belongs in `revisit.cond`,
 which is optional and free-text.
 
-## 4. `milestone.mode='unscoped'` does NOT mean "no milestone".
+## 4. `feature.mode='unscoped'` does NOT mean "no feature".
 
-It binds to the auto-created per-project unscoped milestone (id starts with
-`__unscoped-M:`). The decision still gets a real `<milestoneId>/<local>` id.
-The unscoped milestone is for genuine exploration / debugging — don't use
+It binds to the auto-created per-project unscoped Feature (id starts with
+`__unscoped:`). The decision still gets a real `<featureId>/<local>` id.
+The unscoped Feature is for genuine exploration / debugging — don't use
 it as a "skip this field" escape hatch.
 
-## 5. The Stop hook only injects milestones with `state='going'`.
+## 5. The Stop hook only injects Features with `state='going'`.
 
-Draft / winding / paused / done milestones are NOT in the hook context. If
-the user is continuing work on a `paused` milestone, you have to call
-`milestone_list` explicitly to find it. Don't confidently pick `mode='new'`
-just because no active milestones showed up in your context.
+Draft / winding / paused / done Features are NOT in the hook context. If
+the user is continuing work on a `paused` Feature, you have to call
+`feature_list` explicitly to find it. Don't confidently pick `mode='new'`
+just because no active Features showed up in your context.
 
 ## 6. `sourceSession.sourceSessionId` ≠ stele `Session.id`.
 
