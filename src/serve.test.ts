@@ -102,6 +102,40 @@ test("GET /assets/styles/tokens.css serves CSS (nested asset path)", async () =>
   assert.match(r.headers.get("content-type") ?? "", /text\/css/);
 });
 
+// 0.2.0-snapshot.7 — the SPA boots into the Projects overview which calls
+// GET /api/projects. The multi-tenant dispatcher serves this; single-project
+// mode needs a synthetic one-element response so the SPA doesn't 404 on its
+// own entry page.
+test("GET /api/projects in single-project mode returns one synthetic entry", async () => {
+  running = await startServer({ store: seedStore(), port: 0 });
+  const r = await fetch(`${running.url}/api/projects`);
+  assert.equal(r.status, 200);
+  const list = await r.json() as Array<{ slug: string; name: string; openLoops: number }>;
+  assert.ok(Array.isArray(list), "response must be an array");
+  assert.equal(list.length, 1, "single-project mode must surface exactly one entry");
+  assert.ok(typeof list[0].slug === "string" && list[0].slug.length > 0);
+});
+
+// 0.2.0-snapshot.7 — the SPA's slug-prefixed routes (/<slug>/, /<slug>/api/...)
+// must work uniformly in single-project mode by treating the first segment as
+// cosmetic and dispatching to the single store.
+test("GET /<anything>/ serves the SPA shell in single-project mode", async () => {
+  running = await startServer({ store: seedStore(), port: 0 });
+  const r = await fetch(`${running.url}/some-cosmetic-slug/`);
+  assert.equal(r.status, 200);
+  const body = await r.text();
+  assert.match(body, /<!DOCTYPE html>/);
+});
+
+test("GET /<anything>/api/resume strips slug and dispatches in single mode", async () => {
+  running = await startServer({ store: seedStore(), port: 0 });
+  const r = await fetch(`${running.url}/some-cosmetic-slug/api/resume`);
+  assert.equal(r.status, 200);
+  // Same payload as bare /api/resume
+  const items = await r.json() as Array<{ id: string }>;
+  assert.ok(Array.isArray(items));
+});
+
 // ============================================================================
 // Decision / Edge / resume — core projections
 // ============================================================================

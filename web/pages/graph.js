@@ -24,12 +24,21 @@ const NODE_STATE_META = {
   conflicted: { cls: "conflicted", label: "冲突"  },
 };
 
+// Edge colors are LITERAL hex (not CSS custom-properties) because:
+//   (a) the v-graph token scope deliberately omits --seal / --mono (per
+//       CLAUDE.md § Frontend canonical reference) and would silently fall
+//       back to currentColor; and
+//   (b) SVG presentation attributes like `stroke="var(--x)"` aren't reliably
+//       resolved across browsers — only inline `style="stroke: var(--x)"`
+//       (or CSS rules targeting the element) works portably.
+// CLAUDE.md explicitly notes that DG "uses seal red inline only, not as a
+// token" — these literals match that intent.
 const RELATION_META = {
-  resolves:    { color: "var(--seal)",   label: "resolves",    dashed: false },
-  supersedes:  { color: "var(--t2)",     label: "supersedes",  dashed: false },
-  reconciles:  { color: "var(--blue)",   label: "reconciles",  dashed: false },
-  relates:     { color: "var(--t3)",     label: "relates",     dashed: true  },
-  depends_on:  { color: "var(--purple)", label: "depends_on",  dashed: true  },
+  resolves:    { color: "#A23A29", label: "resolves",   dashed: false },  // seal
+  supersedes:  { color: "#5c5b56", label: "supersedes", dashed: false },  // t2
+  reconciles:  { color: "#2f5278", label: "reconciles", dashed: false },  // blue
+  relates:     { color: "#9c9a92", label: "relates",    dashed: true  },  // t3
+  depends_on:  { color: "#3a3185", label: "depends_on", dashed: true  },  // purple
 };
 
 const STATE_RANK = {
@@ -182,7 +191,8 @@ function renderGraphSvg(slice, layout, onNodeClick, highlightedNodeId) {
     "aria-label": `Decision graph · ${slice.nodes.length} nodes · ${slice.edges.length} edges`,
   });
 
-  // <defs> with arrowhead markers per relation color
+  // <defs> with arrowhead markers per relation color. Same reason as edges
+  // below: `fill=""` attribute with var() doesn't resolve; use style="".
   const defs = svg("defs");
   for (const [key, meta] of Object.entries(RELATION_META)) {
     const marker = svg("marker", {
@@ -195,7 +205,7 @@ function renderGraphSvg(slice, layout, onNodeClick, highlightedNodeId) {
       orient: "auto",
       markerUnits: "userSpaceOnUse",
     },
-      svg("path", { d: "M0 0 L8 4 L0 8 Z", fill: meta.color }),
+      svg("path", { d: "M0 0 L8 4 L0 8 Z", style: `fill: ${meta.color}` }),
     );
     defs.append(marker);
   }
@@ -247,15 +257,21 @@ function renderGraphSvg(slice, layout, onNodeClick, highlightedNodeId) {
     const meta = RELATION_META[e.relation] ?? RELATION_META.relates;
     const isHi = highlightedEdges.has(edgeKey(e));
     const path = bezierPath(from, to);
+    // Style attribute (not stroke="") so the color actually applies — SVG
+    // presentation attributes don't reliably resolve var() expressions and
+    // we want a consistent literal value either way.
+    const styleParts = [
+      `stroke: ${meta.color}`,
+      `stroke-width: ${isHi ? 2 : 1.5}`,
+      "fill: none",
+      meta.dashed ? "stroke-dasharray: 4 4" : "",
+      highlightedNodeId && !isHi ? "opacity: 0.2" : "opacity: 1",
+    ].filter(Boolean);
     root.append(svg("path", {
       class: `edge edge-${e.relation}${isHi ? " hi" : ""}`,
       d: path,
-      stroke: meta.color,
-      "stroke-width": isHi ? "2" : "1.5",
-      "stroke-dasharray": meta.dashed ? "4 4" : null,
-      fill: "none",
       "marker-end": `url(#ah-${e.relation})`,
-      opacity: highlightedNodeId && !isHi ? "0.2" : "1",
+      style: styleParts.join("; "),
     }));
   }
 
@@ -369,11 +385,16 @@ function renderFilterBar(slice, filter, onFilter) {
 function renderLegend() {
   return h("div", { class: "graph-legend" },
     h("span", { class: "leg-h" }, "关系"),
-    ...Object.entries(RELATION_META).map(([key, meta]) =>
+    ...Object.entries(RELATION_META).map(([_key, meta]) =>
       h("span", { class: "leg-item" },
         h("span", {
-          class: `leg-line${meta.dashed ? " dashed" : ""}`,
-          style: { background: meta.color },
+          class: "leg-line",
+          style: meta.dashed
+            ? {
+                backgroundImage: `linear-gradient(90deg, ${meta.color} 50%, transparent 50%)`,
+                backgroundSize: "6px 100%",
+              }
+            : { background: meta.color },
         }),
         meta.label),
     ),

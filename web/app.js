@@ -61,11 +61,18 @@ function resolveRoute() {
     return { page: "graph", slug, params: {}, scope: "v-graph" };
   }
   // /<slug>/d/<mid>/<did>
+  // URL.pathname keeps percent-encoded segments encoded; decode once here
+  // so page modules can do a single encodeURIComponent() when building API
+  // calls (otherwise non-ASCII milestone names get double-encoded and the
+  // server's decode peels off only one layer, missing the real id).
   if (second === "d" && parts.length >= 4) {
     return {
       page: "trace",
       slug,
-      params: { mid: parts[2], did: parts.slice(3).join("/") },
+      params: {
+        mid: decodeURIComponent(parts[2]),
+        did: decodeURIComponent(parts.slice(3).join("/")),
+      },
       scope: "v-trace",
     };
   }

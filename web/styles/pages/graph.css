@@ -224,10 +224,8 @@
   height: 2px;
   border-radius: 1px;
 }
-.leg-line.dashed {
-  background: linear-gradient(90deg, currentColor 50%, transparent 50%) !important;
-  background-size: 6px 100% !important;
-}
+/* Dashed pattern is applied inline from graph.js with the literal relation
+   color (currentColor wouldn't carry the right value here). */
 
 /* ============================================================
  * Highlight hint banner

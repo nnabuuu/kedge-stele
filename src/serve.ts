@@ -16,7 +16,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { spawn } from "node:child_process";
 import { z } from "zod";
 import { Store } from "./store.ts";
@@ -622,6 +622,25 @@ async function dispatchApi(
       if (!p) return notFound(res);
       return json(res, 200, { project: p, rollup: projectRollup(store, p.id) });
     }
+    // 0.2.0 — single-project alias for /api/projects so the SPA's Projects
+    // overview works in single-project mode without branching on mode. Returns
+    // a synthetic one-element array shaped exactly like the multi-tenant
+    // dispatcher's response.
+    if (apiPath === "/api/projects") {
+      const p = store.theProject();
+      if (!p) return json(res, 200, []);
+      const synthetic = {
+        slug: basename(p.path) || "local",
+        path: p.path,
+        addedAt: p.createdAt,
+      };
+      const digest = resumeDigest(store);
+      return json(res, 200, projectListSummary([{
+        entry: synthetic,
+        store,
+        needsCheck: digest.filter((i) => i.needsCheck).length,
+      }]));
+    }
     if (apiPath === "/api/features") {
       const p = store.theProject();
       if (!p) return json(res, 200, []);
@@ -795,7 +814,7 @@ async function dispatchSingle(
   res: ServerResponse,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://localhost");
-  const path = url.pathname;
+  let path = url.pathname;
   const method = req.method ?? "GET";
   try {
     if (method === "GET") {
@@ -805,8 +824,25 @@ async function dispatchSingle(
         const file = assets.files.get(path.slice("/assets/".length));
         return file ? asset(res, file) : notFound(res);
       }
-      if (!path.startsWith("/api/")) return asset(res, assets.index);
     }
+    // The SPA lays its routes out with multi-tenant slug prefixes
+    // (`/<slug>/`, `/<slug>/d/<m>/<id>`, `/<slug>/api/feature-rail`, etc.).
+    // In single-project mode there is only one store, so we treat the
+    // first path segment as cosmetic: strip it before dispatching to the
+    // API, and serve the SPA shell for any non-API path under it.
+    if (path !== "/" && !path.startsWith("/api/")) {
+      const parts = path.split("/").filter(Boolean);
+      const first = parts[0];
+      if (first !== "api" && first !== "assets" && first !== "welcome") {
+        const rest = "/" + parts.slice(1).join("/");
+        if (rest.startsWith("/api/")) {
+          path = rest;
+        } else if (method === "GET") {
+          return asset(res, assets.index);
+        }
+      }
+    }
+    if (method === "GET" && !path.startsWith("/api/")) return asset(res, assets.index);
     return await dispatchApi(store, path, url.searchParams, method, req, res);
   } catch (e) {
     console.error(`[stele] handler error: ${(e as Error).message}`);
