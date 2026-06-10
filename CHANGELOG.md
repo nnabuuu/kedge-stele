@@ -16,6 +16,145 @@ npm install -g stele-mcp@snapshot
 
 — nothing yet —
 
+## [0.3.0] · 2026-06-10
+
+**Breaking release.** Four product-shape changes shipped together — the
+ones that came out of the post-0.2.0 UX review:
+
+1. **One layer too many in the hierarchy.** `Project → Feature → Milestone
+   → Session → Decision` collapses to `Project → Feature → Session →
+   Decision`. The 0.2-era umbrella `Feature` (CcaaS / Live Lesson) is
+   gone; its naming becomes a tag. What used to be a `Milestone` IS the
+   new `Feature` — same shape (5-state, `about`, `sequenceAfter`, dates)
+   plus a NEW rolling `summary` field that `/stele:feature` rewrites.
+2. **One slash command, not three.** `/decision`, `/milestone-report`,
+   `/resume` are all deleted outright — no aliases, no migration period.
+   They're replaced by the single namespaced `/stele:feature`, an
+   idempotent reconcile pass that catches what the conversation already
+   decided and rewrites the rolling summary. `stele init` on an upgraded
+   0.2.x project deletes the orphaned command files automatically.
+3. **MCP tool surface shrinks 22 → 19.** `session_start`, `session_end`,
+   `resume_command`, and the umbrella `feature_open` / `feature_list` are
+   gone. The (formerly) milestone tools renamed: `milestone_list` /
+   `milestone_open` / `milestone_report` → `feature_list` /
+   `feature_open` / `feature_report`. New: `feature_decisions` (the data
+   behind `/stele:feature` step 2) and `feature_set_summary` (the step 5
+   sink). Agent's mental load drops.
+4. **Local-first release flow.** Snapshots `0.3.0-snapshot.{1,2,3}` landed
+   on GitHub only — no per-snapshot `npm publish`. The user dogfooded
+   `/stele:feature` against a `npm install -g .` install in a throwaway
+   project before this stable cut.
+
+### Added
+
+- `feature_decisions(featureId)` projection + MCP tool + `GET
+  /api/features/<id>/decisions` route — every decision on a Feature
+  across every Session, ordered newest-first.
+- `feature_set_summary(featureId, summary)` MCP tool + `POST
+  /api/features/<id>/summary` route — the `/stele:feature` step 5 sink.
+  Replaces (does not append) `Feature.summary`.
+- `Feature.summary` field — rolling 2-4 sentence prose summary of where
+  this Feature stands, rewritten by `/stele:feature` on every call.
+- `featuresList(state?)` projection — flat per-project feature list with
+  tags + counts + lastActivity. Replaces the umbrella-grouped
+  `featureRail`. Drives `GET /api/features`.
+- `.claude/commands/stele/feature.md` template — the single slash
+  command. Carries the 5-step reconcile algorithm.
+- 0.3.0 `Store` constructor detects pre-0.3.0 DBs (either pre-0.1 shape
+  with `decisions.status_kind`, or 0.1–0.2 shape with the umbrella
+  `features` table) and renames the file aside to `<path>.0.2.x.db`
+  before creating a fresh schema. `migratedFromLegacy` surfaces the
+  hint via CLI / MCP.
+
+### Changed
+
+- **Schema**: `Decision.featureId` (was `milestoneId`); decision id format
+  is `<featureId>/<local>` (e.g. `F-01/D-04`). `Tagging.targetKind ∈
+  {feature, decision}` (was `{milestone, decision}`). Session retains
+  `outcome` / `pauseReason` as decodable legacy fields; the agent-facing
+  path no longer writes them.
+- **Projections**: `milestoneSummary` → `featureSummary`,
+  `milestoneDetail` → `featureDetail`, `projectRollup.milestonesByState`
+  → `featuresByState`, `projectListSummary.topMilestone` → `topFeature`,
+  `traceStitch.{earlier,later}Session.milestoneName` → `featureName`,
+  `graphSlice.milestones` → folded into `graphSlice.features` (the
+  columns ARE the Features now).
+- **HTTP routes**: `/api/milestones[/<id>[/report]]` → `/api/features[/
+  <id>[/report]]`. `GET /api/features` returns the flat
+  `featuresList` shape; `?summary=1` keeps the legacy `featureSummary`
+  shape for callers that still want it. `GET /<slug>/api/feature-rail`
+  is gone (its data lives in `/api/features`).
+- **Hooks installer** (`src/hooks.ts`) rewrites the install layout: a
+  single `/stele:feature` slash command at
+  `.claude/commands/stele/feature.md`, and an `installHooks` that
+  unconditionally cleans up `.claude/commands/{decision,milestone-
+  report,resume}.md` from prior 0.2.x installs. `InstallReport` /
+  `StatusReport` shape changed to match.
+- **Stop hook** (`src/templates/stele-stop-hook.sh`): shells out to
+  `stele features list --state going --json` (was `stele milestones
+  list`); injected context label "Active milestones" → "Active
+  features".
+- **Stele-capture skill** (`src/templates/stele-capture-skill/`): the
+  `milestone-judgment.md` reference retires (umbrella collapsed); the
+  surviving `feature-judgment.md` describes continue/new/unscoped at
+  the Feature level. `SKILL.md` adds a section on the `/stele:feature`
+  reconcile pattern. The Decision shape itself did NOT change.
+- **Web SPA** (`web/pages/*.js`): `topMilestone` → `topFeature`;
+  `milestonesByState` → `featuresByState`; the Project page collapses
+  one layer (flat feature rail + selected-feature detail with session
+  timeline). Class names rename (`.ms-state-pill` → `.fe-state-pill`).
+  `?m=<mid>` URL state becomes `?f=<fid>` with a one-release legacy
+  alias.
+
+### Removed
+
+- MCP tools: `session_start`, `session_end`, `resume_command`, and the
+  umbrella `feature_open` / `feature_list`.
+- Slash commands: `/decision`, `/milestone-report`, `/resume`.
+- HTTP routes: `POST /api/features` (umbrella open), `POST
+  /api/sessions/start`, `POST /api/sessions/<id>/end`, `GET
+  /<slug>/api/feature-rail`.
+- Skill reference: `stele-capture-skill/references/milestone-
+  judgment.md`.
+- Projection: `featureRail` (replaced by `featuresList`).
+
+### Migration story
+
+When `Store` opens a pre-0.3.0 `.stele/decisions.db`, it renames the
+file aside to `<path>.0.2.x.db` and creates a fresh 0.3.0 schema. The
+snapshot CLI / MCP prints a one-time hint pointing at the backup. No
+auto-translation of prior Decision rows — query the backup via
+`sqlite3` if you need the data. `stele init` on an upgraded project
+also deletes the orphaned 0.2.x slash command files.
+
+### Tests
+
+181 pass / 0 fail. Reworked `acceptance`, `capture`, `projections`,
+`schemas`, `serve`, `hooks` test suites for the new shape; the
+`milestones.test.ts` file moved to `features.test.ts` along with the
+entity rename.
+
+### Out of scope (deferred to 0.3.1+)
+
+- `IntentDelta` bundle layer (still deferred-but-on-purpose).
+- Real `EntityResolver` (stub stays).
+- Auto-proposing `depends_on` from the consolidate layer.
+- Cross-project queries / federation.
+
+## [0.2.0] · 2026-06-09
+
+**SPA rebuild against the design taxonomy.** Multi-snapshot release
+(`0.2.0-snapshot.{1..7}`) that brought `web/` from its 0.0.7-era
+incidental shape into the page taxonomy + token systems documented in
+`design/*.html`. New page modules: Projects overview, Project page
+with feature rail + session timeline, Trace page with cross-session
+stitch, Tags page with policy panel + pending proposals, Decision
+Graph with `graphSlice` projection + SVG renderer. Per-page CSS scopes
+(`v-base` / `v-trace` / `v-graph`). Single-project mode for `stele
+serve` (no `--multi`) added so the dev loop doesn't need the daemon.
+URL decoding fixes for non-ASCII feature names. No backend schema
+changes in this release.
+
 ## [0.1.0-snapshot] · 2026-06-09
 
 **Breaking release.** The 0.0.x → 0.1.0 cut. Decision shape, milestone state
