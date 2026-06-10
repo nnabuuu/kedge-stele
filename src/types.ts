@@ -239,6 +239,15 @@ export interface Revisit {
   cond?: string;               // optional human description of the trigger condition
 }
 
+// 0.4.0 — provenance of the capture path. Lets the UI distinguish
+// machine-extracted nodes from human-/agent-authored ones so review can be
+// batched. Default 'manual' for legacy rows (the column is nullable, so
+// pre-0.4 captures decode unchanged).
+export type DecisionSource =
+  | "manual"          // human-authored — seed.ts, CLI add, web capture form
+  | "agent-live"      // live agent in-flight via standing instruction (Stop hook directive)
+  | "session-extract"; // hook-spawned subagent post-hoc over the transcript
+
 export interface Decision {
   id: DecisionId;              // `<featureId>/<local>` (e.g. `F-01/D-04`)
   featureId: FeatureId;        // FK — required; "unscoped/<local>" decisions go under the auto-created unscoped feature
@@ -260,6 +269,14 @@ export interface Decision {
   affects: EntityRef[];
   artifacts?: { file: string; commit?: string }[];  // legacy top-level — prefer detail.artifact
   sourceReport?: string;       // provenance of seeded records (HTML report path)
+  // 0.4.0 — capture provenance + dedup. `source` defaults to 'manual' when omitted;
+  // `confidence` is only meaningful when source !== 'manual'.
+  source?: DecisionSource;
+  confidence?: number;         // 0..1
+  // `dedupKey` is computed by Store.putDecision from (featureId, title, affects);
+  // never set by callers. UNIQUE in DDL — second write with same key returns a
+  // skipped-duplicate marker instead of inserting.
+  dedupKey?: string;
   createdAt: string;
 }
 
@@ -352,6 +369,12 @@ export interface CapturePayload {
   // Skip feature wiring entirely and bind the decision to an already-open session.
   sessionId?: SessionId;
   tags?: CaptureTagRequest[];
+  // 0.4.0 — top-level mirrors of the same fields on Decision. Live the live
+  // agent + the SessionEnd extract subagent set these on the payload; the MCP
+  // handler folds them into the persisted Decision so callers don't have to
+  // remember to set both.
+  source?: DecisionSource;
+  confidence?: number;
 }
 
 // ===========================================================================

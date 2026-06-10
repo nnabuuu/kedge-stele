@@ -232,7 +232,13 @@ server.registerTool(
       "Pass `feature` (continue an existing feature, open a new one, or unscoped) and " +
       "`sourceSession` (the tool's native session id so we dedup), or pass `sessionId` directly " +
       "if you called `session_start` earlier. Pass `tags` for each tag request — each runs " +
-      "through the local policy (auto/propose/locked).",
+      "through the local policy (auto/propose/locked). " +
+      "0.4.0: pass top-level `source` ('agent-live' for the live-track Stop-hook directive, " +
+      "'session-extract' for the post-hoc subagent; default 'manual') so the UI can group " +
+      "machine captures for review. The store dedups same-content writes from agent-live + " +
+      "session-extract automatically — if your capture turns out to duplicate one the live " +
+      "agent already wrote, you'll see a `dup-skip: <existingId>` response and the duplicate " +
+      "is NOT inserted.",
     inputSchema: {
       decision: DecisionSchema,
       edges: z.array(EdgeSchema).optional(),
@@ -240,9 +246,11 @@ server.registerTool(
       sourceSession: CaptureSourceSessionSchema.optional(),
       sessionId: z.string().optional(),
       tags: z.array(CaptureTagRequestSchema).optional(),
+      source: z.enum(["manual", "agent-live", "session-extract"]).optional(),
+      confidence: z.number().min(0).max(1).optional(),
     },
   },
-  async ({ decision, edges, feature, sourceSession, sessionId, tags }) => {
+  async ({ decision, edges, feature, sourceSession, sessionId, tags, source, confidence }) => {
     let featureId: FeatureId;
     let resolvedSessionId: string;
     const notes: string[] = [];
@@ -281,15 +289,33 @@ server.registerTool(
     } else {
       finalId = store.nextLocalDecisionId(featureId, decision.type as DecisionType);
     }
+    // Fold top-level source/confidence onto the persisted Decision. The
+    // payload-level fields exist so the live agent + extract subagent don't
+    // have to remember to embed them in `decision`. Inline values on
+    // `decision` win if both are present (lets the agent override at the
+    // Decision level when authoring multiple captures with different sources).
     const decisionFinal: Decision = {
       ...(decision as Decision),
       id: finalId,
       featureId,
       sessionId: resolvedSessionId,
+      source: (decision as Decision).source ?? source,
+      confidence: (decision as Decision).confidence ?? confidence,
     };
 
     const candidates = proposeEdges(store, decisionFinal);
-    store.putDecision(decisionFinal);
+    const putResult = store.putDecision(decisionFinal);
+    if (putResult.written === false) {
+      // Same content already on disk — surface the existing id so the agent
+      // can author edges against it next round (instead of pointing at a
+      // decision that never landed).
+      return {
+        content: [{
+          type: "text",
+          text: `dup-skip: ${putResult.dedupedTo}\n  · ${notes.join("\n  · ")}`,
+        }],
+      };
+    }
     // Authored edges: endpoint-existence check matches serve.ts's POST /api/edges.
     for (const e of edges ?? []) {
       const edge = e as Edge;
@@ -303,6 +329,12 @@ server.registerTool(
 
     const lines = [fmtCaptureResult(decisionFinal.id, edges?.length ?? 0, candidates)];
     for (const n of notes) lines.push(`  · ${n}`);
+    if (decisionFinal.source && decisionFinal.source !== "manual") {
+      const confStr = decisionFinal.confidence != null
+        ? ` · confidence ${decisionFinal.confidence.toFixed(2)}`
+        : "";
+      lines.push(`  · source=${decisionFinal.source}${confStr}`);
+    }
 
     if (tags && tags.length > 0) {
       const tr = applyCaptureTags(store, tags as CaptureTagRequest[], decisionFinal.id);

@@ -188,6 +188,10 @@ export const DecisionSchema = z
       .array(z.object({ file: z.string(), commit: z.string().optional() }))
       .optional(),
     sourceReport: z.string().optional(),
+    // 0.4.0 — capture provenance + dedup
+    source: z.enum(["manual", "agent-live", "session-extract"]).optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    dedupKey: z.string().optional(),
     createdAt: z.string(),
   })
   // Cross-field rule: type='decision' demands a detail body with options
@@ -303,6 +307,10 @@ export const CapturePayloadSchema = z.object({
   sourceSession: CaptureSourceSessionSchema.optional(),
   sessionId: z.string().optional(),
   tags: z.array(CaptureTagRequestSchema).optional(),
+  // 0.4.0 — top-level mirrors of the same fields on Decision (the MCP handler
+  // folds them onto the persisted Decision)
+  source: z.enum(["manual", "agent-live", "session-extract"]).optional(),
+  confidence: z.number().min(0).max(1).optional(),
 });
 
 // ===========================================================================

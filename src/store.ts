@@ -14,6 +14,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { existsSync, renameSync } from "node:fs";
+import { createHash } from "node:crypto";
 import type {
   Decision,
   DecisionId,
@@ -134,6 +135,9 @@ export class Store {
       CREATE INDEX IF NOT EXISTS idx_sessions_feature ON sessions(feature_id);
 
       -- 0.3.0 — decisions (FK rename: milestone_id → feature_id)
+      -- 0.4.0 — adds source / dedup_key columns. Both are nullable so legacy
+      -- rows decode unchanged; the UNIQUE constraint on dedup_key skips
+      -- WHERE dedup_key IS NULL via the partial index below.
       CREATE TABLE IF NOT EXISTS decisions (
         id              TEXT PRIMARY KEY,
         feature_id      TEXT NOT NULL REFERENCES features(id),
@@ -143,6 +147,8 @@ export class Store {
         resolved_by     TEXT,                                       -- FK self-reference
         superseded_by   TEXT,                                       -- FK self-reference
         title           TEXT NOT NULL,
+        source          TEXT CHECK(source IN ('manual','agent-live','session-extract')),
+        dedup_key       TEXT,
         created_at      TEXT NOT NULL,
         data            TEXT NOT NULL
       );
@@ -150,6 +156,9 @@ export class Store {
       CREATE INDEX IF NOT EXISTS idx_decisions_session ON decisions(session_id);
       CREATE INDEX IF NOT EXISTS idx_decisions_type    ON decisions(type);
       CREATE INDEX IF NOT EXISTS idx_decisions_status  ON decisions(status);
+      -- 0.4.0 indexes on source / dedup_key are created inside
+      -- applySoftMigrations_0_4_0(), because upgrading a 0.3 DB has to ALTER
+      -- the columns in first.
 
       -- 0.1.0+ — edges (relation, not kind; depends_on is valid)
       CREATE TABLE IF NOT EXISTS edges (
@@ -207,6 +216,38 @@ export class Store {
         key   TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+    `);
+
+    // 0.4.0 — soft additive migration for 0.3.0 DBs already on disk.
+    // CREATE TABLE IF NOT EXISTS won't ALTER an existing table; explicitly
+    // probe for the new columns and add them when missing. Idempotent.
+    this.applySoftMigrations_0_4_0();
+  }
+
+  /**
+   * Additive ALTERs for 0.3.0 → 0.4.0 DBs. New columns are nullable so legacy
+   * rows decode unchanged; the partial UNIQUE index on `dedup_key` only kicks
+   * in for rows that 0.4.0+ writes.
+   */
+  private applySoftMigrations_0_4_0(): void {
+    const cols = this.db
+      .prepare(`PRAGMA table_info(decisions)`)
+      .all() as Array<{ name: string }>;
+    const names = new Set(cols.map((c) => c.name));
+    if (!names.has("source")) {
+      this.db.exec(
+        `ALTER TABLE decisions ADD COLUMN source TEXT ` +
+        `CHECK(source IN ('manual','agent-live','session-extract'))`,
+      );
+    }
+    if (!names.has("dedup_key")) {
+      this.db.exec(`ALTER TABLE decisions ADD COLUMN dedup_key TEXT`);
+    }
+    // Indexes are idempotent via IF NOT EXISTS.
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_decisions_source ON decisions(source);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_decisions_dedup_key
+        ON decisions(dedup_key) WHERE dedup_key IS NOT NULL;
     `);
   }
 
@@ -459,12 +500,43 @@ export class Store {
   // 0.3.0 — decisions (FK rename)
   // =========================================================================
 
-  putDecision(d: Decision): void {
+  /**
+   * Write a Decision, deduping against the (featureId, normalized title,
+   * affects) signature when the caller marks the decision as machine-captured
+   * (source ∈ {agent-live, session-extract}).
+   *
+   * Returns:
+   *   - { written: true, id }                   — fresh row inserted (or in-place id update)
+   *   - { written: false, dedupedTo: existing } — same content already on disk;
+   *                                              the caller can use `existing` as the canonical id
+   *
+   * Manual / legacy captures (source omitted or 'manual') skip the dedup check
+   * entirely — humans authoring on purpose want their write honored. The
+   * partial UNIQUE index in DDL only fires when dedup_key IS NOT NULL.
+   */
+  putDecision(d: Decision): { written: true; id: DecisionId } | { written: false; dedupedTo: DecisionId } {
+    const isMachine = d.source === "agent-live" || d.source === "session-extract";
+    let dedupKey: string | null = null;
+    if (isMachine) {
+      dedupKey = Store.computeDedupKey(d);
+      // Check before insert so we can return the existing id without raising
+      // a UNIQUE violation. Same-id re-writes from the agent are NOT dedups —
+      // they're legitimate updates (e.g. adding `resolvedBy`).
+      const existing = this.db
+        .prepare(`SELECT id FROM decisions WHERE dedup_key = ? AND id != ?`)
+        .get(dedupKey, d.id) as { id: string } | undefined;
+      if (existing) return { written: false, dedupedTo: existing.id };
+    }
+
+    // Persist the resolved dedupKey on the JSON blob so it round-trips through
+    // getDecision() — keeps it visible to projections / the SPA without a join.
+    const persisted: Decision = dedupKey ? { ...d, dedupKey } : d;
+
     this.db
       .prepare(
         `INSERT INTO decisions
-           (id, feature_id, session_id, type, status, resolved_by, superseded_by, title, created_at, data)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           (id, feature_id, session_id, type, status, resolved_by, superseded_by, title, source, dedup_key, created_at, data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            feature_id    = excluded.feature_id,
            session_id    = excluded.session_id,
@@ -473,13 +545,18 @@ export class Store {
            resolved_by   = excluded.resolved_by,
            superseded_by = excluded.superseded_by,
            title         = excluded.title,
+           source        = excluded.source,
+           dedup_key     = excluded.dedup_key,
            data          = excluded.data`,
       )
       .run(
         d.id, d.featureId, d.sessionId ?? null,
         d.type, d.status ?? null,
         d.resolvedBy ?? null, d.supersededBy ?? null,
-        d.title, d.createdAt, JSON.stringify(d),
+        d.title,
+        d.source ?? null,
+        dedupKey,
+        d.createdAt, JSON.stringify(persisted),
       );
 
     // Refresh the affects reverse index.
@@ -488,6 +565,25 @@ export class Store {
       `INSERT OR IGNORE INTO affects (decision_id, entity_kind, entity_id) VALUES (?, ?, ?)`,
     );
     for (const e of d.affects) ins.run(d.id, e.kind, e.id);
+    return { written: true, id: d.id };
+  }
+
+  /**
+   * Stable signature of a Decision's content for dedup. Computed from
+   * (featureId, normalized title, affects); does NOT include id, type,
+   * status — the same observation captured as 'decision' vs 'open' should
+   * still collide because it represents the same underlying decision moment.
+   */
+  static computeDedupKey(d: Decision): string {
+    const norm = d.title.toLowerCase().trim().replace(/\s+/g, " ");
+    const affects = [...d.affects]
+      .map((e) => `${e.kind}:${e.id}`)
+      .sort()
+      .join(",");
+    return createHash("sha256")
+      .update(`${d.featureId}|${norm}|${affects}`)
+      .digest("hex")
+      .slice(0, 16);
   }
 
   getDecision(id: DecisionId): Decision | null {

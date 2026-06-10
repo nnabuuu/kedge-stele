@@ -93,3 +93,78 @@ test("migration · 0.1.0 DB reopening is NOT flagged as legacy", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// 0.4.0 — additive ALTER for the source / dedup_key columns
+test("migration · 0.3.0 DB opens cleanly and gains the 0.4.0 columns via ALTER", () => {
+  const dir = tmpDir();
+  const dbPath = join(dir, "decisions.db");
+  try {
+    // Simulate a pre-0.4 schema: same as current, minus the two new columns
+    // and minus the partial UNIQUE index.
+    const old = new DatabaseSync(dbPath);
+    old.exec(`
+      CREATE TABLE projects (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, code TEXT,
+        path TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('active','winding','dormant','archived')),
+        created_at TEXT NOT NULL, data TEXT NOT NULL
+      );
+      CREATE TABLE features (
+        id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id),
+        state TEXT NOT NULL CHECK(state IN ('draft','going','winding','done','paused')),
+        name TEXT NOT NULL, started_at TEXT NOT NULL, data TEXT NOT NULL
+      );
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY, feature_id TEXT NOT NULL REFERENCES features(id),
+        source TEXT NOT NULL, source_sess_id TEXT,
+        started_at TEXT NOT NULL, ended_at TEXT, data TEXT NOT NULL,
+        UNIQUE(source, source_sess_id)
+      );
+      -- Pre-0.4 decisions: no source / dedup_key columns
+      CREATE TABLE decisions (
+        id TEXT PRIMARY KEY,
+        feature_id TEXT NOT NULL REFERENCES features(id),
+        session_id TEXT REFERENCES sessions(id),
+        type TEXT NOT NULL CHECK(type IN ('decision','deferred','open')),
+        status TEXT CHECK(status IN ('open','resolved')),
+        resolved_by TEXT, superseded_by TEXT,
+        title TEXT NOT NULL, created_at TEXT NOT NULL, data TEXT NOT NULL
+      );
+      INSERT INTO projects VALUES ('P-01', 'x', NULL, '/x', 'active', '2026-01-01', '{}');
+      INSERT INTO features VALUES ('F-01', 'P-01', 'going', 'x', '2026-01-01', '{}');
+      INSERT INTO decisions VALUES (
+        'F-01/D-01', 'F-01', NULL, 'decision', NULL, NULL, NULL,
+        'legacy decided', '2026-01-01', '{"id":"F-01/D-01","featureId":"F-01","type":"decision","title":"legacy decided","raisedBy":{"trigger":"t","actor":"a","layer":"personal","at":"2026-01-01"},"detail":{"options":[]},"affects":[],"createdAt":"2026-01-01"}'
+      );
+    `);
+    old.close();
+
+    // Open via 0.4.0 Store. NO rename-aside (not a pre-0.3 shape) — just
+    // additive ALTER.
+    const s = new Store(dbPath);
+    assert.equal(s.migratedFromLegacy, null, "0.3 → 0.4 is additive, not rename-aside");
+
+    // The legacy row is still there + readable
+    const legacy = s.getDecision("F-01/D-01");
+    assert.ok(legacy, "pre-0.4 row survived the ALTER");
+    assert.equal(legacy!.title, "legacy decided");
+    assert.equal(legacy!.source, undefined);
+
+    // And new captures can write into the now-upgraded columns
+    s.putDecision({
+      id: "F-01/D-02", featureId: "F-01", type: "decision",
+      title: "new decided",
+      raisedBy: { trigger: "t", actor: "a", layer: "personal", at: "2026-06-10" },
+      detail: { options: [] },
+      affects: [{ kind: "file", id: "src/x.ts" }],
+      source: "agent-live", confidence: 0.8,
+      createdAt: "2026-06-10",
+    });
+    const fresh = s.getDecision("F-01/D-02")!;
+    assert.equal(fresh.source, "agent-live");
+    assert.equal(fresh.confidence, 0.8);
+    assert.ok(fresh.dedupKey, "dedupKey computed for the new row");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
