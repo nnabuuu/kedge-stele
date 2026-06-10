@@ -307,7 +307,7 @@ export async function render(root, ctx) {
   ensureCss("/assets/styles/pages/trace.css");
   root.innerHTML = `<div class="loading">loading decision…</div>`;
 
-  const { mid, did } = ctx.params ?? {};
+  const { fid: mid, did } = ctx.params ?? {};
   if (!mid || !did) {
     root.innerHTML = `<div class="loading">missing decision id in URL</div>`;
     return;
