@@ -1,6 +1,6 @@
 #!/usr/bin/env -S node --no-warnings
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { Store } from "./store.ts";
 import { proposeEdges } from "./consolidate.ts";
 import {
@@ -55,6 +55,37 @@ import type {
 
 function readStdin(): string {
   try { return readFileSync(0, "utf8"); } catch { return ""; }
+}
+
+/**
+ * Print the package version from package.json. Walks up from this script's
+ * directory (works for both `dist/cli.js` and `src/cli.ts` layouts) to find
+ * the nearest package.json with `"name": "stele-mcp"`.
+ */
+function printVersion(): void {
+  // import.meta.url → file:// URL of this script; convert to a dir path
+  // then walk up.
+  const here = dirname(new URL(import.meta.url).pathname);
+  let dir = here;
+  for (let i = 0; i < 6; i++) {
+    const candidate = join(dir, "package.json");
+    if (existsSync(candidate)) {
+      try {
+        const pkg = JSON.parse(readFileSync(candidate, "utf8")) as
+          { name?: string; version?: string };
+        if (pkg.name === "stele-mcp" && pkg.version) {
+          console.log(`stele-mcp ${pkg.version}`);
+          return;
+        }
+      } catch {
+        // fall through to parent
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  console.log("stele-mcp (version unknown — package.json not found)");
 }
 
 // =============================================================================
@@ -1099,6 +1130,14 @@ function configCommand(store: Store, args: string[]): void {
 
 async function main() {
   const [cmd, ...args] = process.argv.slice(2);
+
+  // 0.4.0 — `stele --version` / `-v` / `version` prints the package version.
+  // Resolves the version by walking up from this script's dir to find a
+  // package.json — works for both the npm-installed `dist/cli.js` (which
+  // sits next to package.json) and the local-checkout `src/cli.ts` path.
+  if (cmd === "--version" || cmd === "-v" || cmd === "version") {
+    return printVersion();
+  }
 
   // Storeless commands first — they manipulate config files or registry,
   // never touch a per-project DB.
