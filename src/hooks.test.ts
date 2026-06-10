@@ -405,3 +405,108 @@ test("reinstall is idempotent: SessionStart count stays at 1", () => {
   assert.equal(s.hooks.SessionStart.length, 1,
     "duplicate SessionStart entries piled up across reinstalls");
 });
+
+// ---- 0.4.0 phase 4 — SessionEnd extract agent + hook entry --------------
+
+test("install writes the stele-extract agent file", () => {
+  installHooks(projectDir);
+  const agentPath = join(projectDir, ".claude/agents/stele-extract.md");
+  assert.ok(existsSync(agentPath), "stele-extract.md missing");
+  const content = readFileSync(agentPath, "utf8");
+  assert.ok(content.startsWith("---"), "agent missing YAML frontmatter");
+  assert.ok(content.includes("name: stele-extract"));
+  assert.ok(content.includes("allowed_tools:"),
+    "agent must declare allowed_tools (mcp__stele__decision_capture etc.)");
+});
+
+test("install merges SessionEnd agent-type entry into settings.json with async:true", () => {
+  installHooks(projectDir);
+  const s = readSettings();
+  assert.ok(Array.isArray(s.hooks.SessionEnd), "SessionEnd not an array");
+  assert.equal(s.hooks.SessionEnd.length, 1);
+  const entry = s.hooks.SessionEnd[0];
+  assert.equal(typeof entry.matcher, "string");
+  assert.ok(Array.isArray(entry.hooks));
+  const inner = entry.hooks[0];
+  assert.equal(inner.type, "agent",
+    "SessionEnd must be agent-type, not command-type");
+  assert.equal(inner.agent, ".claude/agents/stele-extract.md",
+    "SessionEnd entry must point at the project-relative agent file");
+  assert.equal(inner.async, true,
+    "async:true is load-bearing — without it the hook would block session close");
+});
+
+test("status reports the extract agent + SessionEnd entry", () => {
+  let s = hooksStatus(projectDir);
+  assert.equal(s.extractAgent, false);
+
+  installHooks(projectDir);
+  s = hooksStatus(projectDir);
+  assert.equal(s.extractAgent, true);
+  assert.equal(s.settingsHasEntry, true,
+    "settingsHasAnyEntry should still fire — covers Stop OR SessionStart OR SessionEnd");
+});
+
+test("reinstall is idempotent: SessionEnd count stays at 1", () => {
+  installHooks(projectDir);
+  installHooks(projectDir);
+  installHooks(projectDir);
+  const s = readSettings();
+  assert.equal(s.hooks.SessionEnd.length, 1,
+    "duplicate SessionEnd entries piled up across reinstalls");
+});
+
+test("install preserves unrelated SessionEnd entries (other extensions)", () => {
+  const claudeDir = join(projectDir, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(
+    settingsPath(),
+    JSON.stringify(
+      {
+        hooks: {
+          SessionEnd: [
+            { matcher: "", hooks: [{ type: "command", command: "other-session-end.sh" }] },
+          ],
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  installHooks(projectDir);
+  const s = readSettings();
+  assert.equal(s.hooks.SessionEnd.length, 2,
+    "other SessionEnd entries lost");
+  const others = s.hooks.SessionEnd.filter((e: any) =>
+    e.hooks?.[0]?.command === "other-session-end.sh");
+  assert.equal(others.length, 1, "non-stele SessionEnd entry survived");
+});
+
+test("uninstall removes the extract agent file + SessionEnd entry", () => {
+  installHooks(projectDir);
+  uninstallHooks(projectDir);
+  assert.equal(
+    existsSync(join(projectDir, ".claude/agents/stele-extract.md")),
+    false,
+    "extract agent file not removed",
+  );
+  const s = readSettings();
+  assert.equal(
+    Array.isArray(s.hooks.SessionEnd) && s.hooks.SessionEnd.length > 0,
+    false,
+    "stele SessionEnd entry not removed",
+  );
+});
+
+test("install replaces the extract agent file wholesale (no stale content)", () => {
+  installHooks(projectDir);
+  const agentPath = join(projectDir, ".claude/agents/stele-extract.md");
+  // Mutate the installed copy — simulating drift from a prior version's template
+  writeFileSync(agentPath, "STALE CONTENT FROM PRIOR VERSION");
+  installHooks(projectDir);
+  const content = readFileSync(agentPath, "utf8");
+  assert.ok(content.startsWith("---"),
+    "extract agent must be re-written from template on every install");
+  assert.ok(!content.includes("STALE CONTENT"),
+    "stale agent content survived reinstall — overwrite missed");
+});

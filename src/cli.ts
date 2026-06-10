@@ -251,13 +251,14 @@ async function initCommand(args: string[]): Promise<void> {
     console.error(`  ⚠ registry write failed (continuing): ${(e as Error).message}`);
   }
 
-  // Default-install hooks (Stop + SessionStart + stele-capture skill) —
-  // opt-out with --skip-hooks
+  // Default-install hooks (Stop + SessionStart + SessionEnd extract agent
+  // + stele-capture skill) — opt-out with --skip-hooks
   if (!skipHooks) {
     try {
       const r = installHooks(cwd);
       console.log(`  ${r.hook}`);
       console.log(`  ${r.sessionStartHook}`);
+      console.log(`  ${r.extractAgent}`);
       console.log(`  ${r.skill}`);
       console.log(`  ${r.steleFeature}`);
       console.log(`  ${r.legacyCommandsCleaned}`);
@@ -308,6 +309,7 @@ function hooksCommand(args: string[]): void {
       console.log(`hooks installed in ${cwd}:`);
       console.log(`  ${r.hook}`);
       console.log(`  ${r.sessionStartHook}`);
+      console.log(`  ${r.extractAgent}`);
       console.log(`  ${r.skill}`);
       console.log(`  ${r.steleFeature}`);
       console.log(`  ${r.legacyCommandsCleaned}`);
@@ -322,6 +324,7 @@ function hooksCommand(args: string[]): void {
       console.log(`hooks uninstalled from ${cwd}:`);
       console.log(`  ${r.hook}`);
       console.log(`  ${r.sessionStartHook}`);
+      console.log(`  ${r.extractAgent}`);
       console.log(`  ${r.skill}`);
       console.log(`  ${r.steleFeature}`);
       console.log(`  ${r.legacyCommandsCleaned}`);
@@ -336,6 +339,7 @@ function hooksCommand(args: string[]): void {
     console.log(`stele hooks status (${cwd}):`);
     console.log(`  ${mark(s.hook)}  .claude/hooks/stele-stop.sh`);
     console.log(`  ${mark(s.sessionStartHook)}  .claude/hooks/stele-session-start.sh`);
+    console.log(`  ${mark(s.extractAgent)}  .claude/agents/stele-extract.md`);
     console.log(`  ${mark(s.skill)}  .claude/skills/stele-capture/SKILL.md`);
     console.log(`  ${mark(s.steleFeature)}  .claude/commands/stele/feature.md`);
     console.log(`  ${mark(s.settingsHasEntry)}  stele entries in .claude/settings.json`);

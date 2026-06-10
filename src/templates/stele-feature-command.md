@@ -49,7 +49,15 @@ will be substantively the same point under a different phrasing). Be
 liberal in matching — capturing the same decision twice under different
 words is a bigger problem than missing one near-duplicate.
 
-A "decision-y moment" is the same set as `/decision` was looking at:
+**0.4.0 — handle auto-captured rows the same as anything else.** The
+list from step 2 includes decisions captured by the live-track Stop hook
+(`source='agent-live'`) and by the SessionEnd subagent
+(`source='session-extract'`). Treat all of them as "already captured" —
+they're on disk, the dedup_key protects against re-writes, and
+attempting to re-capture an existing decision wastes context. Only
+genuinely new transcript moments need to land here.
+
+A "decision-y moment" is the same set the Stop hook is looking at:
 
 - An option chosen over alternatives ("we'll go with per-session DBs")
 - Something explicitly deferred ("punt cascade DELETE for now")

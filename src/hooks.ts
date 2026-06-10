@@ -24,6 +24,12 @@ const HOOK_PATH_REL = ".claude/hooks/stele-stop.sh";
 // --for-context` and the stdout becomes additionalContext at session-start
 // so the agent sees open loops without the user having to ask.
 const SESSION_START_HOOK_PATH_REL = ".claude/hooks/stele-session-start.sh";
+// 0.4.0 — SessionEnd subagent (Layer 3, post-hoc capture). The hook entry
+// itself is `type: "agent"` with `async: true`, so there's no shell script;
+// only the agent definition file gets written here. Claude Code spawns
+// a fresh isolated Claude with the agent's allowed_tools when the hook
+// fires.
+const EXTRACT_AGENT_REL = ".claude/agents/stele-extract.md";
 const SKILL_DIR_REL = ".claude/skills/stele-capture";
 const SKILL_FILE_REL = ".claude/skills/stele-capture/SKILL.md";
 // 0.3.0 — single namespaced slash command `/stele:feature` replaces the
@@ -138,6 +144,21 @@ function nestedHasScript(entry: unknown, basename: string): boolean {
   return false;
 }
 
+// Detect "this is OUR agent-type SessionEnd entry" — different shape
+// from the command-type entries above. We look for `agent` pointing at
+// the stele-extract file (project-relative).
+function nestedHasAgent(entry: unknown, agentPath: string): boolean {
+  if (!entry || typeof entry !== "object") return false;
+  const e = entry as StopHookEntry & StopHookCommand;
+  if (e.agent === agentPath) return true;
+  if (Array.isArray(e.hooks)) {
+    return e.hooks.some(
+      (h) => h && typeof h === "object" && h.agent === agentPath,
+    );
+  }
+  return false;
+}
+
 const MANAGED_ENTRIES: ManagedEntry[] = [
   {
     event: "Stop",
@@ -152,8 +173,22 @@ const MANAGED_ENTRIES: ManagedEntry[] = [
     }),
     isOurs: (e) => nestedHasScript(e, "stele-session-start.sh"),
   },
-  // SessionEnd entry lands in phase 4 (agent-type, async). Not yet
-  // installed — only Stop + SessionStart for now.
+  {
+    // 0.4.0 — Layer 3: post-hoc extract subagent. agent-type hook runs
+    // asynchronously after the session ends; Claude Code spawns a fresh
+    // Claude with the allowed_tools from EXTRACT_AGENT_REL's frontmatter.
+    // The new Claude reads transcript_path, identifies decisions the
+    // live agent missed, and calls decision_capture with
+    // source='session-extract'. Dedup_key collapses overlap with the
+    // live track. requiredMinimumVersion: 2.1.0 (pinned in settings.json)
+    // is the floor for agent-type + async hooks.
+    event: "SessionEnd",
+    build: () => ({
+      matcher: "",
+      hooks: [{ type: "agent", agent: EXTRACT_AGENT_REL, async: true }],
+    }),
+    isOurs: (e) => nestedHasAgent(e, EXTRACT_AGENT_REL),
+  },
 ];
 
 function loadSettings(projectRoot: string): SettingsShape {
@@ -271,6 +306,7 @@ function settingsHasAnyEntry(settings: SettingsShape): boolean {
 export interface InstallReport {
   hook: string;
   sessionStartHook: string;
+  extractAgent: string;
   skill: string;
   steleFeature: string;
   legacyCommandsCleaned: string;
@@ -310,7 +346,7 @@ function cleanLegacyCommands(projectRoot: string): string {
 
 export function installHooks(projectRoot: string): InstallReport {
   const report: InstallReport = {
-    hook: "", sessionStartHook: "",
+    hook: "", sessionStartHook: "", extractAgent: "",
     skill: "", steleFeature: "", legacyCommandsCleaned: "", settings: "",
   };
 
@@ -329,6 +365,16 @@ export function installHooks(projectRoot: string): InstallReport {
   writeFileSync(sessionStartPath, readTemplate("stele-session-start-hook.sh"));
   chmodSync(sessionStartPath, 0o755);
   report.sessionStartHook = `wrote ${SESSION_START_HOOK_PATH_REL} (executable)`;
+
+  // 1c. SessionEnd extract agent definition (0.4.0 — Layer 3, post-hoc
+  //     capture). Replaced wholesale on each install so the prompt + the
+  //     allowed_tools list stay in sync with the templated version. The
+  //     agent itself is what `type: "agent"` hooks point at; there's no
+  //     separate shell script for SessionEnd.
+  const extractPath = join(projectRoot, EXTRACT_AGENT_REL);
+  ensureDir(dirname(extractPath));
+  writeFileSync(extractPath, readTemplate("stele-extract-agent.md"));
+  report.extractAgent = `wrote ${EXTRACT_AGENT_REL}`;
 
   // 2. Skill — the stele-capture skill is a folder (SKILL.md + gotchas.md +
   // references/*.md) per Anthropic's progressive-disclosure pattern. Recursive
@@ -356,7 +402,7 @@ export function installHooks(projectRoot: string): InstallReport {
 
 export function uninstallHooks(projectRoot: string): InstallReport {
   const report: InstallReport = {
-    hook: "", sessionStartHook: "",
+    hook: "", sessionStartHook: "", extractAgent: "",
     skill: "", steleFeature: "", legacyCommandsCleaned: "", settings: "",
   };
 
@@ -374,6 +420,14 @@ export function uninstallHooks(projectRoot: string): InstallReport {
     report.sessionStartHook = `removed ${SESSION_START_HOOK_PATH_REL}`;
   } else {
     report.sessionStartHook = `${SESSION_START_HOOK_PATH_REL} not present`;
+  }
+
+  const extractPath = join(projectRoot, EXTRACT_AGENT_REL);
+  if (existsSync(extractPath)) {
+    rmSync(extractPath);
+    report.extractAgent = `removed ${EXTRACT_AGENT_REL}`;
+  } else {
+    report.extractAgent = `${EXTRACT_AGENT_REL} not present`;
   }
 
   const skillDir = join(projectRoot, SKILL_DIR_REL);
@@ -397,6 +451,7 @@ export function uninstallHooks(projectRoot: string): InstallReport {
 export interface StatusReport {
   hook: boolean;
   sessionStartHook: boolean;
+  extractAgent: boolean;
   skill: boolean;
   steleFeature: boolean;
   settingsHasEntry: boolean;
@@ -419,6 +474,7 @@ export function hooksStatus(projectRoot: string): StatusReport {
   return {
     hook: existsSync(join(projectRoot, HOOK_PATH_REL)),
     sessionStartHook: existsSync(join(projectRoot, SESSION_START_HOOK_PATH_REL)),
+    extractAgent: existsSync(join(projectRoot, EXTRACT_AGENT_REL)),
     skill: existsSync(join(projectRoot, SKILL_FILE_REL)),
     steleFeature: existsSync(join(projectRoot, STELE_FEATURE_COMMAND_REL)),
     settingsHasEntry,
