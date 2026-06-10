@@ -202,8 +202,8 @@ function renderStitch(stitch) {
           h("span", { class: "stitch-id" }, splitDecisionId(stitch.resolved.id).localId),
           h("span", { class: "stitch-title" }, stitch.resolved.title),
         ),
-        earlier?.milestoneName ? h("div", { class: "stitch-meta" },
-          `${earlier.milestoneName} · ${fmtAgo(earlier.startedAt)}`) : null,
+        earlier?.featureName ? h("div", { class: "stitch-meta" },
+          `${earlier.featureName} · ${fmtAgo(earlier.startedAt)}`) : null,
       ),
       // arrow
       h("div", { class: "stitch-arrow" },
@@ -220,8 +220,8 @@ function renderStitch(stitch) {
           h("span", { class: "stitch-id" }, splitDecisionId(stitch.resolver.id).localId),
           h("span", { class: "stitch-title" }, stitch.resolver.title),
         ),
-        later?.milestoneName ? h("div", { class: "stitch-meta" },
-          `${later.milestoneName} · ${fmtAgo(later.startedAt)}`) : null,
+        later?.featureName ? h("div", { class: "stitch-meta" },
+          `${later.featureName} · ${fmtAgo(later.startedAt)}`) : null,
       ),
     ),
     stitch.edgeNote

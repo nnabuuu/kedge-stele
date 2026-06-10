@@ -1,13 +1,18 @@
 // Decision Graph page — interactive viewer at /<slug>/graph.
 //
 // Layout matches design/Decision Graph.html (the interactive prototype).
-// For phase 6 we render the graph as an SVG with milestone-clustered
-// columns: each milestone is a vertical column, decisions stack inside it
-// sorted by topology / type; edges draw between columns.
+// We render the graph as an SVG with feature-clustered columns: each
+// Feature is a vertical column, decisions stack inside it sorted by
+// state rank then by id; edges draw between columns.
 //
 // API:
-//   GET /<slug>/api/graph?feature=&milestone=&tag=
-//   Returns {nodes, edges, features, milestones}.
+//   GET /<slug>/api/graph?feature=&tag=
+//   Returns {nodes, edges, features}.
+//
+// 0.3.0: the slice used to carry a two-level {features, milestones} pivot
+// when the umbrella Feature wrapped the old Milestone layer. The collapse
+// dropped the umbrella, so the pivot list is flat and the only entity
+// filter is `feature`.
 
 import { apiGet, ensureCss, slugUrl } from "../api.js";
 
@@ -89,26 +94,25 @@ function escapeHtml(s) {
 
 function splitDecisionId(id) {
   const parts = id.split("/");
-  if (parts.length < 2) return { mid: id, localId: "" };
-  return { mid: parts[0], localId: parts.slice(1).join("/") };
+  if (parts.length < 2) return { fid: id, localId: "" };
+  return { fid: parts[0], localId: parts.slice(1).join("/") };
 }
 
 // -------------------------------------------------------------------
-// URL state — feature/milestone/tag filters
+// URL state — feature/tag filters
 // -------------------------------------------------------------------
 
 function getFilter() {
   const p = new URLSearchParams(location.search);
   return {
     feature: p.get("feature") ?? null,
-    milestone: p.get("milestone") ?? null,
     tag: p.get("tag") ?? null,
   };
 }
 
 function setFilter(next) {
   const url = new URL(location.href);
-  for (const k of ["feature", "milestone", "tag"]) {
+  for (const k of ["feature", "tag"]) {
     if (next[k]) url.searchParams.set(k, next[k]);
     else url.searchParams.delete(k);
   }
@@ -116,7 +120,7 @@ function setFilter(next) {
 }
 
 // -------------------------------------------------------------------
-// Layout — milestone-clustered columns
+// Layout — feature-clustered columns
 // -------------------------------------------------------------------
 
 const COL_WIDTH = 220;
@@ -128,27 +132,27 @@ const PADDING_X = 40;
 const PADDING_Y = 40;
 
 function computeLayout(slice) {
-  // Each milestone becomes a column. Nodes within a column stack vertically,
+  // Each Feature becomes a column. Nodes within a column stack vertically,
   // sorted by state rank (open/deferred first) then by id.
-  const milestoneOrder = slice.milestones
-    .filter((m) => slice.nodes.some((n) => n.milestoneId === m.id))
+  const featureOrder = slice.features
+    .filter((f) => slice.nodes.some((n) => n.featureId === f.id))
     .sort((a, b) => {
-      // Prefer "going" then "winding" then others; group by feature.
-      const sa = stateRankMs(a.state);
-      const sb = stateRankMs(b.state);
+      // Prefer "going" then "winding" then others; tie-break by id.
+      const sa = stateRankFt(a.state);
+      const sb = stateRankFt(b.state);
       if (sa !== sb) return sa - sb;
       return a.id.localeCompare(b.id);
     });
 
-  const cols = milestoneOrder.map((m, colIdx) => {
+  const cols = featureOrder.map((f, colIdx) => {
     const inCol = slice.nodes
-      .filter((n) => n.milestoneId === m.id)
+      .filter((n) => n.featureId === f.id)
       .sort((a, b) => {
         const r = STATE_RANK[a.state] - STATE_RANK[b.state];
         if (r !== 0) return r;
         return a.id.localeCompare(b.id);
       });
-    return { milestone: m, nodes: inCol, colIdx };
+    return { feature: f, nodes: inCol, colIdx };
   });
 
   // Position each node
@@ -170,7 +174,7 @@ function computeLayout(slice) {
   return { cols, nodePos, width, height };
 }
 
-function stateRankMs(s) {
+function stateRankFt(s) {
   return ({ going: 0, winding: 1, paused: 2, draft: 3, done: 4 })[s] ?? 5;
 }
 
@@ -226,12 +230,12 @@ function renderGraphSvg(slice, layout, onNodeClick, highlightedNodeId) {
       class: "col-h-label",
       x: String(x + 16),
       y: String(PADDING_Y + 22),
-    }, col.milestone.name));
+    }, col.feature.name));
     root.append(svg("text", {
-      class: `col-h-state state-${col.milestone.state}`,
+      class: `col-h-state state-${col.feature.state}`,
       x: String(x + 16),
       y: String(PADDING_Y + 40),
-    }, milestoneStateLabel(col.milestone.state)));
+    }, featureStateLabel(col.feature.state)));
     root.append(svg("text", {
       class: "col-h-count",
       x: String(x + COL_WIDTH - 16),
@@ -339,7 +343,7 @@ function truncate(s, n) {
   return s.length <= n ? s : s.slice(0, n - 1) + "…";
 }
 
-function milestoneStateLabel(s) {
+function featureStateLabel(s) {
   return ({ draft: "草稿", going: "进行中", winding: "收尾", done: "已完成", paused: "搁置" })[s] ?? s;
 }
 
@@ -358,27 +362,10 @@ function renderFilterBar(slice, filter, onFilter) {
       ...slice.features.map((f) =>
         h("button", {
             class: `filt-chip${filter.feature === f.id ? " on" : ""}`,
-            onClick: () => onFilter({ ...filter, feature: f.id, milestone: null }),
+            onClick: () => onFilter({ ...filter, feature: f.id }),
           }, f.name),
       ),
     ),
-    filter.feature && slice.milestones.some((m) => m.featureId === filter.feature)
-      ? h("div", { class: "filt-group" },
-          h("span", { class: "filt-lbl" }, "Milestone"),
-          h("button", {
-              class: `filt-chip${!filter.milestone ? " on" : ""}`,
-              onClick: () => onFilter({ ...filter, milestone: null }),
-            }, "全部"),
-          ...slice.milestones
-            .filter((m) => m.featureId === filter.feature)
-            .map((m) =>
-              h("button", {
-                  class: `filt-chip${filter.milestone === m.id ? " on" : ""}`,
-                  onClick: () => onFilter({ ...filter, milestone: m.id }),
-                }, m.name),
-            ),
-        )
-      : null,
   );
 }
 
@@ -411,7 +398,6 @@ let highlightedNodeId = null;
 async function loadAndRender(filter) {
   const params = new URLSearchParams();
   if (filter.feature) params.set("feature", filter.feature);
-  if (filter.milestone) params.set("milestone", filter.milestone);
   if (filter.tag) params.set("tag", filter.tag);
   const qs = params.toString();
   const slice = await apiGet(`/graph${qs ? `?${qs}` : ""}`);
@@ -431,8 +417,8 @@ function drawAll(slice, filter) {
   const onNodeClick = (n) => {
     // First click highlights; second navigates to trace.
     if (highlightedNodeId === n.id) {
-      const { mid, localId } = splitDecisionId(n.id);
-      const href = slugUrl(`/d/${encodeURIComponent(mid)}/${encodeURIComponent(localId)}`);
+      const { fid, localId } = splitDecisionId(n.id);
+      const href = slugUrl(`/d/${encodeURIComponent(fid)}/${encodeURIComponent(localId)}`);
       location.href = href;
       return;
     }
@@ -467,10 +453,10 @@ function drawAll(slice, filter) {
     rootEl.append(h("section", { class: "placeholder" },
       h("h1", {}, "这片图是空的"),
       h("p", { class: "hint" },
-        filter.feature || filter.milestone || filter.tag
+        filter.feature || filter.tag
           ? "试试清掉过滤器,或选别的 feature。"
           : "还没有决策在记录 — 在项目里跑 ",
-        h("code", {}, "/decision"),
+        h("code", {}, "/stele:feature"),
         " 起草第一条。"),
     ));
     return;

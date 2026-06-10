@@ -1,15 +1,19 @@
 // Project page — single-project view at /<slug>/.
 //
 // Layout matches design/Stele Project.html: sticky topbar with breadcrumbs ·
-// left feature rail (filterable by tag, show-done toggle) · main panel
-// (milestone header + resume strip + session timeline with decision chips).
+// left feature rail (sorted by state) · main panel (feature header + resume
+// strip + session timeline with decision chips).
+//
+// 0.3.0 collapsed the umbrella Feature → Milestone hierarchy into a single
+// Feature layer. The rail is now a flat list of Features (sorted by state
+// rank); the main panel renders the selected Feature's sessions +
+// per-session decisions exactly as before, just one level shallower.
 //
 // API:
-//   GET /<slug>/api/project        existing — project + rollup
-//   GET /<slug>/api/feature-rail   new in 0.2.0-snapshot.3 — features
-//                                    grouped with milestone summaries
-//   GET /<slug>/api/milestones/<id> existing — selected-milestone detail
-//                                    with sessions and per-session decisions
+//   GET /<slug>/api/project                       project + rollup
+//   GET /<slug>/api/features                      flat feature list (was feature-rail)
+//   GET /<slug>/api/features/<id>                 selected-feature detail with
+//                                                 sessions + per-session decisions
 
 import { apiGet, ensureCss, slugUrl } from "../api.js";
 
@@ -24,7 +28,7 @@ const STATUS_META = {
   archived: { label: "已归档", cls: "archived" },
 };
 
-const MS_STATE = {
+const FT_STATE = {
   draft:   { label: "草稿", cls: "draft" },
   going:   { label: "进行中", cls: "going" },
   winding: { label: "收尾",   cls: "winding" },
@@ -128,93 +132,78 @@ function escapeHtml(s) {
 }
 
 // -------------------------------------------------------------------
-// Selection / URL state
+// Selection / URL state — `?f=<featureId>` carries the rail selection.
+// (0.2.x used `?m=` for the milestone id; we keep `?m=` as a one-release
+// legacy alias so deep links from prior dashboards still resolve.)
 // -------------------------------------------------------------------
 
-function getSelectedMilestoneId() {
+function getSelectedFeatureId() {
   const params = new URLSearchParams(location.search);
-  return params.get("m") || null;
+  return params.get("f") || params.get("m") || null;
 }
 
-function setSelectedMilestoneId(id) {
+function setSelectedFeatureId(id) {
   const url = new URL(location.href);
-  if (id) url.searchParams.set("m", id);
-  else url.searchParams.delete("m");
+  if (id) url.searchParams.set("f", id);
+  else url.searchParams.delete("f");
+  url.searchParams.delete("m"); // strip the legacy alias once we've migrated
   history.replaceState(null, "", url.toString());
 }
 
-function pickDefaultMilestone(rail) {
-  // First going/winding milestone wins; fall back to first one overall.
-  for (const entry of rail) {
-    for (const m of entry.milestones) {
-      if (m.state === "going" || m.state === "winding") return m.id;
-    }
+function pickDefaultFeature(rail) {
+  // First going/winding feature wins; fall back to first one overall.
+  for (const f of rail) {
+    if (f.state === "going" || f.state === "winding") return f.id;
   }
-  return rail[0]?.milestones[0]?.id ?? null;
+  return rail[0]?.id ?? null;
 }
 
-function findMilestoneInRail(rail, mid) {
-  for (const entry of rail) {
-    for (const m of entry.milestones) {
-      if (m.id === mid) return { feature: entry.feature, milestone: m };
-    }
-  }
-  return null;
+function findFeatureInRail(rail, fid) {
+  return rail.find((f) => f.id === fid) ?? null;
 }
 
 // -------------------------------------------------------------------
 // Rail
 // -------------------------------------------------------------------
 
-function renderRail(rail, selectedMid, onSelect) {
-  const totalCount = rail.reduce((n, e) => n + e.milestones.length, 0);
-
+function renderRail(rail, selectedFid, onSelect) {
   return h("aside", { class: "rail" },
     h("div", { class: "rail-h" },
-      h("h2", {}, "milestone"),
+      h("h2", {}, "feature"),
       h("div", { class: "rail-h-r" },
-        h("span", {}, `${totalCount} 个`),
+        h("span", {}, `${rail.length} 个`),
       ),
     ),
-    ...rail.map((entry) =>
-      h("div", { class: "rg" },
-        h("div", { class: "rg-lbl" },
-          h("span", { class: "ic" }, "▸"),
-          entry.feature.name,
-          h("span", { class: "n" }, String(entry.milestones.length)),
-        ),
-        ...entry.milestones.map((m) =>
-          renderMilestoneRow(m, selectedMid === m.id, onSelect),
-        ),
-      ),
+    ...rail.map((f) =>
+      renderFeatureRow(f, selectedFid === f.id, onSelect),
     ),
     rail.length === 0
-      ? h("div", { class: "filt-empty" }, "没有 feature/milestone — 试试在这个项目里跑 /decision")
+      ? h("div", { class: "filt-empty" }, "没有 feature — 试试在这个项目里跑 /stele:feature")
       : null,
   );
 }
 
-function renderMilestoneRow(m, isSelected, onSelect) {
-  const st = MS_STATE[m.state] ?? MS_STATE.going;
+function renderFeatureRow(f, isSelected, onSelect) {
+  const st = FT_STATE[f.state] ?? FT_STATE.going;
   return h("button", {
-      class: `mrow ${m.state}${isSelected ? " on" : ""}`,
+      class: `mrow ${f.state}${isSelected ? " on" : ""}`,
       type: "button",
-      onClick: () => onSelect(m.id),
+      onClick: () => onSelect(f.id),
     },
     h("div", { class: "mrow-top" },
       h("span", { class: "mrow-dot" }),
-      h("span", { class: "mrow-name" }, m.name),
+      h("span", { class: "mrow-name" }, f.name),
     ),
     h("div", { class: "mrow-meta" },
-      h("span", { class: "mrow-ses" }, `${m.sessionCount} 次对话`),
-      m.lastActivity
-        ? h("span", {}, `· 最近 ${fmtAgo(m.lastActivity)}`)
+      h("span", { class: "mrow-ses" }, `${f.sessionCount} 次对话`),
+      f.lastActivity
+        ? h("span", {}, `· 最近 ${fmtAgo(f.lastActivity)}`)
         : null,
       h("span", { class: "mrow-state" }, st.label),
     ),
-    m.tags.length > 0
+    f.tags.length > 0
       ? h("div", { class: "mrow-tags" },
-          ...m.tags.map((t) =>
+          ...f.tags.map((t) =>
             h("span", { class: "td", style: { "--tc": t.color }, title: t.name }),
           ),
         )
@@ -223,25 +212,24 @@ function renderMilestoneRow(m, isSelected, onSelect) {
 }
 
 // -------------------------------------------------------------------
-// Main (selected milestone)
+// Main (selected feature)
 // -------------------------------------------------------------------
 
-function renderMain(milestoneDetail, railEntry) {
-  if (!milestoneDetail) {
+function renderMain(featureDetail) {
+  if (!featureDetail) {
     return h("main", { class: "main" },
       h("div", { class: "main-in" },
         h("section", { class: "placeholder" },
-          h("h1", {}, "没有选中 milestone"),
-          h("p", { class: "hint" }, "在左边选一个，或者跑 /decision 创建。"),
+          h("h1", {}, "没有选中 feature"),
+          h("p", { class: "hint" }, "在左边选一个,或者跑 /stele:feature 创建。"),
         ),
       ),
     );
   }
 
-  const m = milestoneDetail.milestone;
-  const featureName = railEntry?.feature?.name ?? "";
-  const st = MS_STATE[m.state] ?? MS_STATE.going;
-  const sessions = milestoneDetail.sessions; // [{session, decisions}]
+  const f = featureDetail.feature;
+  const st = FT_STATE[f.state] ?? FT_STATE.going;
+  const sessions = featureDetail.sessions; // [{session, decisions}]
   const decCount = sessions.reduce((n, s) => n + s.decisions.length, 0);
 
   // Latest session for resume strip
@@ -251,22 +239,24 @@ function renderMain(milestoneDetail, railEntry) {
   const orderedSessions = [...sessions].reverse();
 
   return h("main", { class: "main" },
-    h("div", { class: "main-in", "data-mid": m.id },
+    h("div", { class: "main-in", "data-fid": f.id },
 
-      // Milestone header
+      // Feature header
       h("div", { class: "ms-head" },
-        featureName
-          ? h("span", { class: "ms-feat" }, featureName)
-          : null,
         h("div", { class: "ms-titlerow" },
-          h("h1", { class: "ms-title" }, m.name),
-          h("span", { class: `ms-state-pill ${m.state}` },
+          h("h1", { class: "ms-title" }, f.name),
+          h("span", { class: `fe-state-pill ${f.state}` },
             h("span", { class: "dot" }),
             st.label,
           ),
         ),
-        m.about
-          ? h("p", { class: "ms-about" }, m.about)
+        f.about
+          ? h("p", { class: "ms-about" }, f.about)
+          : null,
+        f.summary
+          ? h("p", { class: "ms-summary" },
+              h("span", { class: "lead" }, "rolling summary"),
+              f.summary)
           : null,
         h("div", { class: "ms-stats" },
           h("span", { class: "ms-stat" },
@@ -289,13 +279,13 @@ function renderMain(milestoneDetail, railEntry) {
       h("div", { class: "tl-head" },
         h("span", { class: "eyebrow" }, "对话时间线"),
         h("span", { class: "tl-hint" },
-          `· 这个 milestone 由 ${sessions.length} 次对话累积而成`),
+          `· 这个 feature 由 ${sessions.length} 次对话累积而成`),
       ),
       h("p", { class: "tl-sub" },
         "每一次对话推进一点,沉淀出下面的决定。点决定可进溯源图看它的来历。"),
       sessions.length === 0
         ? h("div", { class: "placeholder" },
-            h("p", { class: "hint" }, "还没有 session — 在这个 milestone 下跑 /decision 开始。"))
+            h("p", { class: "hint" }, "还没有 session — 在这个 feature 下跑 /stele:feature 开始。"))
         : h("div", { class: "tl" },
             ...orderedSessions.map((s, idx) =>
               renderSessionCard(s, sessions.length - idx, s === latest),
@@ -387,11 +377,11 @@ function renderDecisionsSection(decisions) {
 function renderDecisionChip(d) {
   const dm = DEC_TYPE[d.type] ?? DEC_TYPE.decision;
   const title = d.detail?.title ?? d.title ?? d.id;
-  // Decision id is "<milestoneId>/<localId>"; Trace route is /<slug>/d/<m>/<id>
+  // Decision id is "<featureId>/<localId>"; Trace route is /<slug>/d/<f>/<id>
   const parts = d.id.split("/");
-  const mid = parts[0];
+  const fid = parts[0];
   const localId = parts.slice(1).join("/");
-  const href = slugUrl(`/d/${encodeURIComponent(mid)}/${encodeURIComponent(localId)}`);
+  const href = slugUrl(`/d/${encodeURIComponent(fid)}/${encodeURIComponent(localId)}`);
 
   return h("a", {
       class: "dchip",
@@ -416,7 +406,7 @@ export async function render(root, ctx) {
   let rail, projectInfo;
   try {
     [rail, projectInfo] = await Promise.all([
-      apiGet("/feature-rail"),
+      apiGet("/features"),
       apiGet("/project").catch(() => null),
     ]);
   } catch (err) {
@@ -430,35 +420,33 @@ export async function render(root, ctx) {
   }
 
   // Pick selection from URL or default
-  let selected = getSelectedMilestoneId();
-  if (!selected || !findMilestoneInRail(rail, selected)) {
-    selected = pickDefaultMilestone(rail);
-    if (selected) setSelectedMilestoneId(selected);
+  let selected = getSelectedFeatureId();
+  if (!selected || !findFeatureInRail(rail, selected)) {
+    selected = pickDefaultFeature(rail);
+    if (selected) setSelectedFeatureId(selected);
   }
 
   await renderShell(root, ctx, projectInfo, rail, selected);
 }
 
-async function renderShell(root, ctx, projectInfo, rail, selectedMid) {
+async function renderShell(root, ctx, projectInfo, rail, selectedFid) {
   root.innerHTML = "";
 
-  // Fetch milestone detail
+  // Fetch feature detail
   let detail = null;
-  if (selectedMid) {
+  if (selectedFid) {
     try {
-      detail = await apiGet(`/milestones/${encodeURIComponent(selectedMid)}`);
+      detail = await apiGet(`/features/${encodeURIComponent(selectedFid)}`);
     } catch (err) {
       // Treat as no selection; rail still renders
-      console.error(`[stele] milestone fetch failed:`, err);
+      console.error(`[stele] feature fetch failed:`, err);
     }
   }
 
-  const railEntry = selectedMid ? findMilestoneInRail(rail, selectedMid) : null;
-
-  const onSelect = (mid) => {
-    if (mid === selectedMid) return;
-    setSelectedMilestoneId(mid);
-    renderShell(root, ctx, projectInfo, rail, mid);
+  const onSelect = (fid) => {
+    if (fid === selectedFid) return;
+    setSelectedFeatureId(fid);
+    renderShell(root, ctx, projectInfo, rail, fid);
   };
 
   // Optional project subtitle (path, status)
@@ -469,8 +457,8 @@ async function renderShell(root, ctx, projectInfo, rail, selectedMid) {
 
   root.append(
     h("div", { class: "body" },
-      renderRail(rail, selectedMid, onSelect),
-      renderMain(detail, railEntry),
+      renderRail(rail, selectedFid, onSelect),
+      renderMain(detail),
     ),
   );
 }
@@ -501,12 +489,12 @@ function renderEmpty(root, ctx, projectInfo) {
   }
   root.append(h("section", { class: "placeholder" },
     h("div", { class: "eyebrow" }, "No features yet"),
-    h("h1", {}, "这个项目还没有 feature/milestone"),
+    h("h1", {}, "这个项目还没有 feature"),
     h("p", { class: "hint" },
       "在项目根目录跑 ",
       h("code", {}, "stele init"),
       " 装好钩子,然后用 ",
-      h("code", {}, "/decision"),
-      " 起草第一个决策 — feature 和 milestone 会自动出现。"),
+      h("code", {}, "/stele:feature"),
+      " 起草第一个决策 — feature 会自动出现。"),
   ));
 }

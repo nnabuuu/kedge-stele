@@ -240,7 +240,7 @@
   gap: 24px;
 }
 
-/* ----- milestone header ----- */
+/* ----- feature header ----- */
 .ms-head {
   padding-bottom: 22px;
   border-bottom: 1px solid var(--border);
@@ -275,7 +275,7 @@
   color: var(--t1);
   margin: 0;
 }
-.ms-state-pill {
+.fe-state-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -287,17 +287,17 @@
   padding: 3px 9px;
   border-radius: 4px;
 }
-.ms-state-pill .dot {
+.fe-state-pill .dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: currentColor;
 }
-.ms-state-pill.going   { background: var(--teal-bg);   color: var(--teal); }
-.ms-state-pill.winding { background: var(--amber-bg);  color: var(--amber); }
-.ms-state-pill.done    { background: var(--green-bg);  color: var(--green); }
-.ms-state-pill.paused  { background: var(--surface2);  color: var(--t3); }
-.ms-state-pill.draft   { background: var(--surface2);  color: var(--t3); }
+.fe-state-pill.going   { background: var(--teal-bg);   color: var(--teal); }
+.fe-state-pill.winding { background: var(--amber-bg);  color: var(--amber); }
+.fe-state-pill.done    { background: var(--green-bg);  color: var(--green); }
+.fe-state-pill.paused  { background: var(--surface2);  color: var(--t3); }
+.fe-state-pill.draft   { background: var(--surface2);  color: var(--t3); }
 
 .ms-about {
   margin-top: 12px;

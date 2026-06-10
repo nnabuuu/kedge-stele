@@ -317,7 +317,7 @@
   background: var(--border);
 }
 
-/* milestone row inside card */
+/* feature row inside card */
 .pc-ms-list {
   display: flex;
   flex-direction: column;

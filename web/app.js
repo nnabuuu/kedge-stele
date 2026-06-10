@@ -60,17 +60,17 @@ function resolveRoute() {
   if (second === "graph") {
     return { page: "graph", slug, params: {}, scope: "v-graph" };
   }
-  // /<slug>/d/<mid>/<did>
+  // /<slug>/d/<fid>/<did>
   // URL.pathname keeps percent-encoded segments encoded; decode once here
   // so page modules can do a single encodeURIComponent() when building API
-  // calls (otherwise non-ASCII milestone names get double-encoded and the
+  // calls (otherwise non-ASCII feature names get double-encoded and the
   // server's decode peels off only one layer, missing the real id).
   if (second === "d" && parts.length >= 4) {
     return {
       page: "trace",
       slug,
       params: {
-        mid: decodeURIComponent(parts[2]),
+        fid: decodeURIComponent(parts[2]),
         did: decodeURIComponent(parts.slice(3).join("/")),
       },
       scope: "v-trace",
@@ -79,17 +79,18 @@ function resolveRoute() {
 
   // Legacy 0.0.7-era routes — rewrite to new equivalents
   if (second === "decisions" && parts.length >= 3) {
-    const id = parts.slice(2).join("/");
-    // Decision IDs use a "<milestone>/<local>" format; if encoded as
-    // <slug>/decisions/<m>/<local>, parts.length === 4. If a single-token
+    // Decision IDs use a "<feature>/<local>" format; if encoded as
+    // <slug>/decisions/<f>/<local>, parts.length === 4. If a single-token
     // id was used, route through trace anyway.
-    const mid = parts[2];
+    const fid = parts[2];
     const did = parts.length >= 4 ? parts.slice(3).join("/") : "_";
-    const target = `/${slug}/d/${mid}/${did}`;
+    const target = `/${slug}/d/${fid}/${did}`;
     history.replaceState(null, "", target);
     return resolveRoute();
   }
-  if (second === "milestones" || second === "new") {
+  // 0.2.x legacy: /<slug>/milestones and /<slug>/features-as-umbrella
+  // both collapse to the bare project view in 0.3.0.
+  if (second === "milestones" || second === "features" || second === "new") {
     history.replaceState(null, "", `/${slug}/`);
     return resolveRoute();
   }

@@ -1,18 +1,23 @@
 // Projects page — multi-project overview at /.
 //
 // Renders against the extended GET /api/projects response (which now
-// includes name, status, openLoops, dueLoops, featureCount, milestonesByState,
-// lastActivity, topMilestone). Matches the structure of
+// includes name, status, openLoops, dueLoops, featureCount, featuresByState,
+// lastActivity, topFeature). Matches the structure of
 // design/Stele Projects.html: global resume strip + sortable project grid +
 // collapsible dormant/archived chip.
 //
 // Layout (within main#view):
-//   .resume                — global resume strip (topMilestone of the
+//   .resume                — global resume strip (topFeature of the
 //                            most-recently-touched live project)
 //   .shelf-head            — h2 + sort controls
 //   .grid.live             — active + winding cards
 //   .tuck                  — collapsible chip
 //   .grid.tucked           — dormant + archived (when expanded)
+//
+// 0.3.0: the umbrella Feature collapsed into the (formerly) Milestone
+// layer. Where this file used to read p.topMilestone / .milestonesByState
+// it now reads p.topFeature / .featuresByState. The on-card label
+// "milestone" became "feature".
 
 import { listProjects, ensureCss } from "../api.js";
 
@@ -27,7 +32,7 @@ const STATUS_META = {
   archived: { label: "已归档", cls: "archived" },
 };
 
-const MS_STATE = {
+const FT_STATE = {
   draft:   { label: "草稿", cls: "draft" },
   going:   { label: "进行中", cls: "going" },
   winding: { label: "收尾",   cls: "winding" },
@@ -121,14 +126,14 @@ function escapeHtml(s) {
 }
 
 // -------------------------------------------------------------------
-// Resume strip (global) — top of page, focal milestone of most-recent project
+// Resume strip (global) — top of page, focal feature of most-recent project
 // -------------------------------------------------------------------
 
-function renderResumeStrip(hero, heroM, heroOc) {
-  const last = heroM.lastSession;
+function renderResumeStrip(hero, heroF, heroOc) {
+  const last = heroF.lastSession;
   const when = fmtWhenShort(last?.startedAt);
   const dur = fmtDuration(last?.startedAt, last?.endedAt);
-  const summary = last?.summary ?? heroM.name;
+  const summary = last?.summary ?? heroF.name;
 
   return h("section", { class: "resume" },
     h("div", { class: "resume-rail" }),
@@ -136,11 +141,8 @@ function renderResumeStrip(hero, heroM, heroOc) {
       h("div", { class: "eyebrow is-seal" }, "继续上次的对话"),
       h("div", { class: "resume-loc" },
         h("span", { class: "oc", style: { background: `var(${heroOc.cssVar})` } }),
-        h("span", { class: "resume-ms" }, heroM.name),
+        h("span", { class: "resume-ms" }, heroF.name),
         h("span", { class: "proj" }, `· ${hero.name}`),
-        heroM.feature
-          ? h("span", { class: "feat-chip" }, heroM.feature)
-          : null,
         h("span", { class: "resume-meta" },
           `最近活跃 ${fmtAgo(hero.lastActivity)}`),
       ),
@@ -169,14 +171,13 @@ function renderResumeStrip(hero, heroM, heroOc) {
 function renderProjectCard(p, mostRecentSlug) {
   const meta = STATUS_META[p.status] ?? STATUS_META.active;
   const recent = p.slug === mostRecentSlug;
-  const ms = p.topMilestone;
-  const msState = ms ? (MS_STATE[ms.state] ?? MS_STATE.going) : null;
+  const ft = p.topFeature;
   const isArchived = p.status === "archived";
   const isMissing = p.missing === true;
 
-  const milestonesDone = p.milestonesByState?.done ?? 0;
+  const featuresDone = p.featuresByState?.done ?? 0;
 
-  // Card body — milestone preview area
+  // Card body — feature preview area
   const body = isArchived
     ? h("div", { class: "pc-archnote" },
         h("span", { class: "adot" }),
@@ -185,10 +186,10 @@ function renderProjectCard(p, mostRecentSlug) {
       ? h("div", { class: "pc-archnote" },
           h("span", { class: "adot" }),
           h("span", { class: "pc-archnote-t" }, `${p.path} · .stele/ 不存在或不可读`))
-      : ms
+      : ft
         ? h("div", { class: "pc-ms-list" },
-            renderMilestoneRow(ms))
-        : h("div", { class: "pc-empty" }, "还没有 milestone");
+            renderFeatureRow(ft))
+        : h("div", { class: "pc-empty" }, "还没有 feature");
 
   return h("a", {
       class: `pcard ${meta.cls}${recent ? " recent" : ""}`,
@@ -206,7 +207,7 @@ function renderProjectCard(p, mostRecentSlug) {
       p.name,
       p.code ? h("i", {}, p.code) : null),
     !isArchived && !isMissing
-      ? h("div", { class: "pc-sec-lbl" }, "milestone · 各自由多次对话累积",
+      ? h("div", { class: "pc-sec-lbl" }, "feature · 各自由多次对话累积",
           h("span", { class: "rule" }))
       : isArchived
         ? h("div", { class: "pc-sec-lbl" }, "归档去向", h("span", { class: "rule" }))
@@ -221,15 +222,15 @@ function renderProjectCard(p, mostRecentSlug) {
         : null,
       h("span", { class: "pc-stat muted" },
         h("b", {}, String(p.featureCount)), " feature · ",
-        h("b", {}, String(milestonesDone)), " 完成"),
+        h("b", {}, String(featuresDone)), " 完成"),
       h("span", { class: "pc-go" }, "进入 →"),
     ),
   );
 }
 
-function renderMilestoneRow(m) {
-  const st = MS_STATE[m.state] ?? MS_STATE.going;
-  const last = m.lastSession;
+function renderFeatureRow(f) {
+  const st = FT_STATE[f.state] ?? FT_STATE.going;
+  const last = f.lastSession;
   const ocType = last?.outcome?.type;
   const oc = ocType ? OUTCOME[ocType] : OUTCOME.touched;
   const summary = last?.summary ?? "—";
@@ -237,10 +238,9 @@ function renderMilestoneRow(m) {
   return h("div", { class: "pc-ms", style: { "--oc": `var(${oc.cssVar})` } },
     h("div", { class: "pc-ms-top" },
       h("span", { class: "pc-ms-dot" }),
-      h("span", { class: "pc-ms-name" }, m.name),
+      h("span", { class: "pc-ms-name" }, f.name),
     ),
     h("div", { class: "pc-ms-meta" },
-      m.feature ? h("span", { class: "feat-chip" }, m.feature) : null,
       last ? h("span", { class: "pc-ms-sessions" }, fmtAgo(last.startedAt)) : null,
       h("span", { class: `ms-status ${st.cls}` }, st.label),
     ),
@@ -315,12 +315,12 @@ function rerender(root, projects) {
 
   const recentSlug = mostRecentSlug(projects);
   const hero = projects.find((p) => p.slug === recentSlug) ?? projects[0];
-  const heroM = hero?.topMilestone;
-  const heroOcType = heroM?.lastSession?.outcome?.type;
+  const heroF = hero?.topFeature;
+  const heroOcType = heroF?.lastSession?.outcome?.type;
   const heroOc = heroOcType ? OUTCOME[heroOcType] : OUTCOME.touched;
 
-  if (heroM) {
-    root.append(renderResumeStrip(hero, heroM, heroOc));
+  if (heroF) {
+    root.append(renderResumeStrip(hero, heroF, heroOc));
   }
 
   const { live, tucked } = partitionAndSort(projects, state.sort);
