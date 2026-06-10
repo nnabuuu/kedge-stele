@@ -182,6 +182,81 @@ function renderFocalCard(trace) {
   );
 }
 
+// "为什么这么定" — the decision rationale. The mock (design/Stele Trace.html
+// :751-782) renders detail.{trigger,constraint,options,why,locks} as a
+// <details> card of why-rows. Our captured detail is plain text (the mock's
+// sample embeds HTML), so we render as text nodes — never innerHTML.
+function whyRow(label, valueEl) {
+  return h("div", { class: "why-row" },
+    h("div", { class: "why-k" }, label),
+    valueEl,
+  );
+}
+
+function renderWhy(trace) {
+  const d = trace.decision;
+  const detail = d.detail;
+  if (!detail) return null;
+
+  const trigger = detail.trigger ?? d.raisedBy?.trigger ?? null;
+  const { optionAxis, options, why, constraint, locks } = detail;
+  const hasLocks = locks && (locks.in || locks.out);
+  if (!trigger && !constraint && !(options?.length) && !(why?.length) && !hasLocks) {
+    return null;
+  }
+
+  const rows = [];
+  if (trigger) rows.push(whyRow("触发", h("div", { class: "why-v" }, trigger)));
+  if (constraint) rows.push(whyRow("约束", h("div", { class: "why-v" }, constraint)));
+
+  if (options?.length) {
+    const optEls = [];
+    if (optionAxis) {
+      optEls.push(h("div", { class: "opt-axis" },
+        `沿「${optionAxis}」权衡 · ${options.length} 个选项`));
+    }
+    options.forEach((o, i) => {
+      const chosen = o.verdict === "chosen" || o.chosen === true;
+      optEls.push(h("div", { class: "opt" + (chosen ? " chosen" : "") },
+        h("span", { class: "opt-n" }, String(i + 1)),
+        h("span", { class: "opt-b" },
+          o.name ?? o.desc ?? "",
+          o.why ? h("span", { class: "vd" }, o.why) : null,
+        ),
+      ));
+    });
+    rows.push(whyRow("方案", h("div", { class: "why-v" }, ...optEls)));
+  }
+
+  if (why?.length) {
+    rows.push(whyRow("理由", h("div", { class: "why-v" },
+      ...why.map((w) => h("p", { class: "why-reason" }, w)))));
+  }
+
+  if (hasLocks) {
+    rows.push(whyRow("锁进 / 锁出", h("div", { class: "why-v" },
+      h("div", { class: "locks" },
+        h("div", { class: "lock in" },
+          h("div", { class: "lock-k" }, "锁进了"),
+          h("div", { class: "lock-v" }, locks.in ?? "—")),
+        h("div", { class: "lock out" },
+          h("div", { class: "lock-k" }, "锁出了"),
+          h("div", { class: "lock-v" }, locks.out ?? "—")),
+      ))));
+  }
+
+  return h("section", { class: "why-section" },
+    h("div", { class: "why-head" },
+      h("span", { class: "why-eyebrow" }, "为什么这么定"),
+    ),
+    h("p", { class: "why-sub" }, "不只是结论,还有当时权衡过哪几个方案、选了哪个、拒了哪个。"),
+    h("details", { class: "why", open: true },
+      h("summary", {}, "取舍全文 · 触发 / 方案 / 理由 / 锁进锁出"),
+      ...rows,
+    ),
+  );
+}
+
 function renderStitch(stitch) {
   if (!stitch) return null;
   const earlier = stitch.earlierSession;
@@ -341,6 +416,7 @@ export async function render(root, ctx) {
       h("a", { class: "back-link", href: slugUrl("/"), "data-route": "" }, "← 项目"),
     ),
     renderFocalCard(trace),
+    renderWhy(trace),
     renderStitch(stitch),
     renderNeighbors(trace),
     renderAffects(trace),
