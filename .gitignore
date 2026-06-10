@@ -14,3 +14,9 @@ resume.html
 .claude/hooks/
 .claude/skills/
 .claude/scheduled_tasks.lock
+
+# IDE / editor scratch
+.idea/
+
+# Personal working notes — not part of the public project
+doc/
