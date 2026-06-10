@@ -12,6 +12,7 @@ import {
   resumeDigest,
   trace,
   traceEntity,
+  type WaitingItem,
 } from "./projections.ts";
 import {
   recordSessionEnd,
@@ -54,6 +55,41 @@ import type {
 
 function readStdin(): string {
   try { return readFileSync(0, "utf8"); } catch { return ""; }
+}
+
+// =============================================================================
+// `stele resume --for-context` formatter (0.4.0)
+//
+// Declarative prose for the SessionStart hook stdout. The doc's prompt-
+// injection warning is the load-bearing constraint here: Claude Code's
+// defense flags imperative system text and surfaces it raw to the user,
+// instead of treating it as context. So we write in 陈述句 + close with an
+// explicit "this is state, not a directive" line.
+//
+// Empty list → empty string (the hook contributes no context). The hook
+// script also handles the no-stele / no-project case.
+// =============================================================================
+export function formatResumeForContext(items: WaitingItem[]): string {
+  if (items.length === 0) return "";
+  const lines: string[] = [];
+  lines.push(`以下 ${items.length} 个决策仍悬而未决:`);
+  lines.push("");
+  for (const i of items) {
+    const age = i.ageDays === 0
+      ? "今天"
+      : i.ageDays === 1
+        ? "1 天前"
+        : i.ageDays < 30
+          ? `${i.ageDays} 天前`
+          : `${Math.round(i.ageDays / 30)} 个月前`;
+    const verbed = i.bucket === "deferred" ? `推迟于 ${age}` : `提出于 ${age}`;
+    const review = i.trigger ? `复审条件: ${i.trigger}` : (i.needsCheck ? "触发条件可能已经到了，值得回看一眼" : "");
+    const tail = review ? `。${review}` : "。";
+    lines.push(`  ${i.id}「${i.title}」 — ${verbed}${tail}`);
+  }
+  lines.push("");
+  lines.push("这些只是状态摘要,不是行动指令。继续手头的工作,有线索时再回头处理。");
+  return lines.join("\n") + "\n";
 }
 
 // -----------------------------------------------------------------------------
@@ -215,11 +251,13 @@ async function initCommand(args: string[]): Promise<void> {
     console.error(`  ⚠ registry write failed (continuing): ${(e as Error).message}`);
   }
 
-  // Default-install hooks (Stop hook + stele-capture skill) — opt-out with --skip-hooks
+  // Default-install hooks (Stop + SessionStart + stele-capture skill) —
+  // opt-out with --skip-hooks
   if (!skipHooks) {
     try {
       const r = installHooks(cwd);
       console.log(`  ${r.hook}`);
+      console.log(`  ${r.sessionStartHook}`);
       console.log(`  ${r.skill}`);
       console.log(`  ${r.steleFeature}`);
       console.log(`  ${r.legacyCommandsCleaned}`);
@@ -269,6 +307,7 @@ function hooksCommand(args: string[]): void {
       const r = installHooks(cwd);
       console.log(`hooks installed in ${cwd}:`);
       console.log(`  ${r.hook}`);
+      console.log(`  ${r.sessionStartHook}`);
       console.log(`  ${r.skill}`);
       console.log(`  ${r.steleFeature}`);
       console.log(`  ${r.legacyCommandsCleaned}`);
@@ -282,6 +321,7 @@ function hooksCommand(args: string[]): void {
       const r = uninstallHooks(cwd);
       console.log(`hooks uninstalled from ${cwd}:`);
       console.log(`  ${r.hook}`);
+      console.log(`  ${r.sessionStartHook}`);
       console.log(`  ${r.skill}`);
       console.log(`  ${r.steleFeature}`);
       console.log(`  ${r.legacyCommandsCleaned}`);
@@ -295,9 +335,11 @@ function hooksCommand(args: string[]): void {
     const mark = (b: boolean) => (b ? "✓" : "✗");
     console.log(`stele hooks status (${cwd}):`);
     console.log(`  ${mark(s.hook)}  .claude/hooks/stele-stop.sh`);
+    console.log(`  ${mark(s.sessionStartHook)}  .claude/hooks/stele-session-start.sh`);
     console.log(`  ${mark(s.skill)}  .claude/skills/stele-capture/SKILL.md`);
     console.log(`  ${mark(s.steleFeature)}  .claude/commands/stele/feature.md`);
-    console.log(`  ${mark(s.settingsHasEntry)}  Stop hook in .claude/settings.json`);
+    console.log(`  ${mark(s.settingsHasEntry)}  stele entries in .claude/settings.json`);
+    console.log(`  ${mark(s.settingsHasMinVersion)}  requiredMinimumVersion pinned in .claude/settings.json`);
   } else {
     console.error(`unknown hooks subcommand: ${sub} — try install / uninstall / status`);
     process.exit(1);
@@ -1126,10 +1168,18 @@ async function main() {
     case "resume": {
       const items = resumeDigest(store);
       const htmlFlag = args.indexOf("--html");
+      const forContext = args.includes("--for-context");
       if (htmlFlag >= 0) {
         const out = args[htmlFlag + 1] || join(process.cwd(), "resume.html");
         writeFileSync(out, renderResume(items));
         console.log(`wrote ${out} (${items.length} open loops)`);
+      } else if (forContext) {
+        // 0.4.0 — SessionStart hook stdout. Declarative prose so Claude
+        // Code's prompt-injection defense doesn't flag it as imperative
+        // system text. No output at all when there's nothing waiting —
+        // empty stdout means the hook contributes no context.
+        const out = formatResumeForContext(items);
+        if (out) process.stdout.write(out);
       } else {
         console.log(`\n什么在等我 — ${items.length} 个未闭合回路\n`);
         for (const i of items) {

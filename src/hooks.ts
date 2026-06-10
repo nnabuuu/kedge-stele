@@ -20,6 +20,10 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HOOK_PATH_REL = ".claude/hooks/stele-stop.sh";
+// 0.4.0 — SessionStart hook ("read-side inject"): runs `stele resume
+// --for-context` and the stdout becomes additionalContext at session-start
+// so the agent sees open loops without the user having to ask.
+const SESSION_START_HOOK_PATH_REL = ".claude/hooks/stele-session-start.sh";
 const SKILL_DIR_REL = ".claude/skills/stele-capture";
 const SKILL_FILE_REL = ".claude/skills/stele-capture/SKILL.md";
 // 0.3.0 — single namespaced slash command `/stele:feature` replaces the
@@ -33,6 +37,11 @@ const LEGACY_COMMAND_RELS = [
   ".claude/commands/resume.md",
 ];
 const SETTINGS_REL = ".claude/settings.json";
+
+// 0.4.0 — async hook (SessionEnd subagent, landing in phase 4) requires
+// Claude Code ≥ 2.1.0. We pin this in settings.json so a too-old install
+// refuses to start instead of silently running an inconsistent stele.
+const REQUIRED_MIN_VERSION = "2.1.0";
 
 function templatesDir(): string {
   const here = dirname(fileURLToPath(import.meta.url));
@@ -84,110 +93,175 @@ function copyTemplateDir(templateSubdir: string, destDir: string): number {
 }
 
 // -----------------------------------------------------------------------------
-// settings.json merge
+// settings.json merge — multi-event aware (0.4.0)
 // -----------------------------------------------------------------------------
 
-type StopHookCommand = { type?: string; command?: string };
+type HookEvent = "Stop" | "SessionStart" | "SessionEnd";
+
+type StopHookCommand = { type?: string; command?: string; agent?: string; async?: boolean };
 type StopHookEntry = { matcher?: string; hooks?: StopHookCommand[] };
 
 type SettingsShape = {
-  hooks?: { Stop?: Array<StopHookEntry & StopHookCommand> } & Record<string, unknown>;
+  hooks?: Record<HookEvent, Array<StopHookEntry & StopHookCommand> | undefined> & Record<string, unknown>;
+  requiredMinimumVersion?: string;
 } & Record<string, unknown>;
 
-// Claude Code's Stop hook schema is { matcher, hooks: [{ type, command }, ...] }.
-// 0.0.1-snapshot shipped a broken shape that put { type, command } directly into
-// the Stop array, which /doctor catches as "hooks.Stop.0.hooks: expected array".
-const STELE_HOOK_ENTRY: StopHookEntry = {
-  matcher: "",
-  hooks: [{ type: "command", command: HOOK_PATH_REL }],
-};
+/**
+ * One managed hook entry per event. Each carries:
+ *   • event — which top-level Claude Code hook event it lives under
+ *   • build() — fresh entry object to install (returns a NEW object every
+ *     time so writers don't share state across calls)
+ *   • isOurs() — detect "this is the stele entry" so reinstall replaces
+ *     in place and uninstall removes only ours, never anyone else's.
+ *
+ * The Stop entry's isOurs() handles BOTH the broken 0.0.1 flat shape
+ * ({ type, command } direct in the array) and the correct nested shape
+ * ({ matcher, hooks: [...] }), so reinstall heals legacy installs.
+ */
+interface ManagedEntry {
+  event: HookEvent;
+  build(): StopHookEntry & StopHookCommand;
+  isOurs(entry: unknown): boolean;
+}
 
-// Detect both the broken (0.0.1) and correct (0.0.2+) shapes so reinstall heals
-// a prior buggy install.
-function isOurHookEntry(entry: unknown): boolean {
+function endsWithScript(cmd: unknown, basename: string): boolean {
+  return typeof cmd === "string" && cmd.endsWith(basename);
+}
+
+function nestedHasScript(entry: unknown, basename: string): boolean {
   if (!entry || typeof entry !== "object") return false;
   const e = entry as StopHookEntry & StopHookCommand;
-  if (typeof e.command === "string" && e.command.endsWith("stele-stop.sh")) return true;
+  if (endsWithScript(e.command, basename)) return true;
   if (Array.isArray(e.hooks)) {
-    return e.hooks.some(
-      (h) =>
-        h &&
-        typeof h === "object" &&
-        typeof h.command === "string" &&
-        h.command.endsWith("stele-stop.sh"),
-    );
+    return e.hooks.some((h) => h && typeof h === "object" && endsWithScript(h.command, basename));
   }
   return false;
 }
 
-function mergeSettings(projectRoot: string): { note: string } {
+const MANAGED_ENTRIES: ManagedEntry[] = [
+  {
+    event: "Stop",
+    build: () => ({ matcher: "", hooks: [{ type: "command", command: HOOK_PATH_REL }] }),
+    isOurs: (e) => nestedHasScript(e, "stele-stop.sh"),
+  },
+  {
+    event: "SessionStart",
+    build: () => ({
+      matcher: "",
+      hooks: [{ type: "command", command: SESSION_START_HOOK_PATH_REL }],
+    }),
+    isOurs: (e) => nestedHasScript(e, "stele-session-start.sh"),
+  },
+  // SessionEnd entry lands in phase 4 (agent-type, async). Not yet
+  // installed — only Stop + SessionStart for now.
+];
+
+function loadSettings(projectRoot: string): SettingsShape {
   const path = join(projectRoot, SETTINGS_REL);
-  let settings: SettingsShape = {};
-
-  if (existsSync(path)) {
-    let raw: string;
-    try {
-      raw = readFileSync(path, "utf8");
-    } catch (e) {
-      throw new Error(`could not read ${SETTINGS_REL}: ${(e as Error).message}`);
-    }
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        settings = parsed as SettingsShape;
-      } else {
-        throw new Error(`${SETTINGS_REL} is not a JSON object`);
-      }
-    } catch (e) {
-      throw new Error(`could not parse ${SETTINGS_REL}: ${(e as Error).message}`);
-    }
+  if (!existsSync(path)) return {};
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (e) {
+    throw new Error(`could not read ${SETTINGS_REL}: ${(e as Error).message}`);
   }
-
-  if (!settings.hooks || typeof settings.hooks !== "object") settings.hooks = {};
-  const hooks = settings.hooks as { Stop?: unknown[] };
-  if (!Array.isArray(hooks.Stop)) hooks.Stop = [];
-
-  // Stop array can contain either old broken { type, command } entries (from
-  // 0.0.1-snapshot) or correct { matcher, hooks: [...] } entries (0.0.2+).
-  // Type as a union so the array can hold either while we scan/replace.
-  const stop = hooks.Stop as Array<StopHookEntry & StopHookCommand>;
-  let replaced = false;
-  for (let i = 0; i < stop.length; i++) {
-    if (isOurHookEntry(stop[i])) {
-      stop[i] = { ...STELE_HOOK_ENTRY };
-      replaced = true;
-      break;
-    }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    throw new Error(`could not parse ${SETTINGS_REL}: ${(e as Error).message}`);
   }
-  if (!replaced) stop.push({ ...STELE_HOOK_ENTRY });
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${SETTINGS_REL} is not a JSON object`);
+  }
+  return parsed as SettingsShape;
+}
 
+function saveSettings(projectRoot: string, settings: SettingsShape): void {
+  const path = join(projectRoot, SETTINGS_REL);
   ensureDir(dirname(path));
   writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
-  return { note: replaced ? "updated stele Stop hook entry" : "added stele Stop hook entry" };
+}
+
+function mergeSettings(projectRoot: string): { note: string } {
+  const settings = loadSettings(projectRoot);
+
+  if (!settings.hooks || typeof settings.hooks !== "object") {
+    settings.hooks = {} as SettingsShape["hooks"];
+  }
+  const hooks = settings.hooks as Record<string, unknown>;
+
+  const notes: string[] = [];
+
+  for (const m of MANAGED_ENTRIES) {
+    if (!Array.isArray(hooks[m.event])) hooks[m.event] = [];
+    const arr = hooks[m.event] as Array<StopHookEntry & StopHookCommand>;
+    let replaced = false;
+    for (let i = 0; i < arr.length; i++) {
+      if (m.isOurs(arr[i])) {
+        arr[i] = m.build();
+        replaced = true;
+        break;
+      }
+    }
+    if (!replaced) arr.push(m.build());
+    notes.push(replaced ? `updated ${m.event} entry` : `added ${m.event} entry`);
+  }
+
+  // 0.4.0 — pin requiredMinimumVersion. Claude Code refuses to start when
+  // its version is lower than this, which prevents the async SessionEnd
+  // hook (landing in phase 4) from silently no-op'ing on too-old installs.
+  let versionNote: string;
+  if (settings.requiredMinimumVersion === REQUIRED_MIN_VERSION) {
+    versionNote = `requiredMinimumVersion already pinned at ${REQUIRED_MIN_VERSION}`;
+  } else {
+    settings.requiredMinimumVersion = REQUIRED_MIN_VERSION;
+    versionNote = `pinned requiredMinimumVersion to ${REQUIRED_MIN_VERSION}`;
+  }
+  notes.push(versionNote);
+
+  saveSettings(projectRoot, settings);
+  return { note: notes.join("; ") };
 }
 
 function unmergeSettings(projectRoot: string): { note: string } {
   const path = join(projectRoot, SETTINGS_REL);
   if (!existsSync(path)) return { note: "no settings.json — nothing to do" };
-  let settings: SettingsShape;
-  try {
-    settings = JSON.parse(readFileSync(path, "utf8"));
-  } catch (e) {
-    throw new Error(`could not parse ${SETTINGS_REL}: ${(e as Error).message}`);
-  }
-  const hooks = (settings.hooks ?? {}) as {
-    Stop?: Array<StopHookEntry & StopHookCommand>;
-  };
-  if (!Array.isArray(hooks.Stop)) return { note: "no Stop hooks — nothing to remove" };
+  const settings = loadSettings(projectRoot);
+  const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
 
-  const before = hooks.Stop.length;
-  hooks.Stop = hooks.Stop.filter((e) => !isOurHookEntry(e));
-  const removed = before - hooks.Stop.length;
-  if (hooks.Stop.length === 0) delete (hooks as Record<string, unknown>).Stop;
+  const removed: string[] = [];
+  for (const m of MANAGED_ENTRIES) {
+    const arr = hooks[m.event];
+    if (!Array.isArray(arr)) continue;
+    const before = arr.length;
+    const filtered = (arr as Array<StopHookEntry & StopHookCommand>).filter((e) => !m.isOurs(e));
+    const took = before - filtered.length;
+    if (took > 0) {
+      if (filtered.length === 0) delete hooks[m.event];
+      else hooks[m.event] = filtered;
+      removed.push(`${took} ${m.event}`);
+    }
+  }
   // Don't delete settings.hooks entirely — other hook events may still live there.
 
-  writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
-  return { note: removed > 0 ? `removed ${removed} stele Stop hook entry` : "no stele entry was present" };
+  // Leave requiredMinimumVersion alone on uninstall — yanking it could
+  // surprise the user (their project might still have other hooks that
+  // need it). They can drop it manually.
+
+  saveSettings(projectRoot, settings);
+  return { note: removed.length > 0 ? `removed ${removed.join(", ")} stele entries` : "no stele entries were present" };
+}
+
+// Detect whether the settings.json carries any stele hook entry across
+// all managed events. Used by hooksStatus().
+function settingsHasAnyEntry(settings: SettingsShape): boolean {
+  const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
+  for (const m of MANAGED_ENTRIES) {
+    const arr = hooks[m.event];
+    if (Array.isArray(arr) && arr.some((e) => m.isOurs(e))) return true;
+  }
+  return false;
 }
 
 // -----------------------------------------------------------------------------
@@ -196,6 +270,7 @@ function unmergeSettings(projectRoot: string): { note: string } {
 
 export interface InstallReport {
   hook: string;
+  sessionStartHook: string;
   skill: string;
   steleFeature: string;
   legacyCommandsCleaned: string;
@@ -235,15 +310,25 @@ function cleanLegacyCommands(projectRoot: string): string {
 
 export function installHooks(projectRoot: string): InstallReport {
   const report: InstallReport = {
-    hook: "", skill: "", steleFeature: "", legacyCommandsCleaned: "", settings: "",
+    hook: "", sessionStartHook: "",
+    skill: "", steleFeature: "", legacyCommandsCleaned: "", settings: "",
   };
 
-  // 1. Hook script
+  // 1. Stop hook script (per-turn nudge — strengthened in phase 3 to drive
+  //    the live-track decision_capture call)
   const hookPath = join(projectRoot, HOOK_PATH_REL);
   ensureDir(dirname(hookPath));
   writeFileSync(hookPath, readTemplate("stele-stop-hook.sh"));
   chmodSync(hookPath, 0o755);
   report.hook = `wrote ${HOOK_PATH_REL} (executable)`;
+
+  // 1b. SessionStart hook script (0.4.0 — read-side inject of open loops
+  //     via `stele resume --for-context`)
+  const sessionStartPath = join(projectRoot, SESSION_START_HOOK_PATH_REL);
+  ensureDir(dirname(sessionStartPath));
+  writeFileSync(sessionStartPath, readTemplate("stele-session-start-hook.sh"));
+  chmodSync(sessionStartPath, 0o755);
+  report.sessionStartHook = `wrote ${SESSION_START_HOOK_PATH_REL} (executable)`;
 
   // 2. Skill — the stele-capture skill is a folder (SKILL.md + gotchas.md +
   // references/*.md) per Anthropic's progressive-disclosure pattern. Recursive
@@ -262,7 +347,7 @@ export function installHooks(projectRoot: string): InstallReport {
   // 4. Clean up legacy 0.2.x commands from prior installs.
   report.legacyCommandsCleaned = cleanLegacyCommands(projectRoot);
 
-  // 5. Settings merge
+  // 5. Settings merge (Stop + SessionStart entries + requiredMinimumVersion)
   const s = mergeSettings(projectRoot);
   report.settings = s.note;
 
@@ -271,7 +356,8 @@ export function installHooks(projectRoot: string): InstallReport {
 
 export function uninstallHooks(projectRoot: string): InstallReport {
   const report: InstallReport = {
-    hook: "", skill: "", steleFeature: "", legacyCommandsCleaned: "", settings: "",
+    hook: "", sessionStartHook: "",
+    skill: "", steleFeature: "", legacyCommandsCleaned: "", settings: "",
   };
 
   const hookPath = join(projectRoot, HOOK_PATH_REL);
@@ -280,6 +366,14 @@ export function uninstallHooks(projectRoot: string): InstallReport {
     report.hook = `removed ${HOOK_PATH_REL}`;
   } else {
     report.hook = `${HOOK_PATH_REL} not present`;
+  }
+
+  const sessionStartPath = join(projectRoot, SESSION_START_HOOK_PATH_REL);
+  if (existsSync(sessionStartPath)) {
+    rmSync(sessionStartPath);
+    report.sessionStartHook = `removed ${SESSION_START_HOOK_PATH_REL}`;
+  } else {
+    report.sessionStartHook = `${SESSION_START_HOOK_PATH_REL} not present`;
   }
 
   const skillDir = join(projectRoot, SKILL_DIR_REL);
@@ -302,27 +396,32 @@ export function uninstallHooks(projectRoot: string): InstallReport {
 
 export interface StatusReport {
   hook: boolean;
+  sessionStartHook: boolean;
   skill: boolean;
   steleFeature: boolean;
   settingsHasEntry: boolean;
+  settingsHasMinVersion: boolean;
 }
 
 export function hooksStatus(projectRoot: string): StatusReport {
   const settingsPath = join(projectRoot, SETTINGS_REL);
   let settingsHasEntry = false;
+  let settingsHasMinVersion = false;
   if (existsSync(settingsPath)) {
     try {
       const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as SettingsShape;
-      const stop = (settings.hooks as { Stop?: Array<{ command?: string }> } | undefined)?.Stop;
-      if (Array.isArray(stop)) settingsHasEntry = stop.some(isOurHookEntry);
+      settingsHasEntry = settingsHasAnyEntry(settings);
+      settingsHasMinVersion = settings.requiredMinimumVersion === REQUIRED_MIN_VERSION;
     } catch {
       // ignore — treat as no entry
     }
   }
   return {
     hook: existsSync(join(projectRoot, HOOK_PATH_REL)),
+    sessionStartHook: existsSync(join(projectRoot, SESSION_START_HOOK_PATH_REL)),
     skill: existsSync(join(projectRoot, SKILL_FILE_REL)),
     steleFeature: existsSync(join(projectRoot, STELE_FEATURE_COMMAND_REL)),
     settingsHasEntry,
+    settingsHasMinVersion,
   };
 }

@@ -272,14 +272,136 @@ test("uninstall also handles the OLD broken shape", () => {
 test("status reports ✗ on fresh dir, ✓ after install", () => {
   let s = hooksStatus(projectDir);
   assert.equal(s.hook, false);
+  assert.equal(s.sessionStartHook, false);
   assert.equal(s.skill, false);
   assert.equal(s.steleFeature, false);
   assert.equal(s.settingsHasEntry, false);
+  assert.equal(s.settingsHasMinVersion, false);
 
   installHooks(projectDir);
   s = hooksStatus(projectDir);
   assert.equal(s.hook, true);
+  assert.equal(s.sessionStartHook, true);
   assert.equal(s.skill, true);
   assert.equal(s.steleFeature, true);
   assert.equal(s.settingsHasEntry, true);
+  assert.equal(s.settingsHasMinVersion, true);
+});
+
+// ---- 0.4.0 — SessionStart hook + requiredMinimumVersion ----------------
+
+test("install writes SessionStart hook script, executable", () => {
+  installHooks(projectDir);
+  const hookPath = join(projectDir, ".claude/hooks/stele-session-start.sh");
+  assert.ok(existsSync(hookPath), "SessionStart hook script missing");
+  const mode = statSync(hookPath).mode & 0o777;
+  assert.equal(mode & 0o100, 0o100, "owner exec bit not set on SessionStart hook");
+});
+
+test("install merges SessionStart entry into settings.json", () => {
+  installHooks(projectDir);
+  const s = readSettings();
+  assert.ok(Array.isArray(s.hooks.SessionStart), "SessionStart not an array");
+  assert.equal(s.hooks.SessionStart.length, 1);
+  const entry = s.hooks.SessionStart[0];
+  assert.equal(typeof entry.matcher, "string");
+  assert.ok(Array.isArray(entry.hooks));
+  assert.equal(entry.hooks[0].type, "command");
+  assert.ok(entry.hooks[0].command.endsWith("stele-session-start.sh"));
+});
+
+test("install pins requiredMinimumVersion to 2.1.0", () => {
+  installHooks(projectDir);
+  const s = readSettings();
+  assert.equal(s.requiredMinimumVersion, "2.1.0",
+    "requiredMinimumVersion must pin the async-hook floor");
+});
+
+test("install preserves a pre-existing requiredMinimumVersion if it's already at 2.1.0", () => {
+  // Pre-existing 2.1.0 pin shouldn't trigger an update note path.
+  const claudeDir = join(projectDir, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(
+    settingsPath(),
+    JSON.stringify({ requiredMinimumVersion: "2.1.0", otherKey: "stays" }, null, 2),
+  );
+  installHooks(projectDir);
+  const s = readSettings();
+  assert.equal(s.requiredMinimumVersion, "2.1.0");
+  assert.equal(s.otherKey, "stays");
+});
+
+test("install overwrites a lower requiredMinimumVersion", () => {
+  // User has a lower pin; we raise it to the async-hook floor.
+  const claudeDir = join(projectDir, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(
+    settingsPath(),
+    JSON.stringify({ requiredMinimumVersion: "1.9.0" }, null, 2),
+  );
+  installHooks(projectDir);
+  const s = readSettings();
+  assert.equal(s.requiredMinimumVersion, "2.1.0");
+});
+
+test("install preserves unrelated SessionStart hooks (other extensions)", () => {
+  const claudeDir = join(projectDir, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(
+    settingsPath(),
+    JSON.stringify(
+      {
+        hooks: {
+          SessionStart: [
+            { matcher: "", hooks: [{ type: "command", command: "other-session-script.sh" }] },
+          ],
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  installHooks(projectDir);
+  const s = readSettings();
+  assert.equal(s.hooks.SessionStart.length, 2,
+    "other SessionStart entries lost");
+  // The other entry survives and the stele entry is alongside it.
+  const others = s.hooks.SessionStart.filter((e: any) =>
+    e.hooks?.[0]?.command === "other-session-script.sh");
+  assert.equal(others.length, 1, "non-stele SessionStart entry survived");
+});
+
+test("uninstall removes the SessionStart hook script + settings entry", () => {
+  installHooks(projectDir);
+  uninstallHooks(projectDir);
+  assert.equal(
+    existsSync(join(projectDir, ".claude/hooks/stele-session-start.sh")),
+    false,
+    "SessionStart hook script not removed",
+  );
+  const s = readSettings();
+  // SessionStart array becomes empty → key deleted by the unmerger.
+  assert.equal(
+    Array.isArray(s.hooks.SessionStart) && s.hooks.SessionStart.length > 0,
+    false,
+    "stele SessionStart entry not removed",
+  );
+});
+
+test("uninstall leaves requiredMinimumVersion in place", () => {
+  installHooks(projectDir);
+  uninstallHooks(projectDir);
+  const s = readSettings();
+  // Other hooks the project might have could still depend on the version pin —
+  // we don't yank it on uninstall. The user can drop it manually if they want.
+  assert.equal(s.requiredMinimumVersion, "2.1.0");
+});
+
+test("reinstall is idempotent: SessionStart count stays at 1", () => {
+  installHooks(projectDir);
+  installHooks(projectDir);
+  installHooks(projectDir);
+  const s = readSettings();
+  assert.equal(s.hooks.SessionStart.length, 1,
+    "duplicate SessionStart entries piled up across reinstalls");
 });
