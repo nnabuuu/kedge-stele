@@ -27,9 +27,11 @@ const RESERVED_FIRST_SEG = new Set(["", "welcome", "assets", "api"]);
 function resolveRoute() {
   const parts = location.pathname.split("/").filter(Boolean);
 
-  // Root → Projects overview
+  // Root → Projects overview. Per design/Stele Projects.html the page is
+  // already in the in-app system, so we use v-base here (not v-landing —
+  // the Landing system is reserved for /welcome and any future hero page).
   if (parts.length === 0) {
-    return { page: "projects", slug: null, params: {}, scope: "v-landing" };
+    return { page: "projects", slug: null, params: {}, scope: "v-base" };
   }
 
   const first = parts[0];
@@ -38,8 +40,7 @@ function resolveRoute() {
   // stub. Anything else at this depth is treated as a slug (multi-tenant) OR as
   // a single-project route segment.
   if (RESERVED_FIRST_SEG.has(first)) {
-    // Falls through to the server — not an SPA route.
-    return { page: "projects", slug: null, params: {}, scope: "v-landing" };
+    return { page: "projects", slug: null, params: {}, scope: "v-base" };
   }
 
   const slug = first;

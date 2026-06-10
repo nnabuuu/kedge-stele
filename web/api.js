@@ -77,3 +77,15 @@ export function slugUrl(path) {
   if (path.startsWith("/")) return `/${slug}${path}`;
   return `/${slug}/${path}`;
 }
+
+// Lazy-load a stylesheet exactly once. Page modules call this on render()
+// so per-page CSS doesn't all ship at first paint.
+const _loadedCss = new Set();
+export function ensureCss(href) {
+  if (_loadedCss.has(href)) return;
+  _loadedCss.add(href);
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.href = href;
+  document.head.appendChild(link);
+}

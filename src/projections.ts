@@ -15,15 +15,20 @@ import type {
   DecisionId,
   DecisionType,
   EntityRef,
+  Feature,
   Milestone,
   MilestoneId,
   MilestoneState,
   PauseReason,
   Project,
   ProjectId,
+  ProjectStatus,
   Session,
+  SessionId,
+  SessionOutcome,
   Trigger,
 } from "./types.ts";
+import type { ProjectEntry } from "./registry.ts";
 import type { EntityResolver } from "./resolver.ts";
 
 const DAY = 86_400_000;
@@ -406,4 +411,177 @@ export function continueLast(store: Store, scope?: { milestoneId?: MilestoneId }
     lastOutcome: session.outcome,
     lastPauseReason: session.pauseReason,
   };
+}
+
+// ===========================================================================
+// Multi-project overview — the data behind GET /api/projects
+// ===========================================================================
+
+export interface TopMilestoneSession {
+  id: SessionId;
+  startedAt: string;
+  endedAt?: string;
+  outcome?: SessionOutcome;
+  summary?: string;        // outcome.summary preferred, falls back to session.summary
+}
+
+export interface TopMilestone {
+  id: MilestoneId;
+  name: string;
+  state: MilestoneState;
+  feature: string;         // feature name
+  lastSession: TopMilestoneSession | null;
+}
+
+export interface ProjectListSummary {
+  // identity (from registry)
+  slug: string;
+  path: string;
+  addedAt: string;
+  // identity (from the project's own Store; null if .stele/ has no Project row)
+  id: ProjectId | null;
+  name: string;            // falls back to slug if no Project row
+  code?: string;
+  status: ProjectStatus | null;
+  // counts
+  openLoops: number;
+  dueLoops: number;
+  needsCheck: number;      // open/deferred decisions whose revisit trigger fired
+  featureCount: number;
+  milestonesByState: Record<MilestoneState, number>;
+  decisionCount: number;
+  // recency
+  lastActivity: string | null;
+  // headline milestone for the global resume strip + per-card preview
+  topMilestone: TopMilestone | null;
+  // edge cases
+  missing?: boolean;       // .stele/decisions.db absent or unopenable
+}
+
+/**
+ * For each registered project, walk its Store and compose the row that the
+ * Projects overview page needs. Multi-tenant only — single-project mode
+ * never hits this. The caller (serve.ts:handleProjects) is responsible for
+ * supplying the resolved {entry, store} pairs; we don't open Stores here.
+ */
+export function projectListSummary(
+  rows: Array<{ entry: ProjectEntry; store: Store | null; needsCheck?: number }>,
+): ProjectListSummary[] {
+  return rows.map(({ entry, store, needsCheck = 0 }) => {
+    if (!store) {
+      return {
+        slug: entry.slug,
+        path: entry.path,
+        addedAt: entry.addedAt,
+        id: null,
+        name: entry.slug,
+        status: null,
+        openLoops: 0,
+        dueLoops: 0,
+        needsCheck: 0,
+        featureCount: 0,
+        milestonesByState: { draft: 0, going: 0, winding: 0, done: 0, paused: 0 },
+        decisionCount: 0,
+        lastActivity: null,
+        topMilestone: null,
+        missing: true,
+      };
+    }
+
+    const projects = store.allProjects();
+    const project = projects[0] ?? null;
+    if (!project) {
+      // .stele/decisions.db exists but no Project row yet — `stele init` was
+      // run but no decision has been captured. Surface enough to render a
+      // bare card.
+      return {
+        slug: entry.slug,
+        path: entry.path,
+        addedAt: entry.addedAt,
+        id: null,
+        name: entry.slug,
+        status: null,
+        openLoops: 0,
+        dueLoops: 0,
+        needsCheck: 0,
+        featureCount: 0,
+        milestonesByState: { draft: 0, going: 0, winding: 0, done: 0, paused: 0 },
+        decisionCount: 0,
+        lastActivity: null,
+        topMilestone: null,
+      };
+    }
+
+    const rollup = projectRollup(store, project.id);
+    if (!rollup) {
+      // unreachable — getProject returned non-null
+      return {
+        slug: entry.slug,
+        path: entry.path,
+        addedAt: entry.addedAt,
+        id: project.id,
+        name: project.name,
+        code: project.code,
+        status: project.status,
+        openLoops: 0,
+        dueLoops: 0,
+        needsCheck: 0,
+        featureCount: 0,
+        milestonesByState: { draft: 0, going: 0, winding: 0, done: 0, paused: 0 },
+        decisionCount: 0,
+        lastActivity: null,
+        topMilestone: null,
+      };
+    }
+
+    // Find the most-recent session across the project's milestones.
+    const features = store.featuresIn(project.id);
+    const featureById = new Map<string, Feature>(features.map((f) => [f.id, f]));
+    const milestones = store
+      .allMilestones()
+      .filter((m) => featureById.has(m.featureId));
+
+    let top: TopMilestone | null = null;
+    let topStartedAt = "";
+    for (const m of milestones) {
+      const sessions = store.sessionsInMilestone(m.id);
+      // sessionsInMilestone returns ascending by startedAt (per Store)
+      const last = sessions[sessions.length - 1];
+      if (!last) continue;
+      if (last.startedAt > topStartedAt) {
+        topStartedAt = last.startedAt;
+        top = {
+          id: m.id,
+          name: m.name,
+          state: m.state,
+          feature: featureById.get(m.featureId)?.name ?? "",
+          lastSession: {
+            id: last.id,
+            startedAt: last.startedAt,
+            endedAt: last.endedAt,
+            outcome: last.outcome,
+            summary: last.outcome?.summary ?? last.summary,
+          },
+        };
+      }
+    }
+
+    return {
+      slug: entry.slug,
+      path: entry.path,
+      addedAt: entry.addedAt,
+      id: project.id,
+      name: project.name,
+      code: project.code,
+      status: project.status,
+      openLoops: rollup.openLoops,
+      dueLoops: rollup.dueLoops,
+      needsCheck,
+      featureCount: features.length,
+      milestonesByState: rollup.milestonesByState,
+      decisionCount: rollup.decisionCount,
+      lastActivity: rollup.lastActivity,
+      topMilestone: top,
+    };
+  });
 }

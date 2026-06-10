@@ -24,6 +24,7 @@ import { proposeEdges } from "./consolidate.ts";
 import {
   milestoneDetail,
   milestoneSummary,
+  projectListSummary,
   projectRollup,
   resumeDigest,
   trace,
@@ -791,19 +792,21 @@ async function dispatchSingle(
 
 async function handleProjects(ctx: MultiStoreContext, res: ServerResponse): Promise<void> {
   const list = ctx.projects();
-  const summaries = list.map((p) => {
-    const got = ctx.getStore(p.slug);
-    if (!got) return { slug: p.slug, path: p.path, addedAt: p.addedAt, openLoops: 0, missing: true };
-    const items = resumeDigest(got.store);
+  // Resolve store + needsCheck once per project, then hand off to the
+  // projection. needsCheck (open/deferred decisions whose revisit trigger
+  // fired) is sourced from resumeDigest since projectRollup gives dueLoops
+  // but not the count of items the resume digest would highlight.
+  const rows = list.map((entry) => {
+    const got = ctx.getStore(entry.slug);
+    if (!got) return { entry, store: null, needsCheck: 0 };
+    const digest = resumeDigest(got.store);
     return {
-      slug: p.slug,
-      path: p.path,
-      addedAt: p.addedAt,
-      openLoops: items.length,
-      needsCheck: items.filter((i) => i.needsCheck).length,
+      entry,
+      store: got.store,
+      needsCheck: digest.filter((i) => i.needsCheck).length,
     };
   });
-  json(res, 200, summaries);
+  json(res, 200, projectListSummary(rows));
 }
 
 async function dispatchMulti(
