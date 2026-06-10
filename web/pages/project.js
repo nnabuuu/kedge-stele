@@ -48,6 +48,13 @@ const DEC_TYPE = {
   open:     { label: "待决",  cls: "open" },
 };
 
+// 0.4.0 — capture provenance pill (rendered in the decision chip footer).
+// "manual" gets no pill — the absence IS the marker for human-authored.
+const SOURCE_META = {
+  "agent-live":      { label: "agent · live",   cls: "agent-live" },
+  "session-extract": { label: "agent · post-hoc", cls: "session-extract" },
+};
+
 // -------------------------------------------------------------------
 // Date helpers
 // -------------------------------------------------------------------
@@ -150,6 +157,23 @@ function setSelectedFeatureId(id) {
   history.replaceState(null, "", url.toString());
 }
 
+// 0.4.0 — `?src=` filter for batch review of machine-extracted captures.
+// Valid values: 'agent-live' / 'session-extract' / 'manual' / null (no filter).
+// Filters the decision chips inside the session timeline; the rail stays
+// unchanged so the user can still navigate features.
+function getSourceFilter() {
+  const v = new URLSearchParams(location.search).get("src");
+  if (v === "agent-live" || v === "session-extract" || v === "manual") return v;
+  return null;
+}
+
+function setSourceFilter(v) {
+  const url = new URL(location.href);
+  if (v) url.searchParams.set("src", v);
+  else url.searchParams.delete("src");
+  history.replaceState(null, "", url.toString());
+}
+
 function pickDefaultFeature(rail) {
   // First going/winding feature wins; fall back to first one overall.
   for (const f of rail) {
@@ -215,7 +239,7 @@ function renderFeatureRow(f, isSelected, onSelect) {
 // Main (selected feature)
 // -------------------------------------------------------------------
 
-function renderMain(featureDetail) {
+function renderMain(featureDetail, onSourceFilter) {
   if (!featureDetail) {
     return h("main", { class: "main" },
       h("div", { class: "main-in" },
@@ -229,11 +253,33 @@ function renderMain(featureDetail) {
 
   const f = featureDetail.feature;
   const st = FT_STATE[f.state] ?? FT_STATE.going;
-  const sessions = featureDetail.sessions; // [{session, decisions}]
-  const decCount = sessions.reduce((n, s) => n + s.decisions.length, 0);
+  const allSessions = featureDetail.sessions; // [{session, decisions}]
 
-  // Latest session for resume strip
-  const latest = sessions[sessions.length - 1] ?? null;
+  // 0.4.0 — apply the ?src= filter. Filter decisions inside each session,
+  // not the sessions themselves: a session that had a live capture AND a
+  // post-hoc capture stays visible under either filter, just narrowed
+  // to its matching decisions.
+  const srcFilter = getSourceFilter();
+  const sessions = srcFilter
+    ? allSessions.map((b) => ({
+        ...b,
+        decisions: b.decisions.filter((d) => {
+          // 'manual' filter matches both explicit 'manual' and undefined
+          // (legacy rows had no source field at all).
+          if (srcFilter === "manual") {
+            return !d.source || d.source === "manual";
+          }
+          return d.source === srcFilter;
+        }),
+      }))
+    : allSessions;
+
+  const decCount = sessions.reduce((n, s) => n + s.decisions.length, 0);
+  const totalDecCount = allSessions.reduce((n, s) => n + s.decisions.length, 0);
+
+  // Latest session for resume strip — always from the unfiltered list so
+  // the resume strip is stable as the filter toggles.
+  const latest = allSessions[allSessions.length - 1] ?? null;
 
   // Sessions ordered desc (newest first) for the timeline
   const orderedSessions = [...sessions].reverse();
@@ -260,10 +306,10 @@ function renderMain(featureDetail) {
           : null,
         h("div", { class: "ms-stats" },
           h("span", { class: "ms-stat" },
-            h("b", {}, String(sessions.length)),
+            h("b", {}, String(allSessions.length)),
             " 次对话累积"),
           h("span", { class: "ms-stat" },
-            h("b", {}, String(decCount)),
+            h("b", {}, srcFilter ? `${decCount} / ${totalDecCount}` : String(decCount)),
             " 个决定"),
           latest?.session?.startedAt
             ? h("span", { class: "ms-stat" },
@@ -272,8 +318,11 @@ function renderMain(featureDetail) {
         ),
       ),
 
+      // 0.4.0 — source filter strip. Hidden when no filter is active.
+      renderSourceFilterStrip(srcFilter, onSourceFilter),
+
       // Resume strip
-      latest ? renderResumeStrip(latest, sessions.length) : null,
+      latest ? renderResumeStrip(latest, allSessions.length) : null,
 
       // Timeline
       h("div", { class: "tl-head" },
@@ -292,6 +341,29 @@ function renderMain(featureDetail) {
             ),
           ),
     ),
+  );
+}
+
+/**
+ * 0.4.0 — source filter strip. Only visible when ?src= is active. Click
+ * "清除筛选" to drop the filter and re-render.
+ */
+function renderSourceFilterStrip(srcFilter, onSourceFilter) {
+  if (!srcFilter) return null;
+  const labelMap = {
+    "agent-live": "agent · live",
+    "session-extract": "agent · post-hoc",
+    "manual": "manual",
+  };
+  const label = labelMap[srcFilter] ?? srcFilter;
+  return h("div", { class: "src-filter-strip" },
+    h("span", { class: "src-filter-lbl" }, "正在按来源筛选: "),
+    h("span", { class: `src-filter-pill src-${srcFilter}` }, label),
+    h("button", {
+        class: "src-filter-clear",
+        type: "button",
+        onClick: () => onSourceFilter(null),
+      }, "清除筛选 ✕"),
   );
 }
 
@@ -383,14 +455,23 @@ function renderDecisionChip(d) {
   const localId = parts.slice(1).join("/");
   const href = slugUrl(`/d/${encodeURIComponent(fid)}/${encodeURIComponent(localId)}`);
 
+  // 0.4.0 — source pill. Only render when source is one of the machine
+  // values; 'manual' (or absent) → no pill, the absence IS the marker.
+  const sm = d.source ? SOURCE_META[d.source] : null;
+  const conf = (d.confidence != null && Number.isFinite(d.confidence))
+    ? ` · ${d.confidence.toFixed(2)}`
+    : "";
+
   return h("a", {
-      class: "dchip",
+      class: `dchip${sm ? ` src-${sm.cls}` : ""}`,
       href,
       "data-route": "",
       onClick: (e) => e.stopPropagation(),
     },
     h("span", { class: `dchip-g ${d.type}` }, localId || d.id),
     h("span", { class: "dchip-t" }, title),
+    sm ? h("span", { class: `dchip-src ${sm.cls}`, title: `源: ${sm.label}${conf ? `, 置信度${conf}` : ""}` },
+      sm.label + conf) : null,
     h("span", { class: `dchip-st ${d.type}` }, dm.label),
   );
 }
@@ -449,6 +530,14 @@ async function renderShell(root, ctx, projectInfo, rail, selectedFid) {
     renderShell(root, ctx, projectInfo, rail, fid);
   };
 
+  // 0.4.0 — onSourceFilter clears or updates the ?src= query param and
+  // re-renders. URL state is the source of truth; renderMain reads
+  // getSourceFilter() on each render.
+  const onSourceFilter = (v) => {
+    setSourceFilter(v);
+    renderShell(root, ctx, projectInfo, rail, selectedFid);
+  };
+
   // Optional project subtitle (path, status)
   const project = projectInfo?.project;
   if (project) {
@@ -458,7 +547,7 @@ async function renderShell(root, ctx, projectInfo, rail, selectedFid) {
   root.append(
     h("div", { class: "body" },
       renderRail(rail, selectedFid, onSelect),
-      renderMain(detail),
+      renderMain(detail, onSourceFilter),
     ),
   );
 }
