@@ -252,7 +252,8 @@ async function initCommand(args: string[]): Promise<void> {
   }
 
   // Default-install hooks (Stop + SessionStart + SessionEnd extract agent
-  // + stele-capture skill) — opt-out with --skip-hooks
+  // + stele-capture skill + /stele:feature + /stele:scan slash commands)
+  // — opt-out with --skip-hooks
   if (!skipHooks) {
     try {
       const r = installHooks(cwd);
@@ -261,6 +262,7 @@ async function initCommand(args: string[]): Promise<void> {
       console.log(`  ${r.extractAgent}`);
       console.log(`  ${r.skill}`);
       console.log(`  ${r.steleFeature}`);
+      console.log(`  ${r.steleScan}`);
       console.log(`  ${r.legacyCommandsCleaned}`);
       console.log(`  ${r.settings}`);
     } catch (e) {
@@ -312,6 +314,7 @@ function hooksCommand(args: string[]): void {
       console.log(`  ${r.extractAgent}`);
       console.log(`  ${r.skill}`);
       console.log(`  ${r.steleFeature}`);
+      console.log(`  ${r.steleScan}`);
       console.log(`  ${r.legacyCommandsCleaned}`);
       console.log(`  ${r.settings}`);
     } catch (e) {
@@ -327,6 +330,7 @@ function hooksCommand(args: string[]): void {
       console.log(`  ${r.extractAgent}`);
       console.log(`  ${r.skill}`);
       console.log(`  ${r.steleFeature}`);
+      console.log(`  ${r.steleScan}`);
       console.log(`  ${r.legacyCommandsCleaned}`);
       console.log(`  ${r.settings}`);
     } catch (e) {
@@ -342,6 +346,7 @@ function hooksCommand(args: string[]): void {
     console.log(`  ${mark(s.extractAgent)}  .claude/agents/stele-extract.md`);
     console.log(`  ${mark(s.skill)}  .claude/skills/stele-capture/SKILL.md`);
     console.log(`  ${mark(s.steleFeature)}  .claude/commands/stele/feature.md`);
+    console.log(`  ${mark(s.steleScan)}  .claude/commands/stele/scan.md`);
     console.log(`  ${mark(s.settingsHasEntry)}  stele entries in .claude/settings.json`);
     console.log(`  ${mark(s.settingsHasMinVersion)}  requiredMinimumVersion pinned in .claude/settings.json`);
   } else {

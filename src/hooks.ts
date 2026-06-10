@@ -36,6 +36,11 @@ const SKILL_FILE_REL = ".claude/skills/stele-capture/SKILL.md";
 // three 0.2.x commands (/decision, /milestone-report, /resume). The
 // namespaced sub-path matches how Claude Code reads `stele:feature`.
 const STELE_FEATURE_COMMAND_REL = ".claude/commands/stele/feature.md";
+// 0.4.0 — second slash command `/stele:scan`. Re-runnable historical
+// backfill / fine-grained audit pass. Lives in the same namespace as
+// /stele:feature so they pair conceptually (one reconciles the current
+// transcript, the other reconciles OTHER sources).
+const STELE_SCAN_COMMAND_REL = ".claude/commands/stele/scan.md";
 const STELE_COMMAND_DIR_REL = ".claude/commands/stele";
 const LEGACY_COMMAND_RELS = [
   ".claude/commands/decision.md",
@@ -309,6 +314,7 @@ export interface InstallReport {
   extractAgent: string;
   skill: string;
   steleFeature: string;
+  steleScan: string;
   legacyCommandsCleaned: string;
   settings: string;
 }
@@ -347,7 +353,8 @@ function cleanLegacyCommands(projectRoot: string): string {
 export function installHooks(projectRoot: string): InstallReport {
   const report: InstallReport = {
     hook: "", sessionStartHook: "", extractAgent: "",
-    skill: "", steleFeature: "", legacyCommandsCleaned: "", settings: "",
+    skill: "", steleFeature: "", steleScan: "",
+    legacyCommandsCleaned: "", settings: "",
   };
 
   // 1. Stop hook script (per-turn nudge — strengthened in phase 3 to drive
@@ -387,8 +394,10 @@ export function installHooks(projectRoot: string): InstallReport {
   const skillFileCount = copyTemplateDir("stele-capture-skill", skillDir);
   report.skill = `wrote ${SKILL_DIR_REL}/ (${skillFileCount} file${skillFileCount === 1 ? "" : "s"}: SKILL.md + gotchas + references)`;
 
-  // 3. The single 0.3.0 slash command — only write if missing.
+  // 3. Slash commands — only write if missing (don't clobber user edits).
+  //    0.3.0 added /stele:feature; 0.4.0 added /stele:scan.
   report.steleFeature = installCommand(projectRoot, STELE_FEATURE_COMMAND_REL, "stele-feature-command.md");
+  report.steleScan    = installCommand(projectRoot, STELE_SCAN_COMMAND_REL,    "stele-scan-command.md");
 
   // 4. Clean up legacy 0.2.x commands from prior installs.
   report.legacyCommandsCleaned = cleanLegacyCommands(projectRoot);
@@ -403,7 +412,8 @@ export function installHooks(projectRoot: string): InstallReport {
 export function uninstallHooks(projectRoot: string): InstallReport {
   const report: InstallReport = {
     hook: "", sessionStartHook: "", extractAgent: "",
-    skill: "", steleFeature: "", legacyCommandsCleaned: "", settings: "",
+    skill: "", steleFeature: "", steleScan: "",
+    legacyCommandsCleaned: "", settings: "",
   };
 
   const hookPath = join(projectRoot, HOOK_PATH_REL);
@@ -438,8 +448,9 @@ export function uninstallHooks(projectRoot: string): InstallReport {
     report.skill = `${SKILL_DIR_REL} not present`;
   }
 
-  // Never delete the slash command on uninstall — user may have customized.
+  // Never delete the slash commands on uninstall — users may have customized.
   report.steleFeature = `${STELE_FEATURE_COMMAND_REL} left in place (manual delete if you want)`;
+  report.steleScan    = `${STELE_SCAN_COMMAND_REL} left in place (manual delete if you want)`;
   report.legacyCommandsCleaned = "uninstall doesn't touch legacy 0.2.x commands";
 
   const s = unmergeSettings(projectRoot);
@@ -454,6 +465,7 @@ export interface StatusReport {
   extractAgent: boolean;
   skill: boolean;
   steleFeature: boolean;
+  steleScan: boolean;
   settingsHasEntry: boolean;
   settingsHasMinVersion: boolean;
 }
@@ -477,6 +489,7 @@ export function hooksStatus(projectRoot: string): StatusReport {
     extractAgent: existsSync(join(projectRoot, EXTRACT_AGENT_REL)),
     skill: existsSync(join(projectRoot, SKILL_FILE_REL)),
     steleFeature: existsSync(join(projectRoot, STELE_FEATURE_COMMAND_REL)),
+    steleScan: existsSync(join(projectRoot, STELE_SCAN_COMMAND_REL)),
     settingsHasEntry,
     settingsHasMinVersion,
   };

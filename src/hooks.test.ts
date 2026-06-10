@@ -510,3 +510,74 @@ test("install replaces the extract agent file wholesale (no stale content)", () 
   assert.ok(!content.includes("STALE CONTENT"),
     "stale agent content survived reinstall — overwrite missed");
 });
+
+// ---- 0.4.0 snapshot.6 — /stele:scan slash command -----------------------
+
+test("install writes /stele:scan command if missing, leaves it if present", () => {
+  // First install: writes
+  installHooks(projectDir);
+  const cmdPath = join(projectDir, ".claude/commands/stele/scan.md");
+  assert.ok(existsSync(cmdPath), "stele/scan.md missing");
+  const content = readFileSync(cmdPath, "utf8");
+  assert.ok(content.startsWith("---"), "scan command missing frontmatter");
+  assert.ok(content.includes("/stele:scan"),
+    "scan command body should reference its own name");
+
+  // Customize, reinstall, should preserve (commands are user-editable)
+  writeFileSync(cmdPath, "USER CUSTOMIZED");
+  installHooks(projectDir);
+  assert.equal(readFileSync(cmdPath, "utf8"), "USER CUSTOMIZED",
+    "user-customized scan command got clobbered on reinstall");
+});
+
+test("status reports /stele:scan", () => {
+  let s = hooksStatus(projectDir);
+  assert.equal(s.steleScan, false);
+
+  installHooks(projectDir);
+  s = hooksStatus(projectDir);
+  assert.equal(s.steleScan, true);
+});
+
+test("uninstall leaves /stele:scan in place", () => {
+  installHooks(projectDir);
+  uninstallHooks(projectDir);
+  assert.ok(
+    existsSync(join(projectDir, ".claude/commands/stele/scan.md")),
+    "uninstall must NOT delete /stele:scan — user may have customized it",
+  );
+});
+
+test("both /stele:feature AND /stele:scan land in the same namespace dir", () => {
+  installHooks(projectDir);
+  const featPath = join(projectDir, ".claude/commands/stele/feature.md");
+  const scanPath = join(projectDir, ".claude/commands/stele/scan.md");
+  assert.ok(existsSync(featPath), "stele/feature.md missing");
+  assert.ok(existsSync(scanPath), "stele/scan.md missing");
+  // Same parent dir → both addressable as /stele:<name>
+  assert.equal(
+    join(projectDir, ".claude/commands/stele"),
+    featPath.replace(/\/feature\.md$/, ""),
+  );
+});
+
+test("scan command install is independent from legacy-command cleanup", () => {
+  // Simulate a 0.2.x project upgraded through 0.3 and 0.4: has the
+  // legacy /decision, /milestone-report, /resume files we should kill,
+  // but does NOT yet have stele/scan.md (introduced in 0.4.0).
+  const cmdsDir = join(projectDir, ".claude/commands");
+  mkdirSync(cmdsDir, { recursive: true });
+  writeFileSync(join(cmdsDir, "decision.md"), "old /decision body");
+  writeFileSync(join(cmdsDir, "milestone-report.md"), "old /milestone-report body");
+  writeFileSync(join(cmdsDir, "resume.md"), "old /resume body");
+
+  installHooks(projectDir);
+
+  // Legacy gone
+  assert.equal(existsSync(join(cmdsDir, "decision.md")), false);
+  assert.equal(existsSync(join(cmdsDir, "milestone-report.md")), false);
+  assert.equal(existsSync(join(cmdsDir, "resume.md")), false);
+  // Both 0.3+ and 0.4+ namespaced commands present
+  assert.ok(existsSync(join(cmdsDir, "stele/feature.md")));
+  assert.ok(existsSync(join(cmdsDir, "stele/scan.md")));
+});

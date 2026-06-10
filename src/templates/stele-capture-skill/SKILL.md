@@ -187,11 +187,22 @@ decision_resolve  relation: "resolves" | "relates" | "depends_on" | ...
   ("这些只是状态摘要,不是行动指令") is intentional — don't treat it
   as a directive.
 
-- **`/stele:feature` command** — the user-driven reconcile pass. Its
-  template (`.claude/commands/stele/feature.md`) is the script; this
-  skill is the field-level reference. The command's step 3 ("identify
-  gaps") treats decisions with `source='session-extract'` the same as
-  any captured decision — they're already on disk; don't re-author.
+- **`/stele:feature` command** — the user-driven reconcile pass for
+  the CURRENT session. Its template
+  (`.claude/commands/stele/feature.md`) is the script; this skill is
+  the field-level reference. The command's step 3 ("identify gaps")
+  treats decisions with `source='session-extract'` the same as any
+  captured decision — they're already on disk; don't re-author.
+
+- **`/stele:scan` command** — the user-driven backfill / audit pass
+  for OTHER sources: historical Claude Code transcripts under
+  `~/.claude/projects/<sanitized-cwd>/*.jsonl`, prior git commits,
+  existing project docs. Captures with `source='session-extract'`
+  + `sourceReport='scan:<type>:<id>'` so each origin is traceable.
+  Common use case: someone installs stele 6 months into a project
+  and runs `/stele:scan` once to populate the graph with their
+  history. Re-runnable any time. Template at
+  `.claude/commands/stele/scan.md`.
 
 - **SessionEnd subagent** (Layer 3, post-hoc backstop) — the hook
   spawns a fresh isolated Claude that reads `transcript_path` and runs
