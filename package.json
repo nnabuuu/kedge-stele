@@ -26,8 +26,8 @@
     "node": ">=22.6"
   },
   "bin": {
-    "stele": "./dist/cli.js",
-    "stele-mcp": "./dist/mcp.js"
+    "stele": "dist/cli.js",
+    "stele-mcp": "dist/mcp.js"
   },
   "files": [
     "dist/",
