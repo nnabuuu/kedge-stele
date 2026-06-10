@@ -4,26 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>实录 · Stele</title>
-  <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/styles/tokens.css">
+  <link rel="stylesheet" href="/assets/styles/shell.css">
+  <link rel="stylesheet" href="/assets/styles/components.css">
+  <script type="module" src="/assets/app.js"></script>
 </head>
 <body>
-  <div class="topbar">
-    <div class="topbar-inner">
-      <a class="brand" href="/" data-route>实录<span class="en">stele</span></a>
-      <nav>
-        <a href="/" data-route data-nav="resume">什么在等我</a>
-        <a href="/decisions" data-route data-nav="decisions">全部决策</a>
-      </nav>
-      <span class="grow"></span>
-      <a class="btn-new" href="/new" data-route data-nav="new">+ 新决策</a>
-    </div>
-  </div>
-
-  <main id="view" class="wrap"><div class="loading">loading…</div></main>
-
   <div id="overlay" class="overlay hidden" aria-hidden="true"></div>
   <div id="toast-host"></div>
-
-  <script type="module" src="/assets/app.js"></script>
 </body>
 </html>

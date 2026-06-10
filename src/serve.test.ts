@@ -95,10 +95,11 @@ test("GET / returns the SPA HTML shell", async () => {
   assert.ok(text.includes("<!DOCTYPE html>"));
 });
 
-test("GET /assets/styles.css serves CSS", async () => {
+test("GET /assets/styles/tokens.css serves CSS (nested asset path)", async () => {
   running = await startServer({ store: seedStore(), port: 0 });
-  const r = await fetch(`${running.url}/assets/styles.css`);
+  const r = await fetch(`${running.url}/assets/styles/tokens.css`);
   assert.equal(r.status, 200);
+  assert.match(r.headers.get("content-type") ?? "", /text\/css/);
 });
 
 // ============================================================================

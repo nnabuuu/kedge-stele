@@ -14,7 +14,7 @@
 // Business logic lives in projections.ts / store.ts / consolidate.ts. The
 // handlers here are thin wrappers.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { spawn } from "node:child_process";
@@ -97,15 +97,28 @@ const MIME: Record<string, string> = {
 function loadAssets(): { index: Asset; landing: Asset; files: Map<string, Asset> } {
   const here = dirname(fileURLToPath(import.meta.url));
   const webDir = join(here, "..", "web");
-  const read = (name: string): Asset => {
-    const ext = name.slice(name.lastIndexOf("."));
-    return { body: readFileSync(join(webDir, name)), type: MIME[ext] ?? "application/octet-stream" };
+  const read = (relPath: string): Asset => {
+    const ext = relPath.slice(relPath.lastIndexOf("."));
+    return { body: readFileSync(join(webDir, relPath)), type: MIME[ext] ?? "application/octet-stream" };
   };
   const index = read("index.html");
   const landing = read("landing.html");
+  // Walk web/ recursively; register every file by its relative path so
+  // GET /assets/<rel> resolves regardless of nesting. Skips the two
+  // named-key assets above (index.html, landing.html) — those are served
+  // by the dispatcher directly, not via /assets/.
   const files = new Map<string, Asset>();
-  files.set("styles.css", read("styles.css"));
-  files.set("app.js", read("app.js"));
+  const walk = (dir: string, prefix: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        walk(join(dir, entry.name), rel);
+      } else if (entry.isFile() && rel !== "index.html" && rel !== "landing.html") {
+        files.set(rel, read(rel));
+      }
+    }
+  };
+  walk(webDir, "");
   return { index, landing, files };
 }
 

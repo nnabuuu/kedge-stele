@@ -1,0 +1,138 @@
+/* ----------------------------------------------------------------------
+ * Stele · design tokens
+ *
+ * Four scoped systems, transcribed verbatim from CLAUDE.md
+ * § Frontend canonical reference. The <html> class picks which system
+ * is active for the current page:
+ *
+ *   no class / html.v-landing  → Landing system  (multi-tenant overview)
+ *   html.v-base                → In-app Base    (Projects, Project)
+ *   html.v-trace               → Tags/Trace     (Base + blue)
+ *   html.v-graph               → Decision Graph (Base minus seal/warm/mono,
+ *                                                 plus blue + teal-soft +
+ *                                                 layout knobs)
+ *
+ * Never paraphrase the values here — they are the contract. If a token
+ * looks wrong, open the corresponding design/*.html and verify against
+ * its :root block.
+ * ---------------------------------------------------------------------- */
+
+/* Font families used across all systems */
+@import url('https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,300;0,400;0,500;0,600;1,400;1,500&family=Noto+Serif+SC:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+/* ============================================================
+ * Landing system — multi-tenant overview at / (the marketing
+ * surface). Serif body + display. Warmer paper, vermillion seal.
+ * No --sans, no radius/shadow tokens.
+ * ============================================================ */
+:root,
+html.v-landing {
+  --bg:#ECE7DD;            --bg-2:#E5DFCF;
+  --surface:#F4F0E8;       --surface-2:#EFEADF;
+  --ink:#211C16;           --ink-2:#574D40;       --ink-3:#8C8473;
+  --line:rgba(33,28,22,.14);   --line-2:rgba(33,28,22,.08);
+  --seal:#A23A29;          --seal-deep:#86301F;   --seal-dark:#CD6450;
+  --warm:#B49A7E;
+  --on-dark:#E7E0D1;       --on-dark-2:#A49B8A;   --line-dark:rgba(231,224,209,.16);
+  --serif:"Spectral","Noto Serif SC",Georgia,serif;
+  --body:"Spectral","Noto Serif SC",Georgia,serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",monospace;
+  --maxw:1140px;  --prose:660px;  --ease:cubic-bezier(.16,1,.3,1);
+}
+
+/* ============================================================
+ * In-app Base — Projects + Project pages. Sans on cool off-white,
+ * every accent paired with a washed -bg, full radius + shadow scale.
+ * ============================================================ */
+html.v-base {
+  --bg:#f4f3ef;  --surface:#fbfaf7;  --surface2:#edece7;  --surface3:#e6e4dd;
+  --t1:#1c1c1a;  --t2:#5c5b56;  --t3:#9c9a92;
+  --border:rgba(28,28,26,.08);   --border-strong:rgba(28,28,26,.16);
+  --teal:#0d5245;    --teal-bg:#dfece8;
+  --purple:#3a3185;  --purple-bg:#e9e7f3;
+  --amber:#7a4d0e;   --amber-bg:#f6edda;
+  --green:#2d6612;   --green-bg:#e6f2dc;
+  --red:#942929;     --red-bg:#f6dada;
+  --warm:#9a7b53;
+  --seal:#a23a29;    --seal-bg:#f4e3df;
+  --accent:#0d5245;
+  --shadow-sm:0 2px 12px rgba(28,28,26,.05);
+  --shadow-md:0 8px 30px rgba(28,28,26,.12);
+  --r-sm:6px;  --r-md:8px;  --r-lg:10px;  --r-xl:12px;  --r-2xl:16px;
+  --serif:"Fraunces";  --sans:"Plus Jakarta Sans";  --mono:"JetBrains Mono";
+}
+
+/* ============================================================
+ * Tags/Trace variant — Tags + Trace pages. Base + blue (used for
+ * cross-session / informational accents).
+ * ============================================================ */
+html.v-trace {
+  --bg:#f4f3ef;  --surface:#fbfaf7;  --surface2:#edece7;  --surface3:#e6e4dd;
+  --t1:#1c1c1a;  --t2:#5c5b56;  --t3:#9c9a92;
+  --border:rgba(28,28,26,.08);   --border-strong:rgba(28,28,26,.16);
+  --teal:#0d5245;    --teal-bg:#dfece8;
+  --purple:#3a3185;  --purple-bg:#e9e7f3;
+  --amber:#7a4d0e;   --amber-bg:#f6edda;
+  --green:#2d6612;   --green-bg:#e6f2dc;
+  --red:#942929;     --red-bg:#f6dada;
+  --warm:#9a7b53;
+  --seal:#a23a29;    --seal-bg:#f4e3df;
+  --accent:#0d5245;
+  --shadow-sm:0 2px 12px rgba(28,28,26,.05);
+  --shadow-md:0 8px 30px rgba(28,28,26,.12);
+  --r-sm:6px;  --r-md:8px;  --r-lg:10px;  --r-xl:12px;  --r-2xl:16px;
+  --serif:"Fraunces";  --sans:"Plus Jakarta Sans";  --mono:"JetBrains Mono";
+  --blue:#2f5278;    --blue-bg:#e4eaf2;
+}
+
+/* ============================================================
+ * Decision Graph variant — DG page. Base MINUS --seal / --seal-bg /
+ * --warm / --mono (DG uses seal red and mono inline only, not as
+ * tokens), PLUS --blue / --blue-bg, --teal-soft, --teal-rgb, and
+ * layout knobs.
+ * ============================================================ */
+html.v-graph {
+  --bg:#f4f3ef;  --surface:#fbfaf7;  --surface2:#edece7;  --surface3:#e6e4dd;
+  --t1:#1c1c1a;  --t2:#5c5b56;  --t3:#9c9a92;
+  --border:rgba(28,28,26,.08);   --border-strong:rgba(28,28,26,.16);
+  --teal:#0d5245;    --teal-bg:#dfece8;
+  --purple:#3a3185;  --purple-bg:#e9e7f3;
+  --amber:#7a4d0e;   --amber-bg:#f6edda;
+  --green:#2d6612;   --green-bg:#e6f2dc;
+  --red:#942929;     --red-bg:#f6dada;
+  --accent:#0d5245;
+  --shadow-sm:0 2px 12px rgba(28,28,26,.05);
+  --shadow-md:0 8px 30px rgba(28,28,26,.12);
+  --r-sm:6px;  --r-md:8px;  --r-lg:10px;  --r-xl:12px;  --r-2xl:16px;
+  --serif:"Fraunces";  --sans:"Plus Jakarta Sans";
+  --blue:#2f5278;    --blue-bg:#e4eaf2;
+  --teal-soft:#eaf2ef; --teal-rgb:13,82,69;
+  --seg-gap:56px; --dd-gap:30px; --card-pad-y:17px;
+}
+
+/* ============================================================
+ * Reset + body baseline
+ * ============================================================ */
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background: var(--bg);
+  color: var(--t1, var(--ink));
+  font-size: 15.5px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+/* Default body font picks sans for in-app pages, serif for Landing.
+   The token --sans is only defined in the in-app systems; on Landing
+   it falls through to --body (Spectral). */
+html.v-landing body { font-family: var(--body); }
+html.v-base body,
+html.v-trace body,
+html.v-graph body { font-family: var(--sans); }
+/* When no scope is active yet (boot moment), use a sane sans fallback */
+body { font-family: "Plus Jakarta Sans", system-ui, sans-serif; }
+
+a { color: inherit; text-decoration: none; }
+button { background: transparent; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+::selection { background: rgba(162,58,41,.18); }
