@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-**实录 / Stele** — a local decision-provenance store distributed as an npm package (`stele-mcp`). Primary client is Claude Code via a stdio MCP server; a CLI is a secondary adapter onto the same store. Runtime is Node ≥22.6 running TypeScript directly via `--experimental-strip-types`. Storage is SQLite via `node:sqlite`. The only non-stdlib deps are `@modelcontextprotocol/sdk` and `zod` (for the MCP adapter). End-user install is `npm install -g stele-mcp` → bins `stele` and `stele-mcp` on PATH; the `bin/*.js` wrappers re-exec Node on `src/*.ts` with the type-strip flags so the package works on any Node ≥22.6 and on Windows (npm bin shims don't read shebang flags). The `design/` folder is canonical — backend spec at `design/Stele Backend Design.md`, UI mocks at `design/*.html`. See § Project ambition and § Frontend canonical reference below.
+**实录 / Stele** — a local decision-provenance store distributed as an npm package (`stele-mcp`). Primary client is Claude Code via a stdio MCP server; a CLI is a secondary adapter onto the same store. Storage is SQLite via `node:sqlite`. The only non-stdlib deps are `@modelcontextprotocol/sdk` and `zod` (for the MCP adapter). **The dev loop and the distributed artifact run TypeScript differently** — see § Build & run model below. In dev, `npm run` scripts execute `src/*.ts` directly via `--experimental-strip-types` (no build). The published/installed package runs a **`tsc`-compiled `dist/`**: `npm install -g stele-mcp` puts `stele` and `stele-mcp` on PATH pointing at `dist/cli.js` / `dist/mcp.js` (plain compiled JS, shebang `node --no-warnings`), built by the `prepare` hook on install. Engines still pin Node ≥22.6 (for `node:sqlite`). The `design/` folder is canonical — backend spec at `design/Stele Backend Design.md`, UI mocks at `design/*.html`. See § Project ambition and § Frontend canonical reference below.
 
 ## Project ambition / quality bar
 
@@ -33,11 +33,20 @@ npm run resolve -- D-NEW DEF-OLD "manual note"    # cross-session stitch (flips 
 npm run relate  -- D-A D-B "note"                 # non-destructive link
 echo '<CapturePayload-json>' | npm run add        # same as MCP decision_capture
 
+npm run build                                     # tsc src/ → dist/ + copy templates + chmod bins
 # When testing the installed-bin distribution flow from this checkout:
-npm install -g .                                  # puts `stele` and `stele-mcp` on PATH, pointing at src/
+npm install -g .                                  # runs `prepare` (build) → bins point at dist/cli.js, dist/mcp.js
 ```
 
-No build step. There is no linter wired up. `npm test` runs the full `node:test` suite (180+ tests across acceptance, capture, projections, schemas, serve, hooks, store, migration). Verify changes by running tests + `npx tsc --noEmit` + a smoke run of `npm run _node -- src/cli.ts serve --multi --port <N>`.
+### Build & run model — dev runs `src/`, the installed package runs `dist/`
+
+There **is** a build step (this was once true and the doc lagged — it isn't anymore). Two distinct runtime paths, and conflating them will burn you:
+
+- **Dev loop (no build):** `npm test`, `npm run _node -- src/cli.ts …`, `npm run mcp` all execute `src/*.ts` directly through the `_node` alias (`node --experimental-strip-types --no-warnings`). Edits to `src/` are live here with no rebuild.
+- **Installed / published artifact (built):** `package.json` `bin` maps `stele` → `dist/cli.js` and `stele-mcp` → `dist/mcp.js`. These are **`tsc`-compiled plain JS** (no strip-types at runtime; shebang is `node --no-warnings`). `npm run build` (`scripts/build.mjs`) wipes `dist/`, runs `tsc` (type errors are non-blocking as long as `cli.js`+`mcp.js` emit — `noEmitOnError:false`), copies `src/templates` → `dist/templates`, and chmods the two bins. `prepare` + `prepublishOnly` both run it, so `npm install`/`npm install -g .`/`npm publish` all rebuild `dist/`. `dist/` is **gitignored**.
+- **Consequence (the load-bearing one):** the global `stele`/`stele-mcp` and the **always-on daemon** run `dist/`, not `src/`. A `src/` edit does **not** reach the installed CLI, the MCP bin, or the daemon until you `npm run build` (and restart the daemon). When you change daemon/serve/CLI behaviour and want to see it live, the loop is: `npm run build` → `launchctl kickstart -k gui/$(id -u)/com.stele.daemon` (macOS). `dist/serve.js` resolves `webDir` as `dist/../web`, i.e. the checkout's `web/` — so static-asset edits are picked up per request once the rebuilt daemon is running (assets are read from disk per request, not cached at boot).
+
+There is no linter wired up. `npm test` runs the full `node:test` suite (220+ tests across acceptance, capture, projections, schemas, serve, hooks, store, migration). Verify changes by running tests + `npx tsc --noEmit` + a smoke run of `npm run _node -- src/cli.ts serve --multi --port <N>`.
 
 ## Architecture
 
@@ -68,7 +77,7 @@ Status flips happen inside `Store.addEdge` (`src/store.ts`): a `resolves` edge m
 - `src/serve.ts` — `node:http` server backing `stele serve`. Two modes: **single-project** (cwd's store, routes at `/api/*` — used by dev) and **multi-tenant** (`--multi`, reads `~/.stele/registry.json`, lazy-opens a `Store` per slug, routes at `/<slug>/api/*` plus `/api/projects` and `/`). The daemon always uses `--multi`. POST bodies validate via `src/schemas.ts`. localhost-only. 0.3.0 routes: `GET /api/features` (flat list with optional `state` filter; `?summary=1` returns the legacy `featureSummary` shape), `GET /api/features/:id`, `GET /api/features/:id/decisions` (the projection backing `/stele:feature` step 2), `POST /api/features/:id/summary` (the `/stele:feature` step 5 sink). The 0.2.x `POST /api/features` (umbrella open), `POST /api/sessions/start`, `POST /api/sessions/:id/end`, and `GET /api/feature-rail` endpoints are gone.
 - `src/registry.ts` — global project registry at `~/.stele/registry.json`. `register(path)` is idempotent on path, generates a URL-safe slug from basename (collisions get `-2`/`-3` suffixes), saves atomically. `stele init` calls it; multi-tenant `serve` reads it; `daemon install` legacy-sweep populates it from old per-project plists.
 - `web/` — single-page web UI; vanilla JS, no framework, no build. Slug-aware: `currentSlug` extracted from `location.pathname` first segment, `apiGet`/`apiPost` auto-prefix it, `slugUrl(path)` is used in href construction. Page modules in `web/pages/`: `projects.js` (multi-project overview at `/`), `project.js` (single-project view at `/<slug>/`; flat feature rail + selected-feature detail with session timeline + decision chips), `trace.js`, `graph.js`, `tags.js`. Per-page CSS in `web/styles/pages/`. As of 0.3.0 the SPA matches the design taxonomy and the backend rename.
-- `bin/stele.js`, `bin/stele-mcp.js` — JS wrappers npm publishes as the `stele` and `stele-mcp` PATH bins. Each re-execs Node with `--experimental-strip-types --no-warnings` against the corresponding `src/*.ts` and inherits stdio. Edits to `src/` are picked up without rebuilding.
+- `dist/cli.js`, `dist/mcp.js` — the `stele` and `stele-mcp` PATH bins (per `package.json` `bin`). **`tsc`-compiled from `src/cli.ts` / `src/mcp.ts`** by `scripts/build.mjs`; shebang `#!/usr/bin/env -S node --no-warnings`, chmod +x at build. There are **no** hand-written `bin/*.js` wrapper files (an earlier design had them; gone). `tsconfig` `rewriteRelativeImportExtensions` rewrites the `.ts` import specifiers to `.js` in the emitted `dist/`. Edits to `src/` reach these bins only after `npm run build`. The published tarball ships `dist/` + `web/` at root (`files` in `package.json`), so an installed package resolves `webDir` as `<pkg>/web`.
 
 ### Frontend canonical reference
 
@@ -169,7 +178,7 @@ The retired commands are not aliased; re-running `stele init` on an upgraded pro
 
 ## Conventions specific to this repo
 
-- **No build step, no transpile.** TypeScript runs directly. Imports must use `.ts` extensions (`import { Store } from "./store.ts"`) — this is required for `--experimental-strip-types`.
+- **Source imports use `.ts` extensions** (`import { Store } from "./store.ts"`) — required for `--experimental-strip-types` in the dev loop; `tsconfig` `rewriteRelativeImportExtensions` rewrites them to `.js` when `tsc` emits `dist/`. The dev loop runs `src/` directly with no build; the installed CLI/MCP/daemon run a `tsc`-built `dist/` (see § Build & run model). So a `src/` edit is live for `npm test` / `npm run _node` immediately, but needs `npm run build` to reach an installed bin or the daemon.
 - **`revisitWhen` on a deferred decision must be a structured `Trigger`** (`metric` / `event` / `dependency` / `manual`), never free text. The resume layer relies on the discriminant to flag "needs check" — a free-text trigger is invisible to it forever.
 - **`delta` is optional and rare.** Only decisions that modify an intent bundle carry it. Pure code/tooling decisions leave it off; their changes are captured in `affects` + `artifacts`.
 - **Decision ids follow a convention by status kind:** `D-NN` for decided, `DEF-NN` for deferred, `OQ-NN` for open. The seed parser (`seed.ts`) relies on this when extracting cross-references from prose.
