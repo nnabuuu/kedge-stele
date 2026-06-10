@@ -408,18 +408,23 @@ test("reinstall is idempotent: SessionStart count stays at 1", () => {
 
 // ---- 0.4.0 phase 4 — SessionEnd extract agent + hook entry --------------
 
-test("install writes the stele-extract agent file", () => {
+test("install writes the stele-extract agent definition file", () => {
   installHooks(projectDir);
   const agentPath = join(projectDir, ".claude/agents/stele-extract.md");
   assert.ok(existsSync(agentPath), "stele-extract.md missing");
   const content = readFileSync(agentPath, "utf8");
   assert.ok(content.startsWith("---"), "agent missing YAML frontmatter");
   assert.ok(content.includes("name: stele-extract"));
-  assert.ok(content.includes("allowed_tools:"),
-    "agent must declare allowed_tools (mcp__stele__decision_capture etc.)");
+  // The agent's algorithm + schema reference live in the body. The
+  // SessionEnd wrapper script reads this file and embeds it in the
+  // prompt sent to `claude -p`.
+  assert.ok(
+    content.includes("decision_capture") && content.includes("session-extract"),
+    "agent body must describe the decision_capture call + source classifier",
+  );
 });
 
-test("install merges SessionEnd agent-type entry into settings.json with async:true", () => {
+test("install merges SessionEnd command-type entry into settings.json with async:true", () => {
   installHooks(projectDir);
   const s = readSettings();
   assert.ok(Array.isArray(s.hooks.SessionEnd), "SessionEnd not an array");
@@ -428,12 +433,30 @@ test("install merges SessionEnd agent-type entry into settings.json with async:t
   assert.equal(typeof entry.matcher, "string");
   assert.ok(Array.isArray(entry.hooks));
   const inner = entry.hooks[0];
-  assert.equal(inner.type, "agent",
-    "SessionEnd must be agent-type, not command-type");
-  assert.equal(inner.agent, ".claude/agents/stele-extract.md",
-    "SessionEnd entry must point at the project-relative agent file");
+  // 0.4.0-snapshot.8: Claude Code's `type:"agent"` schema only accepts a
+  // `prompt: string` field with NO documented async — the wrapper would
+  // block session close. Switched to command-type with async:true (which
+  // IS documented for command hooks) + a shell wrapper that spawns
+  // `claude -p` in the background.
+  assert.equal(inner.type, "command",
+    "SessionEnd must be command-type (agent-type doesn't support async)");
+  assert.ok(typeof inner.command === "string" && inner.command.endsWith("stele-session-end.sh"),
+    "SessionEnd entry must point at the wrapper script");
   assert.equal(inner.async, true,
     "async:true is load-bearing — without it the hook would block session close");
+});
+
+test("install writes the SessionEnd wrapper script, executable", () => {
+  installHooks(projectDir);
+  const wrapperPath = join(projectDir, ".claude/hooks/stele-session-end.sh");
+  assert.ok(existsSync(wrapperPath), "SessionEnd wrapper script missing");
+  const mode = statSync(wrapperPath).mode & 0o777;
+  assert.equal(mode & 0o100, 0o100, "owner exec bit not set on SessionEnd wrapper");
+  const content = readFileSync(wrapperPath, "utf8");
+  assert.ok(content.includes("claude -p"),
+    "wrapper must spawn `claude -p` for the post-hoc extract");
+  assert.ok(content.includes("setsid") || content.includes("nohup"),
+    "wrapper must detach the subprocess (setsid/nohup) — async:true on the hook isn't enough by itself");
 });
 
 test("status reports the extract agent + SessionEnd entry", () => {
@@ -482,9 +505,14 @@ test("install preserves unrelated SessionEnd entries (other extensions)", () => 
   assert.equal(others.length, 1, "non-stele SessionEnd entry survived");
 });
 
-test("uninstall removes the extract agent file + SessionEnd entry", () => {
+test("uninstall removes the SessionEnd wrapper + extract agent + settings entry", () => {
   installHooks(projectDir);
   uninstallHooks(projectDir);
+  assert.equal(
+    existsSync(join(projectDir, ".claude/hooks/stele-session-end.sh")),
+    false,
+    "SessionEnd wrapper script not removed",
+  );
   assert.equal(
     existsSync(join(projectDir, ".claude/agents/stele-extract.md")),
     false,
