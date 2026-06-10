@@ -20,6 +20,7 @@
 // "milestone" became "feature".
 
 import { listProjects, ensureCss } from "../api.js";
+import { renderResumeLauncher } from "../components/resume-launcher.js";
 
 // -------------------------------------------------------------------
 // Static enums (mirror src/types.ts + the design mock's labels)
@@ -154,6 +155,7 @@ function renderResumeStrip(hero, heroF, heroOc) {
             `${when}${dur ? ` · ${dur}` : ""}`)
         : null,
       h("div", { class: "resume-actions" },
+        last?.id ? renderResumeLauncher({ sessionId: last.id, slug: hero.slug }) : null,
         h("a", {
           class: "resume-go",
           href: `/${encodeURIComponent(hero.slug)}/`,

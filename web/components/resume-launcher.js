@@ -12,9 +12,22 @@
 //
 // Returns a DOM element (or null) — callers append it directly.
 
-import { apiGet } from "../api.js";
+import { currentSlug } from "../api.js";
 
-export function renderResumeLauncher({ sessionId } = {}) {
+// Resolve the resume-command URL. On slug-scoped pages (Trace/Project) the
+// slug comes from the URL; on the slug-less Projects overview the caller
+// passes the target project's slug explicitly.
+async function fetchResumeCommand(sessionId, slug) {
+  const s = slug ?? currentSlug();
+  const base = s ? `/${encodeURIComponent(s)}/api` : "/api";
+  const r = await fetch(`${base}/sessions/${encodeURIComponent(sessionId)}/resume-command`, {
+    headers: { accept: "application/json" },
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+export function renderResumeLauncher({ sessionId, slug } = {}) {
   if (!sessionId) return null;
 
   const wrap = document.createElement("div");
@@ -39,7 +52,7 @@ export function renderResumeLauncher({ sessionId } = {}) {
     loaded = true;
     pop.textContent = "…";
     try {
-      const data = await apiGet(`/sessions/${encodeURIComponent(sessionId)}/resume-command`);
+      const data = await fetchResumeCommand(sessionId, slug);
       pop.textContent = "";
       pop.append(renderPop(data));
     } catch {
