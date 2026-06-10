@@ -1,9 +1,13 @@
 // End-to-end acceptance scenario, split into named stages.
 //
-// Walks through the full happy path: Project bootstrap → Feature → Milestone
-// → session_start → decision capture → tag → depends_on edge → session_end
+// Walks through the full happy path: Project bootstrap → Feature →
+// session_start → decision capture → tag → depends_on edge → session_end
 // → resume. Each stage is a separate test using a shared module-level Store
 // so a failure pinpoints the offending step.
+//
+// 0.3.0: the Project → Feature → Milestone → Session → Decision chain
+// collapsed into Project → Feature → Session → Decision (the umbrella
+// Feature layer is gone; what used to be a Milestone IS the new Feature).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -15,7 +19,7 @@ import {
 import { applyCaptureTags } from "./tags.ts";
 import {
   continueLast,
-  milestoneSummary,
+  featureSummary,
   nodeState,
   resumeDigest,
 } from "./projections.ts";
@@ -27,7 +31,6 @@ const AT = "2026-06-09T00:00:00Z";
 const s = new Store(":memory:");
 let projectId: string;
 let featureId: string;
-let milestoneId: string;
 let sessionId: string;
 let decidedId: string;
 let openId: string;
@@ -42,36 +45,30 @@ test("acceptance · stage 1 · `stele init` shape: Project + unscoped Feature", 
   assert.ok(s.theProject(), "Project row must exist after init");
 });
 
-test("acceptance · stage 2 · open a real Feature", () => {
+test("acceptance · stage 2 · open a real Feature (state=draft)", () => {
   featureId = s.nextFeatureId();
-  s.putFeature({ id: featureId, projectId, name: "CcaaS" });
-  assert.equal(s.getFeature(featureId)!.name, "CcaaS");
-});
-
-test("acceptance · stage 3 · open a Milestone under the Feature (state=draft)", () => {
-  milestoneId = s.nextMilestoneId();
-  s.putMilestone({
-    id: milestoneId, featureId, name: "Binary artifact + SSE auth",
+  s.putFeature({
+    id: featureId, projectId, name: "Binary artifact + SSE auth",
     state: "draft", about: "Wire up streaming auth", startedAt: AT,
   });
-  assert.equal(s.getMilestone(milestoneId)!.state, "draft");
+  assert.equal(s.getFeature(featureId)!.state, "draft");
 });
 
-test("acceptance · stage 4 · session_start advances milestone draft → going", () => {
+test("acceptance · stage 4 · session_start advances feature draft → going", () => {
   const session = recordSessionStart(
-    s, milestoneId,
+    s, featureId,
     { source: "claude-code", sourceSessionId: "cc-abc-123" },
     { cwd: "/tmp/test", layoutAlive: true, zellijSession: "jijian" },
   );
   sessionId = session.id;
-  assert.equal(s.getMilestone(milestoneId)!.state, "going");
+  assert.equal(s.getFeature(featureId)!.state, "going");
 });
 
 test("acceptance · stage 5 · decision_capture with rich detail body", () => {
-  decidedId = s.nextLocalDecisionId(milestoneId, "decision");
+  decidedId = s.nextLocalDecisionId(featureId, "decision");
   const decision: Decision = {
     id: decidedId,
-    milestoneId,
+    featureId,
     sessionId,
     type: "decision",
     title: "Pick storage backend",
@@ -108,9 +105,9 @@ test("acceptance · stage 6 · tag policy=propose queues a pending proposal", ()
 });
 
 test("acceptance · stage 7 · open question + depends_on edge", () => {
-  openId = s.nextLocalDecisionId(milestoneId, "open");
+  openId = s.nextLocalDecisionId(featureId, "open");
   const openDecision: Decision = {
-    id: openId, milestoneId, sessionId,
+    id: openId, featureId, sessionId,
     type: "open", status: "open",
     title: "What about WAL?",
     raisedBy: { trigger: "follow-up", actor: "agent", layer: "personal", at: AT },
@@ -130,8 +127,8 @@ test("acceptance · stage 8 · session_end writes outcome + pause_reason", () =>
   );
   assert.equal(closed.outcome!.type, "advanced");
   assert.equal(closed.pauseReason!.kind, "out_of_time");
-  // 'advanced' alone doesn't transition milestone state; stays at 'going'
-  assert.equal(s.getMilestone(milestoneId)!.state, "going");
+  // 'advanced' alone doesn't transition feature state; stays at 'going'
+  assert.equal(s.getFeature(featureId)!.state, "going");
 });
 
 test("acceptance · stage 9 · resumeDigest surfaces the one open loop", () => {
@@ -147,8 +144,8 @@ test("acceptance · stage 10 · continueLast reads the closed session back", () 
   assert.equal(last!.lastPauseReason!.kind, "out_of_time");
 });
 
-test("acceptance · stage 11 · milestoneSummary reflects the activity", () => {
-  const summary = milestoneSummary(s).find((m) => m.milestone.id === milestoneId)!;
+test("acceptance · stage 11 · featureSummary reflects the activity", () => {
+  const summary = featureSummary(s).find((m) => m.feature.id === featureId)!;
   assert.equal(summary.openLoops, 1);
   assert.equal(summary.decisionCount, 2);
 });
@@ -156,10 +153,10 @@ test("acceptance · stage 11 · milestoneSummary reflects the activity", () => {
 test("acceptance · stage 12 · session_end with outcome.resolves[] materialises a resolves edge", () => {
   // Open a fresh session, then close it with outcome.type='resolved' pointing
   // at the still-open question. The edge should land and resumeDigest empty.
-  const s2 = recordSessionStart(s, milestoneId, { source: "manual" });
-  const closingId = s.nextLocalDecisionId(milestoneId, "decision");
+  const s2 = recordSessionStart(s, featureId, { source: "manual" });
+  const closingId = s.nextLocalDecisionId(featureId, "decision");
   s.putDecision({
-    id: closingId, milestoneId, sessionId: s2.id,
+    id: closingId, featureId, sessionId: s2.id,
     type: "decision",
     title: "Yes, enable WAL",
     raisedBy: { trigger: "answer", actor: "agent", layer: "personal", at: AT },

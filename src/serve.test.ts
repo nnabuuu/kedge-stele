@@ -1,5 +1,5 @@
 // Tests for src/serve.ts (0.1.0). HTTP smoke covering single-project +
-// multi-tenant dispatch with the new schema (Project, Feature, Milestone
+// multi-tenant dispatch with the new schema (Project, Feature, Feature
 // 5-state, Decision split, Edge.relation, depends_on, session lifecycle).
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
@@ -20,25 +20,25 @@ import type { Decision } from "./types.ts";
 
 const AT = "2026-06-09T00:00:00Z";
 
-function bootProject(s: Store): { projectId: string; milestoneId: string } {
+function bootProject(s: Store): { projectId: string; featureId: string } {
   const projectId = s.nextProjectId();
   s.putProject({ id: projectId, name: "test", path: "/test", status: "active", createdAt: AT });
-  const m = s.ensureUnscopedMilestone(projectId);
-  return { projectId, milestoneId: m.id };
+  const m = s.ensureUnscopedFeature(projectId);
+  return { projectId, featureId: m.id };
 }
 
-function mkOpen(milestoneId: string, id: string, title: string): Decision {
+function mkOpen(featureId: string, id: string, title: string): Decision {
   return {
-    id: `${milestoneId}/${id}`, milestoneId, type: "open", status: "open",
+    id: `${featureId}/${id}`, featureId, type: "open", status: "open",
     title,
     raisedBy: { trigger: "t", actor: "a", layer: "personal", at: AT },
     affects: [], createdAt: AT,
   };
 }
 
-function mkDecided(milestoneId: string, id: string, title: string): Decision {
+function mkDecided(featureId: string, id: string, title: string): Decision {
   return {
-    id: `${milestoneId}/${id}`, milestoneId, type: "decision",
+    id: `${featureId}/${id}`, featureId, type: "decision",
     title,
     raisedBy: { trigger: "t", actor: "a", layer: "personal", at: AT },
     detail: { options: [{ name: "A", verdict: "chosen", chosen: true }] },
@@ -48,19 +48,19 @@ function mkDecided(milestoneId: string, id: string, title: string): Decision {
 
 function seedStore(): Store {
   const s = new Store(":memory:");
-  const { milestoneId } = bootProject(s);
-  s.putDecision(mkOpen(milestoneId, "OQ-01", "open one"));
-  s.putDecision(mkOpen(milestoneId, "OQ-02", "open two"));
-  s.putDecision(mkDecided(milestoneId, "D-01", "decided one"));
+  const { featureId } = bootProject(s);
+  s.putDecision(mkOpen(featureId, "OQ-01", "open one"));
+  s.putDecision(mkOpen(featureId, "OQ-02", "open two"));
+  s.putDecision(mkDecided(featureId, "D-01", "decided one"));
   return s;
 }
 
-// Helper used by route tests that need the auto-created unscoped milestone
+// Helper used by route tests that need the auto-created unscoped feature
 // id. Goes through the Store API so the test isn't coupled to the sentinel
 // id format.
 function unscopedMid(s: Store): string {
   const p = s.theProject()!;
-  return s.ensureUnscopedMilestone(p.id).id;
+  return s.ensureUnscopedFeature(p.id).id;
 }
 
 let savedHome: string | undefined;
@@ -154,7 +154,7 @@ test("GET /api/decisions returns all", async () => {
   assert.equal(list.length, 3);
 });
 
-test("GET /api/decisions/<milestone>/<local> returns trace (slash in id is supported)", async () => {
+test("GET /api/decisions/<feature>/<local> returns trace (slash in id is supported)", async () => {
   const s = seedStore();
   const decisionId = `${unscopedMid(s)}/D-01`;
   running = await startServer({ store: s, port: 0 });
@@ -172,49 +172,49 @@ test("GET /api/decisions/NOPE returns 404", async () => {
   assert.equal(r.status, 404);
 });
 
-test("GET /api/next-id requires milestone parameter", async () => {
+test("GET /api/next-id requires feature parameter", async () => {
   running = await startServer({ store: seedStore(), port: 0 });
   const r = await fetch(`${running.url}/api/next-id?prefix=D`);
   assert.equal(r.status, 400);
 });
 
-test("GET /api/next-id?prefix=D&milestone=... returns <milestone>/<local>", async () => {
+test("GET /api/next-id?prefix=D&feature=... returns <feature>/<local>", async () => {
   const s = seedStore();
   running = await startServer({ store: s, port: 0 });
-  const milestoneId = unscopedMid(s); // the auto-generated id from ensureUnscopedMilestone with projectId P-01
-  const r = await fetch(`${running.url}/api/next-id?prefix=D&milestone=${encodeURIComponent(milestoneId)}`);
+  const featureId = unscopedMid(s); // the auto-generated id from ensureUnscopedFeature with projectId P-01
+  const r = await fetch(`${running.url}/api/next-id?prefix=D&feature=${encodeURIComponent(featureId)}`);
   // Existing decided one is M-01-unscoped/D-01, next should be D-02
   assert.equal(r.status, 200);
   const id = await r.json();
-  assert.equal(id, `${milestoneId}/D-02`);
+  assert.equal(id, `${featureId}/D-02`);
 });
 
 test("POST /api/edges with relation: 'resolves' flips target to resolved", async () => {
   const s = seedStore();
-  const milestoneId = unscopedMid(s);
+  const featureId = unscopedMid(s);
   running = await startServer({ store: s, port: 0 });
   const r = await fetch(`${running.url}/api/edges`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      from: `${milestoneId}/D-01`, to: `${milestoneId}/OQ-01`, relation: "resolves",
+      from: `${featureId}/D-01`, to: `${featureId}/OQ-01`, relation: "resolves",
     }),
   });
   assert.equal(r.status, 200);
-  const d = s.getDecision(`${milestoneId}/OQ-01`)!;
+  const d = s.getDecision(`${featureId}/OQ-01`)!;
   assert.equal(d.status, "resolved");
-  assert.equal(d.resolvedBy, `${milestoneId}/D-01`);
+  assert.equal(d.resolvedBy, `${featureId}/D-01`);
 });
 
 test("POST /api/edges with depends_on (new in 0.1.0) is accepted", async () => {
   const s = seedStore();
-  const milestoneId = unscopedMid(s);
+  const featureId = unscopedMid(s);
   running = await startServer({ store: s, port: 0 });
   const r = await fetch(`${running.url}/api/edges`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      from: `${milestoneId}/D-01`, to: `${milestoneId}/OQ-01`, relation: "depends_on",
+      from: `${featureId}/D-01`, to: `${featureId}/OQ-01`, relation: "depends_on",
     }),
   });
   assert.equal(r.status, 200);
@@ -231,46 +231,53 @@ test("POST /api/edges with old 'kind' field is rejected", async () => {
 });
 
 // ============================================================================
-// Project / Feature / Milestone — 0.1.0 new entities
+// Project / Feature / Feature — 0.1.0 new entities
 // ============================================================================
 
 test("GET /api/project returns the single Project + rollup", async () => {
   running = await startServer({ store: seedStore(), port: 0 });
   const r = await fetch(`${running.url}/api/project`);
   assert.equal(r.status, 200);
-  const body = await r.json() as { project: { name: string }; rollup: { milestoneCount: number } };
+  const body = await r.json() as { project: { name: string }; rollup: { featureCount: number } };
   assert.equal(body.project.name, "test");
-  assert.ok(body.rollup.milestoneCount >= 1);
+  assert.ok(body.rollup.featureCount >= 1);
 });
 
-test("POST /api/features creates a new Feature", async () => {
+test("GET /api/features returns featuresList items with state", async () => {
   running = await startServer({ store: seedStore(), port: 0 });
-  const r = await fetch(`${running.url}/api/features`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: "CcaaS" }),
-  });
-  assert.equal(r.status, 200);
-  const f = await r.json() as { id: string; name: string };
-  assert.equal(f.name, "CcaaS");
-});
-
-test("GET /api/milestones returns the summary (state field)", async () => {
-  running = await startServer({ store: seedStore(), port: 0 });
-  const r = await fetch(`${running.url}/api/milestones`);
-  const list = await r.json() as Array<{ milestone: { state: string } }>;
+  const r = await fetch(`${running.url}/api/features`);
+  const list = await r.json() as Array<{ state: string }>;
   assert.ok(list.length >= 1);
-  assert.ok(["draft", "going", "winding", "done", "paused"].includes(list[0].milestone.state));
+  assert.ok(["draft", "going", "winding", "done", "paused"].includes(list[0].state));
 });
 
-test("GET /api/milestones/:id/report returns a draft", async () => {
+test("GET /api/features?summary=1 returns the legacy featureSummary shape", async () => {
+  running = await startServer({ store: seedStore(), port: 0 });
+  const r = await fetch(`${running.url}/api/features?summary=1`);
+  const list = await r.json() as Array<{ feature: { state: string } }>;
+  assert.ok(list.length >= 1);
+  assert.ok(["draft", "going", "winding", "done", "paused"].includes(list[0].feature.state));
+});
+
+test("GET /api/features/:id/decisions returns the per-feature decision list", async () => {
   const s = seedStore();
-  const milestoneId = unscopedMid(s);
+  const featureId = unscopedMid(s);
   running = await startServer({ store: s, port: 0 });
-  const r = await fetch(`${running.url}/api/milestones/${encodeURIComponent(milestoneId)}/report`);
+  const r = await fetch(`${running.url}/api/features/${encodeURIComponent(featureId)}/decisions`);
   assert.equal(r.status, 200);
-  const draft = await r.json() as { milestoneId: string; openLoops: unknown[] };
-  assert.equal(draft.milestoneId, milestoneId);
+  const decisions = await r.json() as Array<{ id: string; type: string }>;
+  // The seed leaves 2 open decisions on the unscoped feature.
+  assert.ok(decisions.length >= 2);
+});
+
+test("GET /api/features/:id/report returns a draft", async () => {
+  const s = seedStore();
+  const featureId = unscopedMid(s);
+  running = await startServer({ store: s, port: 0 });
+  const r = await fetch(`${running.url}/api/features/${encodeURIComponent(featureId)}/report`);
+  assert.equal(r.status, 200);
+  const draft = await r.json() as { featureId: string; openLoops: unknown[] };
+  assert.equal(draft.featureId, featureId);
   // The 2 open decisions from the seed
   assert.equal(draft.openLoops.length, 2);
 });
@@ -279,47 +286,16 @@ test("GET /api/milestones/:id/report returns a draft", async () => {
 // Session lifecycle
 // ============================================================================
 
-test("POST /api/sessions/start opens a session under a milestone", async () => {
-  const s = seedStore();
-  const milestoneId = unscopedMid(s);
-  running = await startServer({ store: s, port: 0 });
-  const r = await fetch(`${running.url}/api/sessions/start`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      milestoneId,
-      sourceSession: { source: "claude-code", sourceSessionId: "abc" },
-      provenance: { cwd: "/x", layoutAlive: true },
-    }),
-  });
-  assert.equal(r.status, 200);
-  const sess = await r.json() as { id: string; provenance: { layoutAlive: boolean } };
-  assert.equal(sess.provenance.layoutAlive, true);
-});
-
-test("POST /api/sessions/:id/end writes outcome + pauseReason", async () => {
-  const s = seedStore();
-  const milestoneId = unscopedMid(s);
-  s.putSession({ id: "ses-x", milestoneId, source: "manual", startedAt: AT });
-  running = await startServer({ store: s, port: 0 });
-  const r = await fetch(`${running.url}/api/sessions/ses-x/end`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      outcome: { type: "advanced", summary: "ok" },
-      pauseReason: { kind: "out_of_time" },
-    }),
-  });
-  assert.equal(r.status, 200);
-  assert.equal(s.getSession("ses-x")!.outcome!.type, "advanced");
-  assert.equal(s.getSession("ses-x")!.pauseReason!.kind, "out_of_time");
-});
+// 0.3.0 removed POST /api/sessions/start and POST /api/sessions/:id/end —
+// sessions auto-bucket inside decision_capture. resume-command was folded
+// into /stele:feature so the dashboard read-only resume-command endpoint
+// stays for now.
 
 test("GET /api/sessions/:id/resume-command returns mode + command", async () => {
   const s = seedStore();
-  const milestoneId = unscopedMid(s);
+  const featureId = unscopedMid(s);
   s.putSession({
-    id: "ses-x", milestoneId, source: "claude-code", sourceSessionId: "xyz",
+    id: "ses-x", featureId, source: "claude-code", sourceSessionId: "xyz",
     startedAt: AT,
     provenance: { cwd: "/home/me", layoutAlive: false },
   });

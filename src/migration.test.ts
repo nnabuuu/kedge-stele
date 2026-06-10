@@ -64,8 +64,8 @@ test("migration · backup filename increments when a previous backup exists", ()
     const s2 = new Store(dbPath);
     assert.ok(s2.migratedFromLegacy);
     // Second backup must not have collided with the first
-    assert.notEqual(s2.migratedFromLegacy!.backupPath, `${dbPath}.0.0.x.db`);
-    assert.ok(s2.migratedFromLegacy!.backupPath.includes(".0.0.x."));
+    assert.notEqual(s2.migratedFromLegacy!.backupPath, `${dbPath}.0.2.x.db`);
+    assert.ok(s2.migratedFromLegacy!.backupPath.includes(".0.2.x."));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

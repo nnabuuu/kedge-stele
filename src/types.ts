@@ -1,29 +1,26 @@
 // ---------------------------------------------------------------------------
-// 实录 / Stele · domain model (0.1.0-snapshot schema source of truth)
+// 实录 / Stele · domain model (0.3.0 schema source of truth)
 //
 // The store holds a graph. Nodes are `Decision` records; edges (typed by
-// `relation`) connect them. Every projection (resume / trace / milestone
+// `relation`) connect them. Every projection (resume / trace / feature
 // timeline / by-tag) is a LIVE query over this graph — we never cache the
 // rendered view. Adding a `resolves` edge today retroactively updates how
 // a three-week-old report renders, because the report re-queries the live
 // node.
 //
-// Layering (0.1.0+): Project → Feature → Milestone → Session → Decision,
+// Layering (0.3.0+): Project → Feature → Session → Decision,
 // with Tag and the Edge graph cutting across.
 //
-// Breaking changes from 0.0.7 (see CHANGELOG):
-//   • Decision.Status discriminated union is GONE.  Replaced by separate
-//     `type` + `status` + `resolvedBy` + `supersededBy` columns; rich body
-//     moves into `detail`.
-//   • Decision id format: `<milestone>/<local>` (e.g. `M-01/D-04`), not
-//     `D-NN`/`DEF-NN`/`OQ-NN`.
-//   • Edge field rename: `kind` → `relation`.  `depends_on` joins the
-//     edge-relation enum.
-//   • Milestone status (3 states) → state (5 states); adds `about`,
-//     `sequenceAfter`, `featureId`.
-//   • Session gains `provenance`, `outcome` (typed), `pauseReason`.
-//   • Project becomes a first-class DB row (was registry-only).
-//   • Feature is new (between Project and Milestone).
+// Breaking changes from 0.2.x:
+//   • Schema collapses one layer. The old umbrella `Feature` (CcaaS / Live
+//     Lesson) is removed; its naming becomes a tag. The old `Milestone`
+//     becomes the new `Feature`, carrying state (5-state), `about`, dates,
+//     and a NEW rolling `summary` written by `/stele:feature`.
+//   • Session loses `outcome` and `pauseReason` (legacy types remain for
+//     one release while phase 3 removes the MCP tools that wrote them).
+//   • Decision FK renamed: `milestoneId` → `featureId`. id format stays
+//     `<featureId>/<local>`.
+//   • Tag target kind: `'milestone' | 'decision'` → `'feature' | 'decision'`.
 //
 // IntentDelta stays deferred-but-on-purpose (no bundle layer yet).
 // ---------------------------------------------------------------------------
@@ -31,10 +28,9 @@
 // ---- Primitive ids --------------------------------------------------------
 
 export type ProjectId = string;       // "P-<short>", e.g. "P-01"
-export type FeatureId = string;       // "F-<NN>"
-export type MilestoneId = string;     // "M-<NN>"
+export type FeatureId = string;       // "F-<NN>" (was MilestoneId in 0.2.x)
 export type SessionId = string;       // "ses-<short hash>"
-export type DecisionId = string;      // "<milestoneId>/<local>" e.g. "M-01/D-04"
+export type DecisionId = string;      // "<featureId>/<local>" e.g. "F-01/D-04"
 export type TagId = string;           // "tag-<short hash>"
 
 export type BundleVersion = string;
@@ -63,7 +59,7 @@ export type GovLayer = "district" | "school" | "personal";
 // ===========================================================================
 //
 // Was 0.0.7: registry.json {slug, path, addedAt} only.
-// Now (0.1.0): a real DB row per cwd with status + display fields.
+// 0.1.0+: a real DB row per cwd with status + display fields.
 // ---------------------------------------------------------------------------
 
 export type ProjectStatus = "active" | "winding" | "dormant" | "archived";
@@ -78,24 +74,7 @@ export interface Project {
 }
 
 // ===========================================================================
-// Feature  (new in 0.1.0 — the structural axis between project and milestone)
-// ===========================================================================
-
-export type FeatureLinkRelation = "depends-on" | "depended-on-by";
-export interface FeatureLink {
-  to: FeatureId;
-  relation: FeatureLinkRelation;
-}
-
-export interface Feature {
-  id: FeatureId;
-  projectId: ProjectId;
-  name: string;                // "CcaaS", "Live Lesson", "Skill Registry"
-  links?: FeatureLink[];       // wiring between features; usually edited later
-}
-
-// ===========================================================================
-// Milestone  (revised: 5-state, `about`, `sequenceAfter`, mandatory featureId)
+// Feature  (0.3.0 — was Milestone; now a direct child of Project)
 // ===========================================================================
 //
 // • `draft`   — opened, no captured work yet
@@ -104,25 +83,28 @@ export interface Feature {
 // • `done`    — shipped / closed successfully
 // • `paused`  — explicitly halted, pickup later
 //
-// `sequenceAfter` carries milestone ids that came before this one — the
+// `sequenceAfter` carries feature ids that came before this one — the
 // design's "推进顺序前驱". Used by the Project page to draw arrows.
+// `summary` is the rolling text written by /stele:feature on each call —
+// replace, not append.
 // ---------------------------------------------------------------------------
 
-export type MilestoneState = "draft" | "going" | "winding" | "done" | "paused";
+export type FeatureState = "draft" | "going" | "winding" | "done" | "paused";
 
-export interface Milestone {
-  id: MilestoneId;
-  featureId: FeatureId;        // FK — required (use the auto-created "unscoped" feature when none fits)
+export interface Feature {
+  id: FeatureId;
+  projectId: ProjectId;        // direct child of Project (no umbrella layer)
   name: string;                // "Binary artifact + SSE auth"
-  state: MilestoneState;
+  state: FeatureState;
   about?: string;              // one-line context / core problem
-  sequenceAfter?: MilestoneId[];
+  summary?: string;            // rolling, replaced on each /stele:feature call
+  sequenceAfter?: FeatureId[];
   startedAt: string;
   completedAt?: string;        // set when state moves to `done`
 }
 
 // ===========================================================================
-// Session  (gains provenance + typed outcome + pause_reason)
+// Session  (provenance only — no agent-managed lifecycle in 0.3.0)
 // ===========================================================================
 
 export type SessionSource =
@@ -133,9 +115,9 @@ export type SessionSource =
   | "manual"
   | "unknown";
 
-// Provenance — decides whether `resume_command` returns a "jump" (zellij
-// layout still alive) or a "rebuild" (use `claude --resume` to reanimate
-// the cc_session_id under a fresh shell).
+// Provenance — historically decided whether `resume_command` returned a
+// "jump" (zellij layout still alive) or a "rebuild". 0.3.0 dropped that
+// MCP tool, but the shape stays useful as capture-time metadata.
 export interface SessionProvenance {
   cwd: string;
   zellijSession?: string;
@@ -144,21 +126,19 @@ export interface SessionProvenance {
   layoutAlive: boolean;
 }
 
-// outcome.type:
-//   "advanced" — pushed the milestone forward
-//   "resolved" — closed an open/deferred loop (write `resolves` + `via`)
-//   "touched"  — minor cleanup, doesn't move the needle
+// LEGACY (kept for one release while old data + capture paths drain).
+// 0.3.0's agent-facing surface no longer reflects per-session — there is
+// no `session_end` MCP tool. These types remain so existing rows can be
+// decoded without a migration; new captures should not produce them.
 export type SessionOutcomeType = "advanced" | "resolved" | "touched";
 
 export interface SessionOutcome {
   type: SessionOutcomeType;
   summary?: string;
-  resolves?: DecisionId[];     // ids closed this session
-  via?: DecisionId;            // the decision that did the closing
+  resolves?: DecisionId[];
+  via?: DecisionId;
 }
 
-// pause_reason — the "走之前留话" half. `kind` is structured so the resume
-// flow can render the right re-entry prompt; `note` is the freeform anchor.
 export type PauseReasonKind =
   | "blocked"
   | "waiting_dep"
@@ -174,7 +154,7 @@ export interface PauseReason {
 
 export interface Session {
   id: SessionId;
-  milestoneId: MilestoneId;
+  featureId: FeatureId;        // (was milestoneId in 0.2.x)
   source: SessionSource;
   // For source="claude-code" this is the cc_session_id used by `claude --resume`.
   // Persisted so jumpback always has it available.
@@ -182,17 +162,17 @@ export interface Session {
   startedAt: string;
   endedAt?: string;
   provenance?: SessionProvenance;
+  // LEGACY — populated only on rows captured before 0.3.0.
   outcome?: SessionOutcome;
   pauseReason?: PauseReason;
   summary?: string;            // legacy free-text — superseded by outcome.summary
 }
 
 // ===========================================================================
-// Decision  (the big rewrite — split shape + rich detail)
+// Decision  (split shape + rich detail)
 // ===========================================================================
 //
-// Old 0.0.7 used a discriminated `Status` union with six kinds. 0.1.0 splits
-// the discriminant into separate columns:
+// 0.1.0 split the discriminant into separate columns:
 //
 //   type            kind of node:      decision | deferred | open
 //   status          resolution state:  null (for type='decision') | open | resolved
@@ -205,7 +185,7 @@ export interface Session {
 //   type='deferred' && status!='resolved'      → "deferred"
 //   type='open'     && status!='resolved'      → "open"
 //   (deferred|open) && status='resolved'       → "resolved"
-//   conflicted                                  → "conflicted" (reserved; not produced in 0.1.0)
+//   conflicted                                  → "conflicted" (reserved; not produced)
 // ---------------------------------------------------------------------------
 
 export type DecisionType = "decision" | "deferred" | "open";
@@ -260,8 +240,8 @@ export interface Revisit {
 }
 
 export interface Decision {
-  id: DecisionId;              // `<milestoneId>/<local>` (e.g. `M-01/D-04`)
-  milestoneId: MilestoneId;    // FK — required; "unscoped/<local>" decisions go under the auto-created unscoped milestone
+  id: DecisionId;              // `<featureId>/<local>` (e.g. `F-01/D-04`)
+  featureId: FeatureId;        // FK — required; "unscoped/<local>" decisions go under the auto-created unscoped feature
   sessionId?: SessionId;       // FK to the producing session (may be absent for seeded/manual)
   type: DecisionType;
   status?: DecisionResolutionStatus;  // null for type='decision'; 'open'|'resolved' for deferred/open
@@ -302,7 +282,7 @@ export interface Edge {
 }
 
 // ===========================================================================
-// Tags  (carried over from 0.0.7 unchanged)
+// Tags  (carried over from 0.0.7 unchanged except for target-kind rename)
 // ===========================================================================
 
 export type TagOrigin = "you" | "agent";
@@ -318,7 +298,7 @@ export interface Tag {
   createdAt: string;
 }
 
-export type TaggingTargetKind = "milestone" | "decision";
+export type TaggingTargetKind = "feature" | "decision";  // (was 'milestone' in 0.2.x)
 
 export interface Tagging {
   tagId: TagId;
@@ -347,20 +327,16 @@ export interface CaptureTagRequest {
 }
 
 // ===========================================================================
-// CapturePayload — the on-the-wire shape /decision sends to the MCP server
+// CapturePayload — the on-the-wire shape decision_capture sends to the MCP server
 // ===========================================================================
 //
-// Grew through 0.0.6 (milestone + sourceSession), 0.0.7 (tags), and now
-// 0.1.0 (richer milestone-mode that can also open a feature, optional
-// explicit sessionId from a prior session_start, and the new Decision shape).
+// `unscoped` is the back-compat escape hatch — the conversation genuinely
+// isn't goal-targeted. Resolves to the auto-created unscoped Feature.
 // ---------------------------------------------------------------------------
 
-// `unscoped` is the back-compat escape hatch — the conversation genuinely
-// isn't goal-targeted. Resolves to the auto-created unscoped milestone (which
-// itself lives under the auto-created unscoped feature).
-export type CaptureMilestoneMode =
-  | { mode: "continue"; id: MilestoneId }
-  | { mode: "new"; draft: { name: string; about?: string; featureId?: FeatureId; featureDraft?: { name: string } } }
+export type CaptureFeatureMode =     // (was CaptureMilestoneMode in 0.2.x)
+  | { mode: "continue"; id: FeatureId }
+  | { mode: "new"; draft: { name: string; about?: string } }
   | { mode: "unscoped" };
 
 export interface CaptureSourceSession {
@@ -371,40 +347,34 @@ export interface CaptureSourceSession {
 export interface CapturePayload {
   decision: Decision;
   edges?: Edge[];
-  milestone?: CaptureMilestoneMode;
+  feature?: CaptureFeatureMode;      // (was milestone in 0.2.x)
   sourceSession?: CaptureSourceSession;
-  // Skip milestone wiring entirely and bind the decision to an already-open session.
-  // Used when `session_start` was called explicitly first.
+  // Skip feature wiring entirely and bind the decision to an already-open session.
   sessionId?: SessionId;
   tags?: CaptureTagRequest[];
 }
 
 // ===========================================================================
-// Milestone report  (走之前留话 — the /milestone-report flow's draft round-trip)
+// LEGACY shapes — used by code that hasn't been deleted yet (phase 3+)
 // ===========================================================================
+// These exist to keep 0.3.0-snapshot.1 compilable. Phase 3 removes the MCP
+// tools that produce them; phase 4 removes the templates that emit them.
 
-export interface MilestoneReportDraft {
-  milestoneId: MilestoneId;
-  summary: string;                            // "this session pushed X forward"
-  resumeEdge?: string;                        // "next pickup point"
+export interface FeatureReportDraft {            // (was MilestoneReportDraft)
+  featureId: FeatureId;
+  summary: string;
+  resumeEdge?: string;
   suggestedPauseReason?: PauseReason;
   openLoops: { id: DecisionId; title: string; type: DecisionType }[];
-  // Optional state nudge — "winding" when the agent thinks we're wrapping up.
-  // User confirms before session_end applies it.
-  nextStateSuggestion?: MilestoneState;
+  nextStateSuggestion?: FeatureState;
 }
-
-// ===========================================================================
-// Resume command  (回来时念回来 — the /resume flow's machine-readable result)
-// ===========================================================================
 
 export type ResumeMode = "jump" | "rebuild";
 
 export interface ResumeCommandResult {
   mode: ResumeMode;
-  command: string;                            // copy-paste ready
+  command: string;
   copyable: true;
-  // Last-session context so the agent can read it back to the user
   lastSession?: {
     id: SessionId;
     endedAt?: string;

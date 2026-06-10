@@ -3,9 +3,9 @@
 // `parseReport` was the 0.0.1 cold-start path that parsed an HTML feature-
 // report into the decision graph. Two reasons it's retired:
 //   1. The 0.1.0 Decision shape (split type+status, rich `detail` body,
-//      `<milestone>/<local>` ids, slot-into-milestone+session bookkeeping)
+//      `<feature>/<local>` ids, slot-into-feature+session bookkeeping)
 //      doesn't translate from old HTML cleanly.
-//   2. The new write path is `/decision` + `/milestone-report`, not bulk
+//   2. The new write path is `/decision` + `/feature-report`, not bulk
 //      HTML import.
 //
 // The source file stays in tree for one snapshot in case anyone has

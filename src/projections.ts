@@ -1,13 +1,13 @@
 // Projections — read-side views computed live over the decision graph.
-// "什么在等我", "这件事是怎么发生的", "milestone 上发生了什么".
+// "什么在等我", "这件事是怎么发生的", "feature 上发生了什么".
 //
 // 0.1.0 changes:
 //   • Status discriminated union → split (type + status + resolved_by +
 //     superseded_by). nodeState is derived here, never stored.
 //   • Trigger lives inside Revisit: `decision.revisit?.trigger`.
-//   • Milestone state is the 5-state enum; sort order updated accordingly.
+//   • Feature state is the 5-state enum; sort order updated accordingly.
 //   • `edges.relation` (not `.kind`).
-//   • Adds `projectRollup` for the Projects page; `milestoneTimeline` for
+//   • Adds `projectRollup` for the Projects page; `featureTimeline` for
 //     the Project page's main column.
 import type { Store } from "./store.ts";
 import type {
@@ -18,9 +18,7 @@ import type {
   EntityRef,
   Feature,
   FeatureId,
-  Milestone,
-  MilestoneId,
-  MilestoneState,
+  FeatureState,
   PauseReason,
   Project,
   ProjectId,
@@ -248,21 +246,21 @@ export async function traceEntity(
 }
 
 // ===========================================================================
-// Milestone projections
+// Feature projections
 // ===========================================================================
 
-export interface MilestoneSummary {
-  milestone: Milestone;
+export interface FeatureSummary {
+  feature: Feature;
   sessionCount: number;
   decisionCount: number;
   openLoops: number;      // open + un-resolved deferred
-  lastActivity: string;   // ISO of most recent session.startedAt or milestone.startedAt
+  lastActivity: string;   // ISO of most recent session.startedAt or feature.startedAt
 }
 
 // 5-state display order — "going" surfaces first, then winding, paused, draft,
-// done (done milestones get pushed to the bottom so the list shows what needs
+// done (done features get pushed to the bottom so the list shows what needs
 // attention).
-const MILESTONE_STATE_ORDER: Record<MilestoneState, number> = {
+const FEATURE_STATE_ORDER: Record<FeatureState, number> = {
   going: 0,
   winding: 1,
   paused: 2,
@@ -270,11 +268,11 @@ const MILESTONE_STATE_ORDER: Record<MilestoneState, number> = {
   done: 4,
 };
 
-export function milestoneSummary(store: Store): MilestoneSummary[] {
-  const out: MilestoneSummary[] = [];
-  for (const m of store.allMilestones()) {
-    const sessions = store.sessionsInMilestone(m.id);
-    const decisions = store.decisionsInMilestone(m.id);
+export function featureSummary(store: Store): FeatureSummary[] {
+  const out: FeatureSummary[] = [];
+  for (const m of store.allFeatures()) {
+    const sessions = store.sessionsInFeature(m.id);
+    const decisions = store.decisionsInFeature(m.id);
     let openLoops = 0;
     for (const d of decisions) {
       const ns = nodeState(d);
@@ -284,7 +282,7 @@ export function milestoneSummary(store: Store): MilestoneSummary[] {
       .map((s) => s.startedAt)
       .reduce((max, t) => (t > max ? t : max), m.startedAt);
     out.push({
-      milestone: m,
+      feature: m,
       sessionCount: sessions.length,
       decisionCount: decisions.length,
       openLoops,
@@ -292,31 +290,31 @@ export function milestoneSummary(store: Store): MilestoneSummary[] {
     });
   }
   return out.sort((a, b) => {
-    if (a.milestone.state !== b.milestone.state) {
-      return MILESTONE_STATE_ORDER[a.milestone.state] - MILESTONE_STATE_ORDER[b.milestone.state];
+    if (a.feature.state !== b.feature.state) {
+      return FEATURE_STATE_ORDER[a.feature.state] - FEATURE_STATE_ORDER[b.feature.state];
     }
     return b.lastActivity.localeCompare(a.lastActivity);
   });
 }
 
-export interface MilestoneDetail {
-  milestone: Milestone;
+export interface FeatureDetail {
+  feature: Feature;
   sessions: Array<{ session: Session; decisions: Decision[] }>;
-  unscopedDecisions: Decision[];  // decisions bound to the milestone but no session (rare; here for completeness)
+  unscopedDecisions: Decision[];  // decisions bound to the feature but no session (rare; here for completeness)
 }
 
-export function milestoneDetail(store: Store, id: MilestoneId): MilestoneDetail | null {
-  const m = store.getMilestone(id);
+export function featureDetail(store: Store, id: FeatureId): FeatureDetail | null {
+  const m = store.getFeature(id);
   if (!m) return null;
-  const sessions = store.sessionsInMilestone(id);
+  const sessions = store.sessionsInFeature(id);
   const buckets = sessions.map((session) => ({
     session,
     decisions: store.decisionsInSession(session.id),
   }));
   const sessionDecisionIds = new Set<DecisionId>();
   for (const b of buckets) for (const d of b.decisions) sessionDecisionIds.add(d.id);
-  const unscoped = store.decisionsInMilestone(id).filter((d) => !sessionDecisionIds.has(d.id));
-  return { milestone: m, sessions: buckets, unscopedDecisions: unscoped };
+  const unscoped = store.decisionsInFeature(id).filter((d) => !sessionDecisionIds.has(d.id));
+  return { feature: m, sessions: buckets, unscopedDecisions: unscoped };
 }
 
 // ===========================================================================
@@ -325,16 +323,16 @@ export function milestoneDetail(store: Store, id: MilestoneId): MilestoneDetail 
 
 export interface ProjectRollup {
   project: Project;
-  openLoops: number;       // sum across all milestones
+  openLoops: number;       // sum across all features
   dueLoops: number;        // open loops whose revisit trigger looks fired
   lastActivity: string;    // most recent session.startedAt
-  milestonesByState: Record<MilestoneState, number>;
-  milestoneCount: number;
+  featuresByState: Record<FeatureState, number>;
+  featureCount: number;
   decisionCount: number;
 }
 
 /**
- * One row per project. Aggregates counts across the project's milestones.
+ * One row per project. Aggregates counts across the project's features.
  * For a per-project Store there's exactly one row; the caller can also
  * walk this across registry entries to build the multi-project overview.
  */
@@ -342,11 +340,9 @@ export function projectRollup(store: Store, projectId: ProjectId): ProjectRollup
   const project = store.getProject(projectId);
   if (!project) return null;
 
-  const features = store.featuresIn(projectId);
-  const featureIds = new Set(features.map((f) => f.id));
-  const milestones = store.allMilestones().filter((m) => featureIds.has(m.featureId));
+  const features = store.featuresInProject(projectId);
 
-  const milestonesByState: Record<MilestoneState, number> = {
+  const featuresByState: Record<FeatureState, number> = {
     draft: 0, going: 0, winding: 0, done: 0, paused: 0,
   };
   let decisionCount = 0;
@@ -354,13 +350,13 @@ export function projectRollup(store: Store, projectId: ProjectId): ProjectRollup
   let dueLoops = 0;
   let lastActivity = project.createdAt;
 
-  for (const m of milestones) {
-    milestonesByState[m.state]++;
+  for (const m of features) {
+    featuresByState[m.state]++;
     if (m.startedAt > lastActivity) lastActivity = m.startedAt;
-    for (const s of store.sessionsInMilestone(m.id)) {
+    for (const s of store.sessionsInFeature(m.id)) {
       if (s.startedAt > lastActivity) lastActivity = s.startedAt;
     }
-    for (const d of store.decisionsInMilestone(m.id)) {
+    for (const d of store.decisionsInFeature(m.id)) {
       decisionCount++;
       const ns = nodeState(d);
       if (ns === "open" || ns === "deferred") {
@@ -375,8 +371,8 @@ export function projectRollup(store: Store, projectId: ProjectId): ProjectRollup
     openLoops,
     dueLoops,
     lastActivity,
-    milestonesByState,
-    milestoneCount: milestones.length,
+    featuresByState,
+    featureCount: features.length,
     decisionCount,
   };
 }
@@ -387,7 +383,7 @@ export function projectRollup(store: Store, projectId: ProjectId): ProjectRollup
 
 export interface ContinueLastResult {
   session: Session;
-  milestone: Milestone;
+  feature: Feature;
   // Surface the last session's outcome + pause_reason so the agent can
   // read them back to the user before they decide to jump back in.
   lastOutcome?: Session["outcome"];
@@ -396,20 +392,20 @@ export interface ContinueLastResult {
 
 /**
  * Find the most recent Session (in this whole store, or scoped to one
- * project / milestone) so the agent can offer to continue it.
+ * project / feature) so the agent can offer to continue it.
  *
  * Returns null if there are no sessions yet.
  */
-export function continueLast(store: Store, scope?: { milestoneId?: MilestoneId }): ContinueLastResult | null {
-  const session = scope?.milestoneId
-    ? store.latestSessionInMilestone(scope.milestoneId)
+export function continueLast(store: Store, scope?: { featureId?: FeatureId }): ContinueLastResult | null {
+  const session = scope?.featureId
+    ? store.latestSessionInFeature(scope.featureId)
     : store.latestSession();
   if (!session) return null;
-  const milestone = store.getMilestone(session.milestoneId);
-  if (!milestone) return null;
+  const feature = store.getFeature(session.featureId);
+  if (!feature) return null;
   return {
     session,
-    milestone,
+    feature,
     lastOutcome: session.outcome,
     lastPauseReason: session.pauseReason,
   };
@@ -422,8 +418,8 @@ export function continueLast(store: Store, scope?: { milestoneId?: MilestoneId }
 export interface TraceStitchSession {
   id: SessionId;
   startedAt: string;
-  milestoneId: MilestoneId;
-  milestoneName?: string;
+  featureId: FeatureId;
+  featureName?: string;
 }
 
 export interface TraceStitchDecision {
@@ -504,8 +500,8 @@ export function traceStitch(store: Store, decisionId: DecisionId): TraceStitch |
     return {
       id: s.id,
       startedAt: s.startedAt,
-      milestoneId: s.milestoneId,
-      milestoneName: store.getMilestone(s.milestoneId)?.name,
+      featureId: s.featureId,
+      featureName: store.getFeature(s.featureId)?.name,
     };
   };
 
@@ -550,105 +546,99 @@ export function traceStitch(store: Store, decisionId: DecisionId): TraceStitch |
 }
 
 // ===========================================================================
-// Feature rail — left navigation on the Project page
+// Feature list — flat per-project list with tags + counts, used by the
+// Project page's left rail (replaces the old featureRail which grouped
+// milestones under an umbrella feature; 0.3.0 collapses that layer).
 // ===========================================================================
 
-export interface FeatureRailMilestoneTag {
+export interface FeatureListItemTag {
   id: string;
   name: string;
   color: string;
 }
 
-export interface FeatureRailMilestone {
-  id: MilestoneId;
+export interface FeatureListItem {
+  id: FeatureId;
   name: string;
-  state: MilestoneState;
+  state: FeatureState;
   sessionCount: number;
   decisionCount: number;
   openLoops: number;
-  lastActivity: string | null;   // most recent session.startedAt, falls back to milestone.startedAt
-  tags: FeatureRailMilestoneTag[];
-}
-
-export interface FeatureRailEntry {
-  feature: Feature;
-  milestones: FeatureRailMilestone[];
+  lastActivity: string | null;   // most recent session.startedAt, falls back to feature.startedAt
+  tags: FeatureListItemTag[];
 }
 
 /**
- * The Project page's left rail: features → milestones, sorted so the
- * milestone you most likely want to resume floats to the top.
+ * Flat list of features for the active project, sorted so the feature you
+ * most likely want to resume floats to the top (going > winding > paused
+ * > draft > done; ties broken by lastActivity desc).
  *
- * Milestones within a feature sort by state (going > winding > paused >
- * draft > done) then by lastActivity desc. Features sort by count of
- * active milestones desc. Empty features are dropped.
- *
- * Assumes single-project stores (the daemon's per-slug model); for
- * multi-project stores we walk the first project's features.
+ * Assumes single-project stores (the daemon's per-slug model). When state
+ * filter is supplied, only features in that state are returned.
  */
-export function featureRail(store: Store): FeatureRailEntry[] {
+export function featuresList(
+  store: Store,
+  filter?: { state?: FeatureState },
+): FeatureListItem[] {
   const projects = store.allProjects();
   const project = projects[0];
   if (!project) return [];
 
-  const features = store.featuresIn(project.id);
-  const milestonesByFeature = new Map<string, Milestone[]>();
-  for (const m of store.allMilestones()) {
-    const arr = milestonesByFeature.get(m.featureId) ?? [];
-    arr.push(m);
-    milestonesByFeature.set(m.featureId, arr);
-  }
-
-  const STATE_RANK: Record<MilestoneState, number> = {
+  const STATE_RANK: Record<FeatureState, number> = {
     going: 0, winding: 1, paused: 2, draft: 3, done: 4,
   };
 
-  const entries: FeatureRailEntry[] = features.map((feature) => {
-    const ms = milestonesByFeature.get(feature.id) ?? [];
-    const milestones: FeatureRailMilestone[] = ms.map((m) => {
-      const sessions = store.sessionsInMilestone(m.id);
-      const decisions = store.decisionsInMilestone(m.id);
-      const openLoops = decisions.filter((d) => {
-        const ns = nodeState(d);
-        return ns === "open" || ns === "deferred";
-      }).length;
-      const lastSession = sessions[sessions.length - 1];
-      const tags = store.taggingsForTarget("milestone", m.id).map((t) => ({
-        id: t.id, name: t.name, color: t.color,
-      }));
-      return {
-        id: m.id,
-        name: m.name,
-        state: m.state,
-        sessionCount: sessions.length,
-        decisionCount: decisions.length,
-        openLoops,
-        lastActivity: lastSession?.startedAt ?? m.startedAt ?? null,
-        tags,
-      };
-    });
-    milestones.sort((a, b) => {
-      const r = STATE_RANK[a.state] - STATE_RANK[b.state];
-      if (r !== 0) return r;
-      return (b.lastActivity ?? "").localeCompare(a.lastActivity ?? "");
-    });
-    return { feature, milestones };
+  let features = store.featuresInProject(project.id);
+  if (filter?.state) features = features.filter((m) => m.state === filter.state);
+
+  const items: FeatureListItem[] = features.map((m) => {
+    const sessions = store.sessionsInFeature(m.id);
+    const decisions = store.decisionsInFeature(m.id);
+    const openLoops = decisions.filter((d) => {
+      const ns = nodeState(d);
+      return ns === "open" || ns === "deferred";
+    }).length;
+    const lastSession = sessions[sessions.length - 1];
+    const tags = store.taggingsForTarget("feature", m.id).map((t) => ({
+      id: t.id, name: t.name, color: t.color,
+    }));
+    return {
+      id: m.id,
+      name: m.name,
+      state: m.state,
+      sessionCount: sessions.length,
+      decisionCount: decisions.length,
+      openLoops,
+      lastActivity: lastSession?.startedAt ?? m.startedAt ?? null,
+      tags,
+    };
   });
 
-  entries.sort((a, b) => {
-    const active = (e: FeatureRailEntry) =>
-      e.milestones.filter((m) => m.state === "going" || m.state === "winding").length;
-    return active(b) - active(a);
+  items.sort((a, b) => {
+    const r = STATE_RANK[a.state] - STATE_RANK[b.state];
+    if (r !== 0) return r;
+    return (b.lastActivity ?? "").localeCompare(a.lastActivity ?? "");
   });
 
-  return entries.filter((e) => e.milestones.length > 0);
+  return items;
+}
+
+// ===========================================================================
+// Feature decisions — flat list of all decisions on a feature across all
+// sessions. Used by /stele:feature step 2 (the reconcile pass) and by the
+// Project-page UI.
+// ===========================================================================
+
+export function featureDecisions(store: Store, featureId: FeatureId): Decision[] {
+  const all = store.decisionsInFeature(featureId);
+  return [...all].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 // ===========================================================================
 // Multi-project overview — the data behind GET /api/projects
 // ===========================================================================
 
-export interface TopMilestoneSession {
+export interface TopFeatureSession {
   id: SessionId;
   startedAt: string;
   endedAt?: string;
@@ -656,12 +646,11 @@ export interface TopMilestoneSession {
   summary?: string;        // outcome.summary preferred, falls back to session.summary
 }
 
-export interface TopMilestone {
-  id: MilestoneId;
+export interface TopFeature {
+  id: FeatureId;
   name: string;
-  state: MilestoneState;
-  feature: string;         // feature name
-  lastSession: TopMilestoneSession | null;
+  state: FeatureState;
+  lastSession: TopFeatureSession | null;
 }
 
 export interface ProjectListSummary {
@@ -679,12 +668,12 @@ export interface ProjectListSummary {
   dueLoops: number;
   needsCheck: number;      // open/deferred decisions whose revisit trigger fired
   featureCount: number;
-  milestonesByState: Record<MilestoneState, number>;
+  featuresByState: Record<FeatureState, number>;
   decisionCount: number;
   // recency
   lastActivity: string | null;
-  // headline milestone for the global resume strip + per-card preview
-  topMilestone: TopMilestone | null;
+  // headline feature for the global resume strip + per-card preview
+  topFeature: TopFeature | null;
   // edge cases
   missing?: boolean;       // .stele/decisions.db absent or unopenable
 }
@@ -711,10 +700,10 @@ export function projectListSummary(
         dueLoops: 0,
         needsCheck: 0,
         featureCount: 0,
-        milestonesByState: { draft: 0, going: 0, winding: 0, done: 0, paused: 0 },
+        featuresByState: { draft: 0, going: 0, winding: 0, done: 0, paused: 0 },
         decisionCount: 0,
         lastActivity: null,
-        topMilestone: null,
+        topFeature: null,
         missing: true,
       };
     }
@@ -736,10 +725,10 @@ export function projectListSummary(
         dueLoops: 0,
         needsCheck: 0,
         featureCount: 0,
-        milestonesByState: { draft: 0, going: 0, winding: 0, done: 0, paused: 0 },
+        featuresByState: { draft: 0, going: 0, winding: 0, done: 0, paused: 0 },
         decisionCount: 0,
         lastActivity: null,
-        topMilestone: null,
+        topFeature: null,
       };
     }
 
@@ -758,25 +747,21 @@ export function projectListSummary(
         dueLoops: 0,
         needsCheck: 0,
         featureCount: 0,
-        milestonesByState: { draft: 0, going: 0, winding: 0, done: 0, paused: 0 },
+        featuresByState: { draft: 0, going: 0, winding: 0, done: 0, paused: 0 },
         decisionCount: 0,
         lastActivity: null,
-        topMilestone: null,
+        topFeature: null,
       };
     }
 
-    // Find the most-recent session across the project's milestones.
-    const features = store.featuresIn(project.id);
-    const featureById = new Map<string, Feature>(features.map((f) => [f.id, f]));
-    const milestones = store
-      .allMilestones()
-      .filter((m) => featureById.has(m.featureId));
+    // Find the most-recent session across the project's features.
+    const features = store.featuresInProject(project.id);
 
-    let top: TopMilestone | null = null;
+    let top: TopFeature | null = null;
     let topStartedAt = "";
-    for (const m of milestones) {
-      const sessions = store.sessionsInMilestone(m.id);
-      // sessionsInMilestone returns ascending by startedAt (per Store)
+    for (const m of features) {
+      const sessions = store.sessionsInFeature(m.id);
+      // sessionsInFeature returns ascending by startedAt (per Store)
       const last = sessions[sessions.length - 1];
       if (!last) continue;
       if (last.startedAt > topStartedAt) {
@@ -785,7 +770,6 @@ export function projectListSummary(
           id: m.id,
           name: m.name,
           state: m.state,
-          feature: featureById.get(m.featureId)?.name ?? "",
           lastSession: {
             id: last.id,
             startedAt: last.startedAt,
@@ -809,10 +793,10 @@ export function projectListSummary(
       dueLoops: rollup.dueLoops,
       needsCheck,
       featureCount: features.length,
-      milestonesByState: rollup.milestonesByState,
+      featuresByState: rollup.featuresByState,
       decisionCount: rollup.decisionCount,
       lastActivity: rollup.lastActivity,
-      topMilestone: top,
+      topFeature: top,
     };
   });
 }
@@ -829,8 +813,7 @@ export interface GraphSliceNode {
   title: string;
   type: DecisionType;
   state: GraphNodeState;
-  milestoneId: MilestoneId;
-  featureId?: FeatureId;
+  featureId: FeatureId;
   sessionId?: SessionId;
   tags: Array<{ id: string; name: string; color: string }>;
 }
@@ -845,13 +828,7 @@ export interface GraphSliceEdge {
 export interface GraphSliceFeature {
   id: FeatureId;
   name: string;
-}
-
-export interface GraphSliceMilestone {
-  id: MilestoneId;
-  name: string;
-  state: MilestoneState;
-  featureId: FeatureId;
+  state: FeatureState;
 }
 
 export interface GraphSlice {
@@ -860,45 +837,41 @@ export interface GraphSlice {
   // Pivot data for the UI's filter pills (always returns the full set so
   // the user can broaden the filter without a second round-trip).
   features: GraphSliceFeature[];
-  milestones: GraphSliceMilestone[];
 }
 
 export interface GraphSliceFilter {
   feature?: FeatureId;
-  milestone?: MilestoneId;
   tag?: string;     // tag id OR tag name (case-insensitive)
 }
 
 /**
- * Return the decision graph as `{nodes, edges}` plus the feature + milestone
- * pivot lists. Filters narrow the scope (feature, milestone, tag) but
- * pivots remain global so the UI can switch filters without a refetch.
+ * Return the decision graph as `{nodes, edges}` plus the feature pivot
+ * list. Filters narrow the scope (feature, tag) but the pivot list stays
+ * global so the UI can switch filters without a refetch.
  */
 export function graphSlice(store: Store, filter?: GraphSliceFilter): GraphSlice {
   const projects = store.allProjects();
   const project = projects[0];
   if (!project) {
-    return { nodes: [], edges: [], features: [], milestones: [] };
+    return { nodes: [], edges: [], features: [] };
   }
 
   // Pivots — always full project scope.
-  const features = store.featuresIn(project.id);
-  const featureIds = new Set(features.map((f) => f.id));
-  const allMilestones = store.allMilestones().filter((m) => featureIds.has(m.featureId));
+  const features = store.featuresInProject(project.id);
+  const pivotFeatures: GraphSliceFeature[] = features.map((f) => ({
+    id: f.id, name: f.name, state: f.state,
+  }));
 
-  // Apply filter to scope which milestones / decisions land in the slice.
-  let scopedMilestones = allMilestones;
+  // Apply filter to scope which features / decisions land in the slice.
+  let scopedFeatures = features;
   if (filter?.feature) {
-    scopedMilestones = scopedMilestones.filter((m) => m.featureId === filter.feature);
+    scopedFeatures = scopedFeatures.filter((m) => m.id === filter.feature);
   }
-  if (filter?.milestone) {
-    scopedMilestones = scopedMilestones.filter((m) => m.id === filter.milestone);
-  }
-  const milestoneById = new Map(scopedMilestones.map((m) => [m.id, m]));
+  const featureById = new Map(scopedFeatures.map((m) => [m.id, m]));
 
   let decisions = store
     .allDecisions()
-    .filter((d) => milestoneById.has(d.milestoneId));
+    .filter((d) => featureById.has(d.featureId));
 
   // Tag filter is decision-level
   if (filter?.tag) {
@@ -907,10 +880,7 @@ export function graphSlice(store: Store, filter?: GraphSliceFilter): GraphSlice 
       return {
         nodes: [],
         edges: [],
-        features: features.map((f) => ({ id: f.id, name: f.name })),
-        milestones: allMilestones.map((m) => ({
-          id: m.id, name: m.name, state: m.state, featureId: m.featureId,
-        })),
+        features: pivotFeatures,
       };
     }
     const taggedDecisionIds = new Set(
@@ -924,21 +894,17 @@ export function graphSlice(store: Store, filter?: GraphSliceFilter): GraphSlice 
 
   const nodeIdSet = new Set(decisions.map((d) => d.id));
 
-  const nodes: GraphSliceNode[] = decisions.map((d) => {
-    const m = milestoneById.get(d.milestoneId);
-    return {
-      id: d.id,
-      title: d.title,
-      type: d.type,
-      state: nodeState(d) as GraphNodeState,
-      milestoneId: d.milestoneId,
-      featureId: m?.featureId,
-      sessionId: d.sessionId,
-      tags: store.taggingsForTarget("decision", d.id).map((t) => ({
-        id: t.id, name: t.name, color: t.color,
-      })),
-    };
-  });
+  const nodes: GraphSliceNode[] = decisions.map((d) => ({
+    id: d.id,
+    title: d.title,
+    type: d.type,
+    state: nodeState(d) as GraphNodeState,
+    featureId: d.featureId,
+    sessionId: d.sessionId,
+    tags: store.taggingsForTarget("decision", d.id).map((t) => ({
+      id: t.id, name: t.name, color: t.color,
+    })),
+  }));
 
   // Collect edges where both ends survived the filter. edgesFrom(d.id)
   // iterates from one side so we see each edge exactly once.
@@ -959,9 +925,6 @@ export function graphSlice(store: Store, filter?: GraphSliceFilter): GraphSlice 
   return {
     nodes,
     edges,
-    features: features.map((f) => ({ id: f.id, name: f.name })),
-    milestones: allMilestones.map((m) => ({
-      id: m.id, name: m.name, state: m.state, featureId: m.featureId,
-    })),
+    features: pivotFeatures,
   };
 }

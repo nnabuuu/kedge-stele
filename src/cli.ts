@@ -5,8 +5,8 @@ import { Store } from "./store.ts";
 import { proposeEdges } from "./consolidate.ts";
 import {
   continueLast,
-  milestoneDetail,
-  milestoneSummary,
+  featureDetail,
+  featureSummary,
   nodeState,
   projectRollup,
   resumeDigest,
@@ -43,8 +43,7 @@ import type {
   EdgeRelation,
   EntityRef,
   Feature,
-  Milestone,
-  MilestoneState,
+  FeatureState,
   PauseReason,
   Project,
   ProjectStatus,
@@ -139,7 +138,7 @@ async function initCommand(args: string[]): Promise<void> {
   writeFileSync(join(steleDir, "README.md"), STELE_README);
 
   // 0.1.0 — bootstrap the Project DB row + unscoped Feature so the
-  // capture flow has a real Feature → Milestone → Session → Decision chain
+  // capture flow has a real Feature → Feature → Session → Decision chain
   // to bind to from the very first decision.
   {
     const store = new Store(join(steleDir, "decisions.db"));
@@ -449,48 +448,45 @@ async function serveCommand(args: string[]): Promise<void> {
 }
 
 // -----------------------------------------------------------------------------
-// 0.1.0 — stele milestones {list, open, report, show, set-state}
-// (close retired — state advances via the /milestone-report flow)
+// 0.1.0 — stele features {list, open, report, show, set-state}
+// (close retired — state advances via the /feature-report flow)
 // -----------------------------------------------------------------------------
 
-function parseMilestoneState(v: string | undefined): MilestoneState {
+function parseFeatureState(v: string | undefined): FeatureState {
   if (v === "draft" || v === "going" || v === "winding" || v === "done" || v === "paused") return v;
   console.error(`invalid state: ${v} (expected draft|going|winding|done|paused)`);
   process.exit(1);
 }
 
-function milestonesCommand(store: Store, args: string[]): void {
+function featuresCommand(store: Store, args: string[]): void {
   const sub = args[0];
 
   if (sub === undefined || sub === "list") {
     let json = false;
-    let state: MilestoneState | undefined;
-    let featureId: string | undefined;
+    let state: FeatureState | undefined;
     for (let i = 1; i < args.length; i++) {
       const a = args[i];
       if (a === "--json") json = true;
-      else if (a === "--state") state = parseMilestoneState(args[++i]);
-      else if (a === "--feature") featureId = args[++i];
+      else if (a === "--state") state = parseFeatureState(args[++i]);
       else {
         console.error(`unknown flag: ${a}`);
         process.exit(1);
       }
     }
-    const summary = milestoneSummary(store);
-    let filtered = state ? summary.filter((m) => m.milestone.state === state) : summary;
-    if (featureId) filtered = filtered.filter((m) => m.milestone.featureId === featureId);
+    const summary = featureSummary(store);
+    const filtered = state ? summary.filter((m) => m.feature.state === state) : summary;
     if (json) {
       process.stdout.write(JSON.stringify(filtered, null, 2) + "\n");
       return;
     }
     if (filtered.length === 0) {
-      console.log("no milestones");
+      console.log("no features");
       return;
     }
     for (const m of filtered) {
       const lo = m.openLoops > 0 ? ` · ${m.openLoops} open loop${m.openLoops === 1 ? "" : "s"}` : "";
       console.log(
-        `  ${m.milestone.id}  [${m.milestone.state.padEnd(7)}]  ${m.milestone.name}  (${m.sessionCount} session${m.sessionCount === 1 ? "" : "s"}${lo})`,
+        `  ${m.feature.id}  [${m.feature.state.padEnd(7)}]  ${m.feature.name}  (${m.sessionCount} session${m.sessionCount === 1 ? "" : "s"}${lo})`,
       );
     }
     return;
@@ -499,50 +495,45 @@ function milestonesCommand(store: Store, args: string[]): void {
   if (sub === "open") {
     const name = args[1];
     if (!name) {
-      console.error(`stele milestones open <name> --feature <F-NN> [--about "..."]`);
+      console.error(`stele features open <name> [--about "..."]`);
       process.exit(1);
     }
     let about: string | undefined;
-    let featureId: string | undefined;
     for (let i = 2; i < args.length; i++) {
       const a = args[i];
       if (a === "--about") about = args[++i];
-      else if (a === "--feature") featureId = args[++i];
       else {
         console.error(`unknown flag: ${a}`);
         process.exit(1);
       }
     }
-    if (!featureId) {
-      console.error(`stele milestones open requires --feature <F-NN>`);
+    const project = store.theProject();
+    if (!project) {
+      console.error(`no project — run \`stele init\``);
       process.exit(1);
     }
-    if (!store.getFeature(featureId)) {
-      console.error(`no such feature: ${featureId}`);
-      process.exit(1);
-    }
-    const id = store.nextMilestoneId();
-    const m: Milestone = {
-      id, featureId, name, state: "draft", about,
+    const id = store.nextFeatureId();
+    const m: Feature = {
+      id, projectId: project.id, name, state: "draft", about,
       startedAt: new Date().toISOString(),
     };
-    store.putMilestone(m);
-    console.log(`opened ${id} "${name}" under ${featureId} (state=draft)`);
+    store.putFeature(m);
+    console.log(`opened ${id} "${name}" (state=draft)`);
     return;
   }
 
   if (sub === "set-state") {
     const id = args[1];
-    const state = parseMilestoneState(args[2]);
+    const state = parseFeatureState(args[2]);
     if (!id) {
-      console.error(`stele milestones set-state <id> <draft|going|winding|done|paused>`);
+      console.error(`stele features set-state <id> <draft|going|winding|done|paused>`);
       process.exit(1);
     }
-    if (!store.getMilestone(id)) {
-      console.error(`no such milestone: ${id}`);
+    if (!store.getFeature(id)) {
+      console.error(`no such feature: ${id}`);
       process.exit(1);
     }
-    store.setMilestoneState(id, state);
+    store.setFeatureState(id, state);
     console.log(`${id} → ${state}`);
     return;
   }
@@ -550,21 +541,21 @@ function milestonesCommand(store: Store, args: string[]): void {
   if (sub === "report") {
     const id = args[1];
     if (!id) {
-      console.error(`stele milestones report <id>`);
+      console.error(`stele features report <id>`);
       process.exit(1);
     }
-    const m = store.getMilestone(id);
+    const m = store.getFeature(id);
     if (!m) {
-      console.error(`no such milestone: ${id}`);
+      console.error(`no such feature: ${id}`);
       process.exit(1);
     }
     const openLoops = store
-      .decisionsInMilestone(id)
+      .decisionsInFeature(id)
       .filter((d) => {
         const ns = nodeState(d);
         return ns === "open" || ns === "deferred";
       });
-    console.log(`milestone-report draft for ${id} "${m.name}":`);
+    console.log(`feature-report draft for ${id} "${m.name}":`);
     console.log(`  state: ${m.state}`);
     console.log(`  open loops: ${openLoops.length}`);
     for (const d of openLoops) console.log(`    ${d.id}  [${d.type}]  ${d.title}`);
@@ -577,19 +568,18 @@ function milestonesCommand(store: Store, args: string[]): void {
   if (sub === "show") {
     const id = args[1];
     if (!id) {
-      console.error(`stele milestones show <id>`);
+      console.error(`stele features show <id>`);
       process.exit(1);
     }
-    const detail = milestoneDetail(store, id);
+    const detail = featureDetail(store, id);
     if (!detail) {
-      console.error(`no such milestone: ${id}`);
+      console.error(`no such feature: ${id}`);
       process.exit(1);
     }
-    console.log(`${detail.milestone.id}  ${detail.milestone.name}  [${detail.milestone.state}]`);
-    if (detail.milestone.about) console.log(`  about: ${detail.milestone.about}`);
-    console.log(`  feature: ${detail.milestone.featureId}`);
-    console.log(`  started: ${detail.milestone.startedAt}`);
-    if (detail.milestone.completedAt) console.log(`  completed: ${detail.milestone.completedAt}`);
+    console.log(`${detail.feature.id}  ${detail.feature.name}  [${detail.feature.state}]`);
+    if (detail.feature.about) console.log(`  about: ${detail.feature.about}`);
+    console.log(`  started: ${detail.feature.startedAt}`);
+    if (detail.feature.completedAt) console.log(`  completed: ${detail.feature.completedAt}`);
     console.log();
     for (const { session, decisions } of detail.sessions) {
       console.log(`  ${session.id}  (${session.source}${session.sourceSessionId ? `, ${session.sourceSessionId.slice(0, 8)}` : ""})  ${decisions.length} decision${decisions.length === 1 ? "" : "s"}`);
@@ -600,54 +590,7 @@ function milestonesCommand(store: Store, args: string[]): void {
     return;
   }
 
-  console.error(`unknown milestones subcommand: ${sub} — try list / open / report / show / set-state`);
-  process.exit(1);
-}
-
-// -----------------------------------------------------------------------------
-// 0.1.0 — stele features {list, open}
-// -----------------------------------------------------------------------------
-
-function featuresCommand(store: Store, args: string[]): void {
-  const sub = args[0] ?? "list";
-
-  if (sub === "list") {
-    const project = store.theProject();
-    if (!project) {
-      console.error(`no project — run \`stele init\``);
-      process.exit(1);
-    }
-    const features = store.featuresIn(project.id);
-    if (features.length === 0) {
-      console.log("no features");
-      return;
-    }
-    for (const f of features) {
-      const ms = store.milestonesInFeature(f.id);
-      console.log(`  ${f.id.padEnd(8)}  ${f.name}  (${ms.length} milestone${ms.length === 1 ? "" : "s"})`);
-    }
-    return;
-  }
-
-  if (sub === "open") {
-    const name = args[1];
-    if (!name) {
-      console.error(`stele features open <name>`);
-      process.exit(1);
-    }
-    const project = store.theProject();
-    if (!project) {
-      console.error(`no project — run \`stele init\``);
-      process.exit(1);
-    }
-    const id = store.nextFeatureId();
-    const f: Feature = { id, projectId: project.id, name };
-    store.putFeature(f);
-    console.log(`opened ${id} "${name}"`);
-    return;
-  }
-
-  console.error(`unknown features subcommand: ${sub} — try list / open`);
+  console.error(`unknown features subcommand: ${sub} — try list / open / report / show / set-state`);
   process.exit(1);
 }
 
@@ -659,26 +602,26 @@ function sessionsCommand(store: Store, args: string[]): void {
   const sub = args[0] ?? "list";
 
   if (sub === "list") {
-    const milestoneFlag = args.indexOf("--milestone");
-    if (milestoneFlag >= 0) {
-      const mid = args[milestoneFlag + 1];
+    const featureFlag = args.indexOf("--feature");
+    if (featureFlag >= 0) {
+      const mid = args[featureFlag + 1];
       if (!mid) {
-        console.error(`--milestone requires a value`);
+        console.error(`--feature requires a value`);
         process.exit(1);
       }
-      const sessions = store.sessionsInMilestone(mid);
+      const sessions = store.sessionsInFeature(mid);
       for (const s of sessions) {
         console.log(`  ${s.id}  ${s.source}  started=${s.startedAt}${s.endedAt ? `  ended=${s.endedAt}` : ""}`);
       }
       return;
     }
-    // Fallback: list latest session per milestone via latestSession()
+    // Fallback: list latest session per feature via latestSession()
     const latest = store.latestSession();
     if (!latest) {
       console.log("no sessions yet");
       return;
     }
-    console.log(`latest session: ${latest.id} on milestone ${latest.milestoneId}`);
+    console.log(`latest session: ${latest.id} on feature ${latest.featureId}`);
     if (latest.outcome) console.log(`  outcome: ${latest.outcome.type}  ${latest.outcome.summary ?? ""}`);
     if (latest.pauseReason) console.log(`  paused:  ${latest.pauseReason.kind}  ${latest.pauseReason.note ?? ""}`);
     return;
@@ -688,16 +631,16 @@ function sessionsCommand(store: Store, args: string[]): void {
     // Stdin JSON for the full body
     const raw = readStdin();
     if (!raw) {
-      console.error(`stele sessions start expects JSON on stdin: { milestoneId, sourceSession, provenance? }`);
+      console.error(`stele sessions start expects JSON on stdin: { featureId, sourceSession, provenance? }`);
       process.exit(1);
     }
     const body = JSON.parse(raw) as {
-      milestoneId: string;
+      featureId: string;
       sourceSession: CaptureSourceSession;
       provenance?: SessionProvenance;
     };
-    const s = recordSessionStart(store, body.milestoneId, body.sourceSession, body.provenance);
-    console.log(`opened session ${s.id} on milestone ${s.milestoneId}`);
+    const s = recordSessionStart(store, body.featureId, body.sourceSession, body.provenance);
+    console.log(`opened session ${s.id} on feature ${s.featureId}`);
     return;
   }
 
@@ -744,7 +687,7 @@ function sessionsCommand(store: Store, args: string[]): void {
       console.log("no sessions yet");
       return;
     }
-    console.log(`Last session: ${r.session.id} on milestone ${r.milestone.id} "${r.milestone.name}"`);
+    console.log(`Last session: ${r.session.id} on feature ${r.feature.id} "${r.feature.name}"`);
     if (r.lastOutcome) console.log(`  outcome: ${r.lastOutcome.type}  ${r.lastOutcome.summary ?? ""}`);
     if (r.lastPauseReason) console.log(`  paused:  ${r.lastPauseReason.kind}  ${r.lastPauseReason.note ?? ""}`);
     const layoutAlive = r.session.provenance?.layoutAlive ?? false;
@@ -786,8 +729,8 @@ function projectCommand(store: Store, args: string[]): void {
     console.log(`  path:    ${project.path}`);
     console.log(`  created: ${project.createdAt}`);
     if (r) {
-      console.log(`  ${r.milestoneCount} milestone(s) · ${r.decisionCount} decision(s) · ${r.openLoops} open loop(s) (${r.dueLoops} due)`);
-      const states = Object.entries(r.milestonesByState).filter(([, n]) => n > 0).map(([s, n]) => `${s}=${n}`).join(", ");
+      console.log(`  ${r.featureCount} feature(s) · ${r.decisionCount} decision(s) · ${r.openLoops} open loop(s) (${r.dueLoops} due)`);
+      const states = Object.entries(r.featuresByState).filter(([, n]) => n > 0).map(([s, n]) => `${s}=${n}`).join(", ");
       if (states) console.log(`  states: ${states}`);
     }
     return;
@@ -816,7 +759,7 @@ function projectCommand(store: Store, args: string[]): void {
 
 function parseTarget(spec: string | undefined): { kind: TaggingTargetKind; id: string } {
   if (!spec) {
-    console.error(`expected target in form <kind>:<id> — e.g. decision:D-42 or milestone:M-03`);
+    console.error(`expected target in form <kind>:<id> — e.g. decision:D-42 or feature:M-03`);
     process.exit(1);
   }
   const idx = spec.indexOf(":");
@@ -826,8 +769,8 @@ function parseTarget(spec: string | undefined): { kind: TaggingTargetKind; id: s
   }
   const kind = spec.slice(0, idx);
   const id = spec.slice(idx + 1);
-  if (kind !== "decision" && kind !== "milestone") {
-    console.error(`target kind must be 'decision' or 'milestone', got "${kind}"`);
+  if (kind !== "decision" && kind !== "feature") {
+    console.error(`target kind must be 'decision' or 'feature', got "${kind}"`);
     process.exit(1);
   }
   return { kind, id };
@@ -1130,13 +1073,12 @@ async function main() {
     throw e;
   }
 
-  // 0.1.0 — milestones / tags / config / features / sessions / project are
-  // per-project (need the store) but have nested subcommands so they don't
-  // fit the flat switch pattern.
-  if (cmd === "milestones") return milestonesCommand(store, args);
+  // 0.3.0 — features / tags / config / sessions / project are per-project
+  // (need the store) but have nested subcommands so they don't fit the flat
+  // switch pattern.
+  if (cmd === "features") return featuresCommand(store, args);
   if (cmd === "tags") return tagsCommand(store, args);
   if (cmd === "config") return configCommand(store, args);
-  if (cmd === "features") return featuresCommand(store, args);
   if (cmd === "sessions") return sessionsCommand(store, args);
   if (cmd === "project") return projectCommand(store, args);
 
@@ -1144,8 +1086,8 @@ async function main() {
     // ----- /decision sink: agent drafts CapturePayload, pipes it here ---------
     case "add": {
       const payload = JSON.parse(readStdin()) as CapturePayload;
-      // CLI add bypasses milestone resolution — the agent must pass a fully
-      // resolved Decision (with milestoneId + valid id). This is the manual
+      // CLI add bypasses feature resolution — the agent must pass a fully
+      // resolved Decision (with featureId + valid id). This is the manual
       // / scripted path; the MCP decision_capture tool handles resolution.
       const candidates = proposeEdges(store, payload.decision);
       store.putDecision(payload.decision);
@@ -1244,13 +1186,13 @@ async function main() {
   daemon <install|uninstall|status>    multi-tenant always-on serve (launchd / systemd)
   projects <list|remove <slug>>        view/manage the global project registry
   project <show|set-status>            0.1.0+ — current project's DB row
-  features <list|open>                 0.1.0+ — Feature (between Project and Milestone)
-  milestones <list|open|report|show|set-state>
-                                       0.1.0+ — Milestone (5-state)
+  features <list|open>                 0.1.0+ — Feature (between Project and Feature)
+  features <list|open|report|show|set-state>
+                                       0.1.0+ — Feature (5-state)
   sessions <list|start|end|resume|continue>
                                        0.1.0+ — Session lifecycle + jumpback
   tags <list|propose|apply|confirm|reject|recolor|rename|archive|restore|proposals>
-                                       0.0.7+ — tag milestones / decisions
+                                       0.0.7+ — tag features / decisions
   config <list|get|set>                0.0.7+ — local preferences (e.g. tag_policy)
   serve [--multi] [--port N] [--open]  browser UI (default http://127.0.0.1:3939)
   resume [--html out.html]      "什么在等我" — open loops, needs-check first

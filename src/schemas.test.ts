@@ -1,4 +1,4 @@
-// Tests for src/schemas.ts (0.1.0). Pin the canonical contracts that mcp.ts
+// Tests for src/schemas.ts (0.3.0). Pin the canonical contracts that mcp.ts
 // and serve.ts both validate against — if these drift the two adapters can
 // diverge.
 import { test } from "node:test";
@@ -9,7 +9,6 @@ import {
   DecisionSchema,
   EdgeSchema,
   FeatureSchema,
-  MilestoneSchema,
   PauseReasonSchema,
   ProjectSchema,
   ResumeCommandResultSchema,
@@ -37,49 +36,43 @@ test("ProjectSchema · rejects invalid status (e.g. old 'shipped')", () => {
   assert.equal(ProjectSchema.safeParse(p).success, false);
 });
 
-// ---- Feature ---------------------------------------------------------------
+// ---- Feature -------------------------------------------------------------
+// 0.3.0: the umbrella Feature is gone. The Feature schema below is what was
+// MilestoneSchema in 0.2.x — directly under Project, carrying 5-state +
+// rolling `summary`.
 
-test("FeatureSchema · valid with links", () => {
-  const f = {
-    id: "F-01", projectId: "P-01", name: "CcaaS",
-    links: [{ to: "F-02", relation: "depends-on" }],
-  };
-  assert.equal(FeatureSchema.safeParse(f).success, true);
-});
-
-test("FeatureSchema · rejects invalid link relation", () => {
-  const f = {
-    id: "F-01", projectId: "P-01", name: "X",
-    links: [{ to: "F-02", relation: "bogus" }],
-  };
-  assert.equal(FeatureSchema.safeParse(f).success, false);
-});
-
-// ---- Milestone -------------------------------------------------------------
-
-test("MilestoneSchema · 5-state enum", () => {
+test("FeatureSchema · 5-state enum", () => {
   for (const state of ["draft", "going", "winding", "done", "paused"]) {
     const m = {
-      id: "M-01", featureId: "F-01", name: "x",
+      id: "F-01", projectId: "P-01", name: "x",
       state, startedAt: "2026-06-09T00:00:00Z",
     };
-    assert.equal(MilestoneSchema.safeParse(m).success, true, `${state} should be valid`);
+    assert.equal(FeatureSchema.safeParse(m).success, true, `${state} should be valid`);
   }
 });
 
-test("MilestoneSchema · rejects old 'shipped' state", () => {
+test("FeatureSchema · rejects old 'shipped' state", () => {
   const m = {
-    id: "M-01", featureId: "F-01", name: "x",
+    id: "F-01", projectId: "P-01", name: "x",
     state: "shipped", startedAt: "2026-06-09T00:00:00Z",
   };
-  assert.equal(MilestoneSchema.safeParse(m).success, false);
+  assert.equal(FeatureSchema.safeParse(m).success, false);
+});
+
+test("FeatureSchema · `summary` is optional and accepts free text", () => {
+  const m = {
+    id: "F-01", projectId: "P-01", name: "x", state: "going",
+    summary: "Wrote tests; next: implement",
+    startedAt: "2026-06-09T00:00:00Z",
+  };
+  assert.equal(FeatureSchema.safeParse(m).success, true);
 });
 
 // ---- Session ---------------------------------------------------------------
 
 test("SessionSchema · with provenance + outcome", () => {
   const s = {
-    id: "ses-x", milestoneId: "M-01", source: "claude-code",
+    id: "ses-x", featureId: "F-01", source: "claude-code",
     startedAt: "2026-06-09T00:00:00Z",
     provenance: { cwd: "/x", layoutAlive: true },
     outcome: { type: "advanced", summary: "ok" },
@@ -110,7 +103,7 @@ test("TriggerSchema · 4 discriminator cases", () => {
     { kind: "manual" },
     { kind: "metric", expr: "x>0" },
     { kind: "event", name: "ship" },
-    { kind: "dependency", on: "M-01/D-01" },
+    { kind: "dependency", on: "F-01/D-01" },
   ]) {
     assert.equal(TriggerSchema.safeParse(t).success, true);
   }
@@ -124,8 +117,8 @@ test("TriggerSchema · rejects metric without expr", () => {
 
 function baseDecided() {
   return {
-    id: "M-01/D-01",
-    milestoneId: "M-01",
+    id: "F-01/D-01",
+    featureId: "F-01",
     type: "decision" as const,
     title: "pick storage backend",
     raisedBy: {
@@ -162,7 +155,7 @@ test("DecisionSchema · type='decision' allows empty options[] (no real fork)", 
 test("DecisionSchema · type='deferred' with revisit", () => {
   const d = {
     ...baseDecided(),
-    id: "M-01/DEF-01",
+    id: "F-01/DEF-01",
     type: "deferred" as const,
     status: "open" as const,
     revisit: { trigger: { kind: "manual" as const } },
@@ -172,7 +165,7 @@ test("DecisionSchema · type='deferred' with revisit", () => {
 });
 
 test("DecisionSchema · type='open' allows omitted detail", () => {
-  const d = { ...baseDecided(), id: "M-01/OQ-01", type: "open" as const, status: "open" as const };
+  const d = { ...baseDecided(), id: "F-01/OQ-01", type: "open" as const, status: "open" as const };
   delete (d as Record<string, unknown>).detail;
   assert.equal(DecisionSchema.safeParse(d).success, true);
 });
@@ -182,14 +175,14 @@ test("DecisionSchema · type='open' allows omitted detail", () => {
 test("EdgeSchema · 5 relations incl depends_on", () => {
   for (const relation of ["resolves", "supersedes", "reconciles", "relates", "depends_on"]) {
     assert.equal(
-      EdgeSchema.safeParse({ from: "M-01/D-01", to: "M-01/D-02", relation }).success,
+      EdgeSchema.safeParse({ from: "F-01/D-01", to: "F-01/D-02", relation }).success,
       true,
     );
   }
 });
 
 test("EdgeSchema · rejects old `kind` field name", () => {
-  const e = { from: "M-01/D-01", to: "M-01/D-02", kind: "resolves" };
+  const e = { from: "F-01/D-01", to: "F-01/D-02", kind: "resolves" };
   assert.equal(EdgeSchema.safeParse(e).success, false);
 });
 
@@ -200,12 +193,12 @@ test("CapturePayloadSchema · decision only", () => {
   assert.equal(CapturePayloadSchema.safeParse(p).success, true);
 });
 
-test("CapturePayloadSchema · with tags + milestone mode=new + featureDraft", () => {
+test("CapturePayloadSchema · with tags + feature mode=new", () => {
   const p = {
     decision: baseDecided(),
-    milestone: {
+    feature: {
       mode: "new",
-      draft: { name: "Binary artifact", featureDraft: { name: "CcaaS" } },
+      draft: { name: "Binary artifact", about: "SSE auth + uploads" },
     },
     tags: [{ name: "security", reason: "OWASP A1" }],
   };

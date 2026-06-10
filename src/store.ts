@@ -1,16 +1,16 @@
-// SQLite-backed graph store (0.1.0-snapshot).
+// SQLite-backed graph store (0.3.0).
 //
-// Owns nine tables: projects, features, milestones, sessions, decisions,
-// edges, affects, tags (+ taggings + tag_proposals + config — the 0.0.7
-// surface unchanged). The store answers entity-anchored queries
-// (`decisionsAffecting`) without any ontology — it keeps its own reverse
-// index of affects edges.
+// Layer collapse from 0.2.x: the umbrella `Feature` table is gone; the old
+// `Milestone` table becomes the new `Feature` table, now a direct child of
+// `projects`. Schema: projects, features, sessions, decisions, edges,
+// affects, tags (+ taggings + tag_proposals + config — unchanged surface).
 //
-// Pre-0.1.0 databases are NOT auto-migrated. On open, if the file holds
-// the old 0.0.x schema (detected via `decisions.status_kind` column), the
-// store renames the file aside to `<path>.0.0.x.db` and creates a fresh
-// schema. The user's data is preserved in the backup file for manual export
-// via `sqlite3`; see CHANGELOG 0.1.0 for the migration story.
+// Pre-0.3.0 databases are NOT auto-migrated. On open, if the file holds
+// any pre-0.3.0 schema (detected via a `milestones` table OR the very-old
+// `decisions.status_kind` column), the store renames the file aside to
+// `<path>.0.2.x.db` and creates a fresh schema. The user's data is preserved
+// in the backup file for manual export via `sqlite3`; see CHANGELOG 0.3.0
+// for the migration story.
 
 import { DatabaseSync } from "node:sqlite";
 import { existsSync, renameSync } from "node:fs";
@@ -24,9 +24,7 @@ import type {
   EntityRef,
   Feature,
   FeatureId,
-  Milestone,
-  MilestoneId,
-  MilestoneState,
+  FeatureState,
   Project,
   ProjectId,
   ProjectStatus,
@@ -49,9 +47,9 @@ export class SteleOldSchemaMigrated extends Error {
   backupPath: string;
   constructor(oldPath: string, backupPath: string) {
     super(
-      `Stele detected an older (pre-0.1.0) schema at ${oldPath}. ` +
+      `Stele detected an older (pre-0.3.0) schema at ${oldPath}. ` +
         `The previous database has been preserved at ${backupPath}; a fresh ` +
-        `0.1.0 database has been created in its place. To export rows from ` +
+        `0.3.0 database has been created in its place. To export rows from ` +
         `the backup, query it directly with sqlite3.`,
     );
     this.name = "SteleOldSchemaMigrated";
@@ -65,13 +63,14 @@ export class SteleOldSchemaMigrated extends Error {
 // the store itself never writes to stderr.
 export class Store {
   private db: DatabaseSync;
-  /** Set to the backup path when the constructor renamed a pre-0.1.0 DB aside. */
+  /** Set to the backup path when the constructor renamed a pre-0.3.0 DB aside. */
   readonly migratedFromLegacy: { oldPath: string; backupPath: string } | null = null;
 
   constructor(path: string) {
     // ---------------------------------------------------------------------
-    // Pre-0.1.0 schema detection. We peek at the file first; if it has the
-    // legacy shape, we rename it aside and reopen fresh.
+    // Pre-0.3.0 schema detection. We peek at the file first; if it has
+    // either the legacy 0.0.x shape (decisions.status_kind) or the 0.1–0.2
+    // shape (`milestones` table), we rename it aside and reopen fresh.
     // ---------------------------------------------------------------------
     if (path !== ":memory:" && existsSync(path)) {
       const peek = new DatabaseSync(path);
@@ -96,7 +95,7 @@ export class Store {
     try { this.db.exec(`PRAGMA foreign_keys = ON`); } catch { /* ignore */ }
 
     this.db.exec(`
-      -- 0.1.0 — projects (was 0.0.7's registry.json {slug,path,addedAt})
+      -- 0.1.0+ — projects (was 0.0.7's registry.json {slug,path,addedAt})
       CREATE TABLE IF NOT EXISTS projects (
         id          TEXT PRIMARY KEY,
         name        TEXT NOT NULL,
@@ -107,31 +106,24 @@ export class Store {
         data        TEXT NOT NULL
       );
 
-      -- 0.1.0 — features (between project and milestone)
+      -- 0.3.0 — features (was milestones in 0.2.x; the umbrella feature table is gone).
+      -- Direct child of projects. Carries state + about + dates + rolling summary.
       CREATE TABLE IF NOT EXISTS features (
         id          TEXT PRIMARY KEY,
         project_id  TEXT NOT NULL REFERENCES projects(id),
-        name        TEXT NOT NULL,
-        data        TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_features_project ON features(project_id);
-
-      -- 0.1.0 — milestones (5-state, scoped to a feature)
-      CREATE TABLE IF NOT EXISTS milestones (
-        id          TEXT PRIMARY KEY,
-        feature_id  TEXT NOT NULL REFERENCES features(id),
         state       TEXT NOT NULL CHECK(state IN ('draft','going','winding','done','paused')),
         name        TEXT NOT NULL,
         started_at  TEXT NOT NULL,
         data        TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_milestones_feature ON milestones(feature_id);
-      CREATE INDEX IF NOT EXISTS idx_milestones_state ON milestones(state);
+      CREATE INDEX IF NOT EXISTS idx_features_project ON features(project_id);
+      CREATE INDEX IF NOT EXISTS idx_features_state   ON features(state);
 
-      -- 0.1.0 — sessions (provenance + outcome + pause_reason live in the data column)
+      -- 0.3.0 — sessions (FK rename: milestone_id → feature_id; outcome/pause_reason
+      -- still live in the data column for legacy decoding, but new captures don't write them)
       CREATE TABLE IF NOT EXISTS sessions (
         id              TEXT PRIMARY KEY,
-        milestone_id    TEXT NOT NULL REFERENCES milestones(id),
+        feature_id      TEXT NOT NULL REFERENCES features(id),
         source          TEXT NOT NULL,
         source_sess_id  TEXT,
         started_at      TEXT NOT NULL,
@@ -139,12 +131,12 @@ export class Store {
         data            TEXT NOT NULL,
         UNIQUE(source, source_sess_id)
       );
-      CREATE INDEX IF NOT EXISTS idx_sessions_milestone ON sessions(milestone_id);
+      CREATE INDEX IF NOT EXISTS idx_sessions_feature ON sessions(feature_id);
 
-      -- 0.1.0 — decisions (split shape: type + status + resolved_by + superseded_by)
+      -- 0.3.0 — decisions (FK rename: milestone_id → feature_id)
       CREATE TABLE IF NOT EXISTS decisions (
         id              TEXT PRIMARY KEY,
-        milestone_id    TEXT NOT NULL REFERENCES milestones(id),
+        feature_id      TEXT NOT NULL REFERENCES features(id),
         session_id      TEXT REFERENCES sessions(id),
         type            TEXT NOT NULL CHECK(type IN ('decision','deferred','open')),
         status          TEXT CHECK(status IN ('open','resolved')),  -- nullable for type='decision'
@@ -154,12 +146,12 @@ export class Store {
         created_at      TEXT NOT NULL,
         data            TEXT NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_decisions_milestone ON decisions(milestone_id);
-      CREATE INDEX IF NOT EXISTS idx_decisions_session   ON decisions(session_id);
-      CREATE INDEX IF NOT EXISTS idx_decisions_type      ON decisions(type);
-      CREATE INDEX IF NOT EXISTS idx_decisions_status    ON decisions(status);
+      CREATE INDEX IF NOT EXISTS idx_decisions_feature ON decisions(feature_id);
+      CREATE INDEX IF NOT EXISTS idx_decisions_session ON decisions(session_id);
+      CREATE INDEX IF NOT EXISTS idx_decisions_type    ON decisions(type);
+      CREATE INDEX IF NOT EXISTS idx_decisions_status  ON decisions(status);
 
-      -- 0.1.0 — edges (column rename: kind → relation; adds depends_on)
+      -- 0.1.0+ — edges (relation, not kind; depends_on is valid)
       CREATE TABLE IF NOT EXISTS edges (
         from_id   TEXT NOT NULL,
         to_id     TEXT NOT NULL,
@@ -179,7 +171,7 @@ export class Store {
       );
       CREATE INDEX IF NOT EXISTS idx_affects_entity ON affects(entity_kind, entity_id);
 
-      -- 0.0.7 — tag system (unchanged)
+      -- 0.0.7 — tag system (unchanged except for taggings.target_kind values: 'milestone'→'feature')
       CREATE TABLE IF NOT EXISTS tags (
         id          TEXT PRIMARY KEY,
         name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -193,7 +185,7 @@ export class Store {
 
       CREATE TABLE IF NOT EXISTS taggings (
         tag_id      TEXT NOT NULL REFERENCES tags(id),
-        target_kind TEXT NOT NULL CHECK(target_kind IN ('milestone','decision')),
+        target_kind TEXT NOT NULL CHECK(target_kind IN ('feature','decision')),
         target_id   TEXT NOT NULL,
         PRIMARY KEY (tag_id, target_kind, target_id)
       );
@@ -221,14 +213,19 @@ export class Store {
   // ---- legacy detection helpers --------------------------------------------
 
   private static isLegacySchema(db: DatabaseSync): boolean {
-    // The reliable tell: old `decisions` table has a `status_kind` column.
-    // New schema doesn't.
+    // Two legacy fingerprints:
+    //   - 0.0.x: decisions.status_kind column
+    //   - 0.1-0.2: milestones table exists
+    const hasMilestones = !!db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='milestones'`)
+      .get();
+    if (hasMilestones) return true;
     const hasDecisions = !!db
       .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='decisions'`)
       .get();
     if (!hasDecisions) return false;
     const cols = db.prepare(`PRAGMA table_info(decisions)`).all() as Array<{ name: string }>;
-    return cols.some((c) => c.name === "status_kind");
+    return cols.some((c) => c.name === "status_kind" || c.name === "milestone_id");
   }
 
   private static legacyBackupPath(path: string): string {
@@ -236,15 +233,15 @@ export class Store {
     let i = 0;
     for (;;) {
       const candidate = i === 0
-        ? `${path}.0.0.x.db`
-        : `${path}.0.0.x.${i}.db`;
+        ? `${path}.0.2.x.db`
+        : `${path}.0.2.x.${i}.db`;
       if (!existsSync(candidate)) return candidate;
       i++;
     }
   }
 
   // =========================================================================
-  // 0.1.0 — projects
+  // 0.1.0+ — projects
   // =========================================================================
 
   putProject(p: Project): void {
@@ -298,25 +295,31 @@ export class Store {
   }
 
   // =========================================================================
-  // 0.1.0 — features
+  // 0.3.0 — features (direct child of projects; carries state + about + dates)
   // =========================================================================
 
   putFeature(f: Feature): void {
-    // The `__unscoped:` sentinel is reserved for the per-project auto-created
-    // unscoped feature.
+    // Feature ids appear inside Decision ids as `<featureId>/<local>`,
+    // so a feature id with `/` would break that format. Reject early.
+    // The `__unscoped:` sentinel is reserved for the auto-created
+    // unscoped feature — see ensureUnscopedFeature.
+    if (f.id.includes("/")) {
+      throw new Error(`feature id must not contain '/': got "${f.id}"`);
+    }
     if (f.id.startsWith("__unscoped:") && f.id !== `__unscoped:${f.projectId}`) {
       throw new Error(`reserved feature id "${f.id}" — use ensureUnscopedFeature`);
     }
     this.db
       .prepare(
-        `INSERT INTO features (id, project_id, name, data)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO features (id, project_id, state, name, started_at, data)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            project_id = excluded.project_id,
+           state      = excluded.state,
            name       = excluded.name,
            data       = excluded.data`,
       )
-      .run(f.id, f.projectId, f.name, JSON.stringify(f));
+      .run(f.id, f.projectId, f.state, f.name, f.startedAt, JSON.stringify(f));
   }
 
   getFeature(id: FeatureId): Feature | null {
@@ -326,9 +329,23 @@ export class Store {
     return row ? (JSON.parse(row.data) as Feature) : null;
   }
 
-  featuresIn(projectId: ProjectId): Feature[] {
+  allFeatures(): Feature[] {
     const rows = this.db
-      .prepare(`SELECT data FROM features WHERE project_id = ? ORDER BY name, id`)
+      .prepare(`SELECT data FROM features ORDER BY started_at, id`)
+      .all() as { data: string }[];
+    return rows.map((r) => JSON.parse(r.data) as Feature);
+  }
+
+  byFeatureState(state: FeatureState): Feature[] {
+    const rows = this.db
+      .prepare(`SELECT data FROM features WHERE state = ? ORDER BY started_at, id`)
+      .all(state) as { data: string }[];
+    return rows.map((r) => JSON.parse(r.data) as Feature);
+  }
+
+  featuresInProject(projectId: ProjectId): Feature[] {
+    const rows = this.db
+      .prepare(`SELECT data FROM features WHERE project_id = ? ORDER BY started_at, id`)
       .all(projectId) as { data: string }[];
     return rows.map((r) => JSON.parse(r.data) as Feature);
   }
@@ -338,130 +355,53 @@ export class Store {
   }
 
   /**
-   * Find-or-create the per-project "unscoped" Feature. Used by the
-   * `milestone.mode='unscoped'` capture path so unscoped decisions still
-   * live under a real Feature → Milestone parent.
+   * Find-or-create the per-project unscoped Feature. Used by the
+   * `feature.mode='unscoped'` capture path so unscoped decisions still
+   * live under a real Feature parent.
    */
   ensureUnscopedFeature(projectId: ProjectId): Feature {
-    // Use double-underscore sentinel so user-chosen ids can't collide:
-    // putFeature/putMilestone reject ids matching `__unscoped:*`.
     const id = `__unscoped:${projectId}`;
     const existing = this.getFeature(id);
     if (existing) return existing;
-    const f: Feature = { id, projectId, name: "unscoped" };
+    const f: Feature = {
+      id,
+      projectId,
+      name: "unscoped",
+      state: "going",
+      about: "Decisions captured without an explicit feature.",
+      startedAt: new Date().toISOString(),
+    };
     this.putFeature(f);
     return f;
   }
 
-  // =========================================================================
-  // 0.1.0 — milestones (revised shape)
-  // =========================================================================
-
-  putMilestone(m: Milestone): void {
-    // Milestone ids appear inside Decision ids as `<milestoneId>/<local>`,
-    // so a milestone id with `/` would break that format. Reject early.
-    // The `__unscoped-M:` sentinel is reserved for the auto-created
-    // unscoped milestone — see ensureUnscopedMilestone.
-    if (m.id.includes("/")) {
-      throw new Error(`milestone id must not contain '/': got "${m.id}"`);
-    }
-    if (m.id.startsWith("__unscoped-M:") && m.featureId !== `__unscoped:${m.id.slice("__unscoped-M:".length)}`) {
-      throw new Error(`reserved milestone id "${m.id}" — use ensureUnscopedMilestone`);
-    }
-    this.db
-      .prepare(
-        `INSERT INTO milestones (id, feature_id, state, name, started_at, data)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           feature_id = excluded.feature_id,
-           state      = excluded.state,
-           name       = excluded.name,
-           data       = excluded.data`,
-      )
-      .run(m.id, m.featureId, m.state, m.name, m.startedAt, JSON.stringify(m));
-  }
-
-  getMilestone(id: MilestoneId): Milestone | null {
-    const row = this.db.prepare(`SELECT data FROM milestones WHERE id = ?`).get(id) as
-      | { data: string }
-      | undefined;
-    return row ? (JSON.parse(row.data) as Milestone) : null;
-  }
-
-  allMilestones(): Milestone[] {
-    const rows = this.db
-      .prepare(`SELECT data FROM milestones ORDER BY started_at, id`)
-      .all() as { data: string }[];
-    return rows.map((r) => JSON.parse(r.data) as Milestone);
-  }
-
-  byMilestoneState(state: MilestoneState): Milestone[] {
-    const rows = this.db
-      .prepare(`SELECT data FROM milestones WHERE state = ? ORDER BY started_at, id`)
-      .all(state) as { data: string }[];
-    return rows.map((r) => JSON.parse(r.data) as Milestone);
-  }
-
-  milestonesInFeature(featureId: FeatureId): Milestone[] {
-    const rows = this.db
-      .prepare(`SELECT data FROM milestones WHERE feature_id = ? ORDER BY started_at, id`)
-      .all(featureId) as { data: string }[];
-    return rows.map((r) => JSON.parse(r.data) as Milestone);
-  }
-
-  nextMilestoneId(): MilestoneId {
-    return this.nextSequencedId("milestones", "M");
-  }
-
-  /**
-   * Find-or-create the per-project unscoped milestone (under the unscoped
-   * feature). Used by `milestone.mode='unscoped'` capture path.
-   */
-  ensureUnscopedMilestone(projectId: ProjectId): Milestone {
-    const feature = this.ensureUnscopedFeature(projectId);
-    // Sentinel id with `__unscoped:` prefix can't collide with `M-NN`.
-    const id = `__unscoped-M:${projectId}`;
-    const existing = this.getMilestone(id);
-    if (existing) return existing;
-    const m: Milestone = {
-      id,
-      featureId: feature.id,
-      name: "unscoped",
-      state: "going",
-      about: "Decisions captured without an explicit milestone.",
-      startedAt: new Date().toISOString(),
-    };
-    this.putMilestone(m);
-    return m;
-  }
-
-  /** Update milestone state without rewriting the whole record. */
-  setMilestoneState(id: MilestoneId, state: MilestoneState): void {
-    const m = this.getMilestone(id);
-    if (!m) throw new Error(`no such milestone: ${id}`);
-    m.state = state;
-    if (state === "done") m.completedAt = m.completedAt ?? new Date().toISOString();
-    this.putMilestone(m);
+  /** Update feature state without rewriting the whole record. */
+  setFeatureState(id: FeatureId, state: FeatureState): void {
+    const f = this.getFeature(id);
+    if (!f) throw new Error(`no such feature: ${id}`);
+    f.state = state;
+    if (state === "done") f.completedAt = f.completedAt ?? new Date().toISOString();
+    this.putFeature(f);
   }
 
   // =========================================================================
-  // 0.1.0 — sessions (provenance / outcome / pause_reason)
+  // 0.3.0 — sessions (FK rename; provenance + legacy outcome/pause_reason in data)
   // =========================================================================
 
   putSession(s: Session): void {
     this.db
       .prepare(
-        `INSERT INTO sessions (id, milestone_id, source, source_sess_id, started_at, ended_at, data)
+        `INSERT INTO sessions (id, feature_id, source, source_sess_id, started_at, ended_at, data)
          VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
-           milestone_id   = excluded.milestone_id,
+           feature_id     = excluded.feature_id,
            source         = excluded.source,
            source_sess_id = excluded.source_sess_id,
            ended_at       = excluded.ended_at,
            data           = excluded.data`,
       )
       .run(
-        s.id, s.milestoneId, s.source, s.sourceSessionId ?? null,
+        s.id, s.featureId, s.source, s.sourceSessionId ?? null,
         s.startedAt, s.endedAt ?? null, JSON.stringify(s),
       );
   }
@@ -480,9 +420,9 @@ export class Store {
     return row ? (JSON.parse(row.data) as Session) : null;
   }
 
-  sessionsInMilestone(id: MilestoneId): Session[] {
+  sessionsInFeature(id: FeatureId): Session[] {
     const rows = this.db
-      .prepare(`SELECT data FROM sessions WHERE milestone_id = ? ORDER BY started_at, id`)
+      .prepare(`SELECT data FROM sessions WHERE feature_id = ? ORDER BY started_at, id`)
       .all(id) as { data: string }[];
     return rows.map((r) => JSON.parse(r.data) as Session);
   }
@@ -495,25 +435,25 @@ export class Store {
     return row ? (JSON.parse(row.data) as Session) : null;
   }
 
-  latestSessionInMilestone(id: MilestoneId): Session | null {
+  latestSessionInFeature(id: FeatureId): Session | null {
     const row = this.db
-      .prepare(`SELECT data FROM sessions WHERE milestone_id = ? ORDER BY started_at DESC LIMIT 1`)
+      .prepare(`SELECT data FROM sessions WHERE feature_id = ? ORDER BY started_at DESC LIMIT 1`)
       .get(id) as { data: string } | undefined;
     return row ? (JSON.parse(row.data) as Session) : null;
   }
 
   // =========================================================================
-  // 0.1.0 — decisions (new split shape)
+  // 0.3.0 — decisions (FK rename)
   // =========================================================================
 
   putDecision(d: Decision): void {
     this.db
       .prepare(
         `INSERT INTO decisions
-           (id, milestone_id, session_id, type, status, resolved_by, superseded_by, title, created_at, data)
+           (id, feature_id, session_id, type, status, resolved_by, superseded_by, title, created_at, data)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
-           milestone_id  = excluded.milestone_id,
+           feature_id    = excluded.feature_id,
            session_id    = excluded.session_id,
            type          = excluded.type,
            status        = excluded.status,
@@ -523,7 +463,7 @@ export class Store {
            data          = excluded.data`,
       )
       .run(
-        d.id, d.milestoneId, d.sessionId ?? null,
+        d.id, d.featureId, d.sessionId ?? null,
         d.type, d.status ?? null,
         d.resolvedBy ?? null, d.supersededBy ?? null,
         d.title, d.createdAt, JSON.stringify(d),
@@ -580,25 +520,25 @@ export class Store {
     return rows.map((r) => JSON.parse(r.data) as Decision);
   }
 
-  decisionsInMilestone(id: MilestoneId): Decision[] {
+  decisionsInFeature(id: FeatureId): Decision[] {
     const rows = this.db
-      .prepare(`SELECT data FROM decisions WHERE milestone_id = ? ORDER BY created_at, id`)
+      .prepare(`SELECT data FROM decisions WHERE feature_id = ? ORDER BY created_at, id`)
       .all(id) as { data: string }[];
     return rows.map((r) => JSON.parse(r.data) as Decision);
   }
 
   /**
-   * Allocate the next `<milestoneId>/{D|DEF|OQ}-NN` slot for a milestone+type.
+   * Allocate the next `<featureId>/{D|DEF|OQ}-NN` slot for a feature+type.
    * The status-prefixed local id keeps a glance at the id telling you the
    * shape (decided vs deferred vs open) without a JOIN.
    */
-  nextLocalDecisionId(milestoneId: MilestoneId, type: DecisionType): DecisionId {
+  nextLocalDecisionId(featureId: FeatureId, type: DecisionType): DecisionId {
     const prefix = type === "decision" ? "D" : type === "deferred" ? "DEF" : "OQ";
-    const escMs = milestoneId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp(`^${escMs}/${prefix}-(\\d+)$`);
+    const escFt = featureId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`^${escFt}/${prefix}-(\\d+)$`);
     const rows = this.db
-      .prepare(`SELECT id FROM decisions WHERE milestone_id = ? AND type = ?`)
-      .all(milestoneId, type) as { id: string }[];
+      .prepare(`SELECT id FROM decisions WHERE feature_id = ? AND type = ?`)
+      .all(featureId, type) as { id: string }[];
     let max = 0;
     for (const r of rows) {
       const m = r.id.match(pattern);
@@ -607,7 +547,7 @@ export class Store {
         if (Number.isFinite(n) && n > max) max = n;
       }
     }
-    return `${milestoneId}/${prefix}-${String(max + 1).padStart(2, "0")}`;
+    return `${featureId}/${prefix}-${String(max + 1).padStart(2, "0")}`;
   }
 
   /**
@@ -652,7 +592,7 @@ export class Store {
   }
 
   // =========================================================================
-  // 0.1.0 — edges (column rename: kind → relation; adds depends_on)
+  // 0.1.0+ — edges (relation, not kind)
   // =========================================================================
 
   /**
@@ -922,8 +862,8 @@ export class Store {
   // Private helpers
   // =========================================================================
 
-  /** Allocate `<prefix>-NN` for projects / features / milestones. */
-  private nextSequencedId(table: "projects" | "features" | "milestones", prefix: string): string {
+  /** Allocate `<prefix>-NN` for projects / features. */
+  private nextSequencedId(table: "projects" | "features", prefix: string): string {
     const pattern = new RegExp(`^${prefix}-(\\d+)$`);
     const rows = this.db.prepare(`SELECT id FROM ${table}`).all() as { id: string }[];
     let max = 0;

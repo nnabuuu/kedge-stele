@@ -22,10 +22,11 @@ import { z } from "zod";
 import { Store } from "./store.ts";
 import { proposeEdges } from "./consolidate.ts";
 import {
-  featureRail,
+  featureDecisions,
+  featureDetail,
+  featureSummary,
+  featuresList,
   graphSlice,
-  milestoneDetail,
-  milestoneSummary,
   projectListSummary,
   projectRollup,
   resumeDigest,
@@ -33,20 +34,12 @@ import {
   traceEntity,
   traceStitch,
 } from "./projections.ts";
-import {
-  recordSessionEnd,
-  recordSessionStart,
-} from "./capture.ts";
 import { stubResolver } from "./resolver.ts";
 import {
-  CaptureSourceSessionSchema,
   CaptureTagRequestSchema,
   CapturePayloadSchema,
   EdgeSchema,
-  PauseReasonSchema,
   ProjectStatusSchema,
-  SessionOutcomeSchema,
-  SessionProvenanceSchema,
   TaggingTargetSchema,
 } from "./schemas.ts";
 import {
@@ -64,16 +57,12 @@ import {
   type ProjectEntry,
 } from "./registry.ts";
 import type {
-  CaptureSourceSession,
   Decision,
   Edge,
   EntityRef,
-  Feature,
-  PauseReason,
+  FeatureState,
   Project,
   ProposalOutcome,
-  SessionOutcome,
-  SessionProvenance,
   TaggingTargetKind,
 } from "./types.ts";
 
@@ -234,19 +223,19 @@ function validate<T>(schema: z.ZodType<T>, body: unknown, res: ServerResponse): 
 function handleNextId(
   store: Store,
   prefix: string,
-  milestoneId: string | null,
+  featureId: string | null,
   res: ServerResponse,
 ): void {
   if (prefix !== "D" && prefix !== "DEF" && prefix !== "OQ") {
     badRequest(res, `unknown prefix '${prefix}' — expected one of D, DEF, OQ`);
     return;
   }
-  if (!milestoneId) {
-    badRequest(res, "0.1.0 ids are <milestone>/<local> — pass milestone=<M-NN> too");
+  if (!featureId) {
+    badRequest(res, "0.1.0 ids are <feature>/<local> — pass feature=<M-NN> too");
     return;
   }
   const type = prefix === "D" ? "decision" : prefix === "DEF" ? "deferred" : "open";
-  json(res, 200, store.nextLocalDecisionId(milestoneId, type));
+  json(res, 200, store.nextLocalDecisionId(featureId, type));
 }
 
 async function handleDecision(store: Store, id: string, res: ServerResponse): Promise<void> {
@@ -318,85 +307,8 @@ async function handlePostEdge(
 // 0.1.0 — feature / session / project endpoint bodies
 // -----------------------------------------------------------------------------
 
-const SessionStartBodySchema = z.object({
-  milestoneId: z.string(),
-  sourceSession: CaptureSourceSessionSchema,
-  provenance: SessionProvenanceSchema.optional(),
-});
-const SessionEndBodySchema = z.object({
-  outcome: SessionOutcomeSchema,
-  pauseReason: PauseReasonSchema.optional(),
-});
-const FeatureBodySchema = z.object({
-  name: z.string().min(1),
-  links: z
-    .array(z.object({
-      to: z.string(),
-      relation: z.enum(["depends-on", "depended-on-by"]),
-    }))
-    .optional(),
-});
 const ProjectStatusBodySchema = z.object({ status: ProjectStatusSchema });
 
-async function handlePostSessionStart(
-  store: Store,
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  let raw: unknown;
-  try { raw = await readJsonBody(req); } catch (e) { return badRequest(res, (e as Error).message); }
-  const body = validate(SessionStartBodySchema, raw, res);
-  if (!body) return;
-  try {
-    const s = recordSessionStart(
-      store, body.milestoneId,
-      body.sourceSession as CaptureSourceSession,
-      body.provenance as SessionProvenance | undefined,
-    );
-    json(res, 200, s);
-  } catch (e) {
-    badRequest(res, (e as Error).message);
-  }
-}
-
-async function handlePostSessionEnd(
-  store: Store,
-  sessionId: string,
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  let raw: unknown;
-  try { raw = await readJsonBody(req); } catch (e) { return badRequest(res, (e as Error).message); }
-  const body = validate(SessionEndBodySchema, raw, res);
-  if (!body) return;
-  try {
-    const s = recordSessionEnd(
-      store, sessionId,
-      body.outcome as SessionOutcome,
-      body.pauseReason as PauseReason | undefined,
-    );
-    json(res, 200, s);
-  } catch (e) {
-    badRequest(res, (e as Error).message);
-  }
-}
-
-async function handlePostFeature(
-  store: Store,
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  const project = store.theProject();
-  if (!project) return badRequest(res, "no project — run `stele init`");
-  let raw: unknown;
-  try { raw = await readJsonBody(req); } catch (e) { return badRequest(res, (e as Error).message); }
-  const body = validate(FeatureBodySchema, raw, res);
-  if (!body) return;
-  const id = store.nextFeatureId();
-  const f: Feature = { id, projectId: project.id, name: body.name, links: body.links };
-  store.putFeature(f);
-  json(res, 200, f);
-}
 
 async function handlePostProjectStatus(
   store: Store,
@@ -585,18 +497,33 @@ async function dispatchApi(
       return handleNextId(
         store,
         searchParams.get("prefix") ?? "D",
-        searchParams.get("milestone"),
+        searchParams.get("feature"),
         res,
       );
     }
-    // 0.0.6 — milestones
-    if (apiPath === "/api/milestones") return json(res, 200, milestoneSummary(store));
-    const mMilestone = apiPath.match(/^\/api\/milestones\/([^/]+)$/);
-    if (mMilestone) {
-      const detail = milestoneDetail(store, decodeURIComponent(mMilestone[1]));
+    // 0.3.0 — features (collapsed; was /api/milestones in 0.2.x).
+    // `state` query param filters by FeatureState. `summary=1` returns the
+    // legacy featureSummary projection (flat counts + lastActivity, no tags);
+    // default is the richer featuresList with tags.
+    if (apiPath === "/api/features") {
+      const state = searchParams.get("state") ?? undefined;
+      if (searchParams.get("summary") === "1") {
+        return json(res, 200, featureSummary(store));
+      }
+      return json(res, 200, featuresList(store, state ? { state: state as FeatureState } : undefined));
+    }
+    const mFeatureDecisions = apiPath.match(/^\/api\/features\/([^/]+)\/decisions$/);
+    if (mFeatureDecisions) {
+      const id = decodeURIComponent(mFeatureDecisions[1]);
+      if (!store.getFeature(id)) return notFound(res);
+      return json(res, 200, featureDecisions(store, id));
+    }
+    const mFeature = apiPath.match(/^\/api\/features\/([^/]+)$/);
+    if (mFeature) {
+      const detail = featureDetail(store, decodeURIComponent(mFeature[1]));
       return detail ? json(res, 200, detail) : notFound(res);
     }
-    // 0.1.0 — decision id is `<milestoneId>/<local>` which contains a slash.
+    // 0.1.0 — decision id is `<featureId>/<local>` which contains a slash.
     // The decisions route therefore takes the WHOLE remainder of the path
     // after `/api/decisions/`, not just the next segment.
     //
@@ -641,31 +568,14 @@ async function dispatchApi(
         needsCheck: digest.filter((i) => i.needsCheck).length,
       }]));
     }
-    if (apiPath === "/api/features") {
-      const p = store.theProject();
-      if (!p) return json(res, 200, []);
-      return json(res, 200, store.featuresIn(p.id));
-    }
-    if (apiPath === "/api/feature-rail") {
-      // Project page's left rail — features grouped with milestone summaries.
-      return json(res, 200, featureRail(store));
-    }
     if (apiPath === "/api/graph") {
-      // Decision graph slice — {nodes, edges, features, milestones} with
-      // optional feature/milestone/tag filters in the querystring.
+      // Decision graph slice — {nodes, edges, features} with optional
+      // feature/tag filters in the querystring.
       const filter = {
         feature: searchParams.get("feature") ?? undefined,
-        milestone: searchParams.get("milestone") ?? undefined,
         tag: searchParams.get("tag") ?? undefined,
       };
       return json(res, 200, graphSlice(store, filter));
-    }
-    const mFeature = apiPath.match(/^\/api\/features\/([^/]+)$/);
-    if (mFeature) {
-      const f = store.getFeature(decodeURIComponent(mFeature[1]));
-      if (!f) return notFound(res);
-      const milestones = store.milestonesInFeature(f.id);
-      return json(res, 200, { feature: f, milestones });
     }
     if (apiPath === "/api/sessions") {
       // Latest session (resume strip)
@@ -691,17 +601,17 @@ async function dispatchApi(
         lastSession: { id: s.id, endedAt: s.endedAt, outcome: s.outcome, pauseReason: s.pauseReason },
       });
     }
-    const mMilestoneReport = apiPath.match(/^\/api\/milestones\/([^/]+)\/report$/);
-    if (mMilestoneReport) {
-      const id = decodeURIComponent(mMilestoneReport[1]);
-      const m = store.getMilestone(id);
+    const mFeatureReport = apiPath.match(/^\/api\/features\/([^/]+)\/report$/);
+    if (mFeatureReport) {
+      const id = decodeURIComponent(mFeatureReport[1]);
+      const m = store.getFeature(id);
       if (!m) return notFound(res);
-      const openLoops = store.decisionsInMilestone(id).filter((d) => {
+      const openLoops = store.decisionsInFeature(id).filter((d) => {
         // Use nodeState via projection-level helper if available; for now inline.
         if (d.type === "decision") return false;
         return d.status !== "resolved" && !store.isResolved(d.id);
       }).map((d) => ({ id: d.id, title: d.title, type: d.type }));
-      return json(res, 200, { milestoneId: id, summary: "", openLoops });
+      return json(res, 200, { featureId: id, summary: "", openLoops });
     }
     // 0.0.7 — tags
     if (apiPath === "/api/tags") {
@@ -718,9 +628,9 @@ async function dispatchApi(
       }
       return json(res, 200, store.allTagProposals(outcome as ProposalOutcome));
     }
-    const mTaggings = apiPath.match(/^\/api\/(decisions|milestones)\/([^/]+)\/tags$/);
+    const mTaggings = apiPath.match(/^\/api\/(decisions|features)\/([^/]+)\/tags$/);
     if (mTaggings) {
-      const kind = mTaggings[1] === "decisions" ? "decision" : "milestone";
+      const kind = mTaggings[1] === "decisions" ? "decision" : "feature";
       return json(res, 200, store.taggingsForTarget(kind, decodeURIComponent(mTaggings[2])));
     }
     // 0.0.7 — config
@@ -751,12 +661,9 @@ async function dispatchApi(
   if (method === "POST") {
     if (apiPath === "/api/decisions") return await handlePostDecision(store, req, res);
     if (apiPath === "/api/edges") return await handlePostEdge(store, req, res);
-    // 0.1.0 — sessions lifecycle endpoints
-    if (apiPath === "/api/sessions/start") return await handlePostSessionStart(store, req, res);
-    const mSessionEnd = apiPath.match(/^\/api\/sessions\/([^/]+)\/end$/);
-    if (mSessionEnd) return await handlePostSessionEnd(store, decodeURIComponent(mSessionEnd[1]), req, res);
-    // 0.1.0 — features open
-    if (apiPath === "/api/features") return await handlePostFeature(store, req, res);
+    // 0.3.0 — sessions/start, sessions/end, and feature-open POST endpoints
+    // were removed. Writes happen through MCP (decision_capture / feature_open),
+    // not HTTP.
     // 0.1.0 — project status
     const mProjectStatus = apiPath.match(/^\/api\/project\/status$/);
     if (mProjectStatus) return await handlePostProjectStatus(store, req, res);

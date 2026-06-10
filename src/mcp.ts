@@ -8,12 +8,12 @@
 // 0.1.0 tool roster (24 tools):
 //   capture path:   decision_capture, decision_resume, decision_trace, decision_resolve
 //   features:       feature_open, feature_list
-//   milestones:     milestone_list, milestone_open, milestone_report
+//   features:     feature_list, feature_open, feature_report
 //   sessions:       session_start, session_end, resume_command
 //   tags:           tag_propose, tag_apply, tag_confirm, tag_reject,
 //                   tag_recolor, tag_rename, tag_archive, tag_restore
 //   config:         config_get, config_set
-//   (retired):      milestone_close (state advances via milestone_report flow)
+//   (retired):      feature_close (state advances via feature_report flow)
 //
 // All shapes are mirrors of src/types.ts via src/schemas.ts.
 import { writeFileSync } from "node:fs";
@@ -24,12 +24,13 @@ import { Store } from "./store.ts";
 import {
   recordSessionEnd,
   recordSessionStart,
-  resolveMilestoneAndSession,
+  resolveFeatureAndSession,
 } from "./capture.ts";
 import { proposeEdges } from "./consolidate.ts";
 import {
   continueLast,
-  milestoneSummary,
+  featureDecisions,
+  featureSummary,
   nodeState,
   projectRollup,
   resumeDigest,
@@ -40,12 +41,12 @@ import { renderResume } from "./render.ts";
 import { stubResolver } from "./resolver.ts";
 import { resolveDbPath, SteleNotInitializedError } from "./paths.ts";
 import {
-  CaptureMilestoneModeSchema,
+  CaptureFeatureModeSchema,
   CaptureSourceSessionSchema,
   CaptureTagRequestSchema,
   DecisionSchema,
   EdgeSchema,
-  MilestoneStateSchema,
+  FeatureStateSchema,
   PauseReasonSchema,
   SessionOutcomeSchema,
   SessionProvenanceSchema,
@@ -60,7 +61,7 @@ import {
   rejectProposal,
 } from "./tags.ts";
 import type {
-  CaptureMilestoneMode,
+  CaptureFeatureMode,
   CaptureSourceSession,
   CaptureTagRequest,
   Decision,
@@ -68,9 +69,8 @@ import type {
   Edge,
   EntityRef,
   Feature,
-  Milestone,
-  MilestoneId,
-  MilestoneReportDraft,
+  FeatureId,
+  FeatureReportDraft,
   PauseReason,
   ResumeCommandResult,
   Session,
@@ -162,11 +162,11 @@ function buildResumeCommand(session: Session): ResumeCommandResult {
   };
 }
 
-function buildMilestoneReportDraft(store: Store, milestoneId: MilestoneId): MilestoneReportDraft {
-  const m = store.getMilestone(milestoneId);
-  if (!m) throw new Error(`no such milestone: ${milestoneId}`);
+function buildFeatureReportDraft(store: Store, featureId: FeatureId): FeatureReportDraft {
+  const m = store.getFeature(featureId);
+  if (!m) throw new Error(`no such feature: ${featureId}`);
   const openLoops = store
-    .decisionsInMilestone(milestoneId)
+    .decisionsInFeature(featureId)
     .filter((d) => {
       const ns = nodeState(d);
       return ns === "open" || ns === "deferred";
@@ -177,15 +177,15 @@ function buildMilestoneReportDraft(store: Store, milestoneId: MilestoneId): Mile
   //   - if there are NO open loops left, suggest 'winding' so the user can
   //     close it next session.
   //   - if state is 'draft' and there's already activity, suggest 'going'.
-  let nextStateSuggestion: MilestoneReportDraft["nextStateSuggestion"];
-  if (m.state === "draft" && store.sessionsInMilestone(m.id).length > 0) {
+  let nextStateSuggestion: FeatureReportDraft["nextStateSuggestion"];
+  if (m.state === "draft" && store.sessionsInFeature(m.id).length > 0) {
     nextStateSuggestion = "going";
   } else if (m.state === "going" && openLoops.length === 0) {
     nextStateSuggestion = "winding";
   }
 
   return {
-    milestoneId,
+    featureId,
     summary: "", // agent fills from conversation context
     openLoops,
     nextStateSuggestion,
@@ -227,51 +227,51 @@ server.registerTool(
       "Carve a decision drafted from conversation context as a node in the stele graph. " +
       "Pass `decision` (full Decision shape per src/types.ts — the new split form with " +
       "`type` + optional `status` + rich `detail` body) and optional `edges` you authored. " +
-      "Decision.id will be REASSIGNED to `<milestoneId>/<local>` after milestone resolution; " +
+      "Decision.id will be REASSIGNED to `<featureId>/<local>` after feature resolution; " +
       "the field is required by the schema but its value is ignored (set it to '?'). " +
-      "Pass `milestone` (continue an existing milestone, open a new one, or unscoped) and " +
+      "Pass `feature` (continue an existing feature, open a new one, or unscoped) and " +
       "`sourceSession` (the tool's native session id so we dedup), or pass `sessionId` directly " +
       "if you called `session_start` earlier. Pass `tags` for each tag request — each runs " +
       "through the local policy (auto/propose/locked).",
     inputSchema: {
       decision: DecisionSchema,
       edges: z.array(EdgeSchema).optional(),
-      milestone: CaptureMilestoneModeSchema.optional(),
+      feature: CaptureFeatureModeSchema.optional(),
       sourceSession: CaptureSourceSessionSchema.optional(),
       sessionId: z.string().optional(),
       tags: z.array(CaptureTagRequestSchema).optional(),
     },
   },
-  async ({ decision, edges, milestone, sourceSession, sessionId, tags }) => {
-    let milestoneId: MilestoneId;
+  async ({ decision, edges, feature, sourceSession, sessionId, tags }) => {
+    let featureId: FeatureId;
     let resolvedSessionId: string;
     const notes: string[] = [];
 
     if (sessionId) {
       const s = store.getSession(sessionId);
       if (!s) throw new Error(`session "${sessionId}" does not exist`);
-      milestoneId = s.milestoneId;
+      featureId = s.featureId;
       resolvedSessionId = s.id;
-      notes.push(`bound to existing session ${s.id} on milestone ${s.milestoneId}`);
+      notes.push(`bound to existing session ${s.id} on feature ${s.featureId}`);
     } else {
-      const r = resolveMilestoneAndSession(
+      const r = resolveFeatureAndSession(
         store,
-        milestone as CaptureMilestoneMode | undefined,
+        feature as CaptureFeatureMode | undefined,
         sourceSession as CaptureSourceSession | undefined,
         decision.raisedBy.at,
       );
-      milestoneId = r.milestoneId;
+      featureId = r.featureId;
       resolvedSessionId = r.sessionId;
       notes.push(...r.notes);
     }
 
     // Honor a slash-format id the agent passed if it matches the resolved
-    // milestone and is collision-free; otherwise regenerate. This lets
+    // feature and is collision-free; otherwise regenerate. This lets
     // scripts pin a specific id while still letting agents pass "?" and get
     // a sane default.
     const slashFormat = /^[^/]+\/(D|DEF|OQ)-\d+$/;
     let finalId: string;
-    if (slashFormat.test(decision.id) && decision.id.startsWith(`${milestoneId}/`)) {
+    if (slashFormat.test(decision.id) && decision.id.startsWith(`${featureId}/`)) {
       if (store.getDecision(decision.id)) {
         throw new Error(
           `decision id "${decision.id}" already exists; pass "?" to let the tool pick the next slot`,
@@ -279,12 +279,12 @@ server.registerTool(
       }
       finalId = decision.id;
     } else {
-      finalId = store.nextLocalDecisionId(milestoneId, decision.type as DecisionType);
+      finalId = store.nextLocalDecisionId(featureId, decision.type as DecisionType);
     }
     const decisionFinal: Decision = {
       ...(decision as Decision),
       id: finalId,
-      milestoneId,
+      featureId,
       sessionId: resolvedSessionId,
     };
 
@@ -385,85 +385,28 @@ server.registerTool(
 );
 
 // =============================================================================
-// feature_open / feature_list
+// feature_list / feature_open / feature_report / feature_decisions
 // =============================================================================
-
-server.registerTool(
-  "feature_open",
-  {
-    description:
-      "Open a new Feature under the current project. Features are the structural axis between " +
-      "Project and Milestone (e.g. 'CcaaS Backend', 'Live Lesson'). Returns the assigned id.",
-    inputSchema: {
-      name: z.string().min(1),
-      links: z
-        .array(z.object({
-          to: z.string(),
-          relation: z.enum(["depends-on", "depended-on-by"]),
-        }))
-        .optional(),
-    },
-  },
-  async ({ name, links }) => {
-    const project = store.theProject();
-    if (!project) {
-      return { content: [{ type: "text", text: "no Project — run `stele init` first" }] };
-    }
-    const id = store.nextFeatureId();
-    const f: Feature = { id, projectId: project.id, name, links };
-    store.putFeature(f);
-    return { content: [{ type: "text", text: `opened ${id} "${name}"` }] };
-  },
-);
 
 server.registerTool(
   "feature_list",
   {
-    description: "List Features in the current project, with milestone counts.",
-    inputSchema: {},
-  },
-  async () => {
-    const project = store.theProject();
-    if (!project) {
-      return { content: [{ type: "text", text: "no Project — run `stele init` first" }] };
-    }
-    const features = store.featuresIn(project.id);
-    if (features.length === 0) return { content: [{ type: "text", text: "no features yet" }] };
-    const lines = [`${features.length} feature(s):`];
-    for (const f of features) {
-      const milestones = store.milestonesInFeature(f.id);
-      lines.push(`  ${f.id}  "${f.name}"  (${milestones.length} milestone${milestones.length === 1 ? "" : "s"})`);
-    }
-    return { content: [{ type: "text", text: lines.join("\n") }] };
-  },
-);
-
-// =============================================================================
-// milestone_list / milestone_open / milestone_report
-// =============================================================================
-
-server.registerTool(
-  "milestone_list",
-  {
     description:
-      "List milestones with session count + decision count + open-loop count. Pass `state` to " +
+      "List features with session count + decision count + open-loop count. Pass `state` to " +
       "filter by one of draft/going/winding/done/paused. Order: going first, then winding, " +
       "paused, draft, done.",
     inputSchema: {
-      state: MilestoneStateSchema.optional(),
-      featureId: z.string().optional(),
+      state: FeatureStateSchema.optional(),
     },
   },
-  async ({ state, featureId }) => {
-    const all = milestoneSummary(store);
-    let filtered = all;
-    if (state) filtered = filtered.filter((m) => m.milestone.state === state);
-    if (featureId) filtered = filtered.filter((m) => m.milestone.featureId === featureId);
-    if (filtered.length === 0) return { content: [{ type: "text", text: "no milestones" }] };
-    const lines = [`${filtered.length} milestone(s):`];
+  async ({ state }) => {
+    const all = featureSummary(store);
+    const filtered = state ? all.filter((m) => m.feature.state === state) : all;
+    if (filtered.length === 0) return { content: [{ type: "text", text: "no features" }] };
+    const lines = [`${filtered.length} feature(s):`];
     for (const m of filtered) {
       lines.push(
-        `  ${m.milestone.id}  [${m.milestone.state}]  "${m.milestone.name}"  ${m.sessionCount} session(s), ${m.openLoops} open loop(s), last activity ${m.lastActivity.slice(0, 10)}`,
+        `  ${m.feature.id}  [${m.feature.state}]  "${m.feature.name}"  ${m.sessionCount} session(s), ${m.openLoops} open loop(s), last activity ${m.lastActivity.slice(0, 10)}`,
       );
     }
     return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -471,50 +414,76 @@ server.registerTool(
 );
 
 server.registerTool(
-  "milestone_open",
+  "feature_open",
   {
     description:
-      "Explicitly open a new milestone under a Feature. `featureId` is required (use " +
-      "feature_open or feature_list first). State starts at 'draft' until a session opens.",
+      "Explicitly open a new Feature under the current Project. State starts at 'draft' " +
+      "until a session opens. 0.3.0 collapsed the old Project→Feature→Milestone umbrella; " +
+      "Features now hang directly off Project.",
     inputSchema: {
-      featureId: z.string(),
       name: z.string().min(1),
       about: z.string().optional(),
       sequenceAfter: z.array(z.string()).optional(),
     },
   },
-  async ({ featureId, name, about, sequenceAfter }) => {
-    if (!store.getFeature(featureId)) {
-      return { content: [{ type: "text", text: `no such feature: ${featureId}` }] };
+  async ({ name, about, sequenceAfter }) => {
+    const project = store.theProject();
+    if (!project) {
+      return { content: [{ type: "text", text: "no Project — run `stele init` first" }] };
     }
-    const id = store.nextMilestoneId();
-    const m: Milestone = {
+    const id = store.nextFeatureId();
+    const m: Feature = {
       id,
-      featureId,
+      projectId: project.id,
       name,
       state: "draft",
       about,
       sequenceAfter,
       startedAt: new Date().toISOString(),
     };
-    store.putMilestone(m);
+    store.putFeature(m);
     return { content: [{ type: "text", text: `opened ${id} "${name}" (state=draft)` }] };
   },
 );
 
 server.registerTool(
-  "milestone_report",
+  "feature_decisions",
   {
     description:
-      "Generate a MilestoneReportDraft for the /milestone-report flow (走之前留话). " +
-      "Returns the milestone's openLoops + a state-transition suggestion. The agent fills " +
+      "Return all decisions captured on this feature across every session, ordered " +
+      "newest-first. Used by /stele:feature step 2 (the reconcile pass) to find which " +
+      "transcript moments still need capturing.",
+    inputSchema: { featureId: z.string() },
+  },
+  async ({ featureId }) => {
+    if (!store.getFeature(featureId)) {
+      return { content: [{ type: "text", text: `no such feature: ${featureId}` }] };
+    }
+    const decisions = featureDecisions(store, featureId);
+    if (decisions.length === 0) {
+      return { content: [{ type: "text", text: "no decisions on this feature yet" }] };
+    }
+    const lines = [`${decisions.length} decision(s):`];
+    for (const d of decisions) {
+      lines.push(`  ${d.id}  [${d.type}${d.status ? "/" + d.status : ""}]  "${d.title}"`);
+    }
+    return { content: [{ type: "text", text: lines.join("\n") }] };
+  },
+);
+
+server.registerTool(
+  "feature_report",
+  {
+    description:
+      "Generate a FeatureReportDraft for the /feature-report flow (走之前留话). " +
+      "Returns the feature's openLoops + a state-transition suggestion. The agent fills " +
       "`summary` / `resumeEdge` / `suggestedPauseReason` from conversation context, shows the " +
       "draft to the user, then calls `session_end` to commit.",
-    inputSchema: { milestoneId: z.string() },
+    inputSchema: { featureId: z.string() },
   },
-  async ({ milestoneId }) => {
+  async ({ featureId }) => {
     try {
-      const draft = buildMilestoneReportDraft(store, milestoneId);
+      const draft = buildFeatureReportDraft(store, featureId);
       const text = JSON.stringify(draft, null, 2);
       return { content: [{ type: "text", text }] };
     } catch (e) {
@@ -531,25 +500,25 @@ server.registerTool(
   "session_start",
   {
     description:
-      "Explicitly open a Session under a milestone. Idempotent on (source, sourceSessionId): " +
+      "Explicitly open a Session under a feature. Idempotent on (source, sourceSessionId): " +
       "calling twice for the same Claude Code session returns the same Session row. The " +
       "`provenance` carries cwd + zellij info so resume_command can later return a 'jump' or " +
       "'rebuild' mode command.",
     inputSchema: {
-      milestoneId: z.string(),
+      featureId: z.string(),
       sourceSession: CaptureSourceSessionSchema,
       provenance: SessionProvenanceSchema.optional(),
     },
   },
-  async ({ milestoneId, sourceSession, provenance }) => {
+  async ({ featureId, sourceSession, provenance }) => {
     try {
       const s = recordSessionStart(
         store,
-        milestoneId,
+        featureId,
         sourceSession as CaptureSourceSession,
         provenance as SessionProvenance | undefined,
       );
-      return { content: [{ type: "text", text: `opened session ${s.id} on milestone ${milestoneId}` }] };
+      return { content: [{ type: "text", text: `opened session ${s.id} on feature ${featureId}` }] };
     } catch (e) {
       return { content: [{ type: "text", text: `error: ${(e as Error).message}` }] };
     }
@@ -561,7 +530,7 @@ server.registerTool(
   {
     description:
       "Close a Session with an outcome and an optional pause_reason. When outcome.type='resolved' " +
-      "the milestone advances from 'going' → 'winding'. Other state transitions stay explicit.",
+      "the feature advances from 'going' → 'winding'. Other state transitions stay explicit.",
     inputSchema: {
       sessionId: z.string(),
       outcome: SessionOutcomeSchema,
@@ -616,7 +585,7 @@ server.registerTool(
   "tag_propose",
   {
     description:
-      "Propose a tag for one or more targets (milestones / decisions). Behaviour depends on the " +
+      "Propose a tag for one or more targets (features / decisions). Behaviour depends on the " +
       "local `tag_policy` config: 'auto' creates the tag immediately, 'propose' (default) queues " +
       "into the tag_proposals table for human confirmation, 'locked' refuses. " +
       "If `tag_require_reason` is true (default) and policy is 'propose', `reason` is required.",
@@ -653,7 +622,7 @@ server.registerTool(
   "tag_apply",
   {
     description:
-      "Bind an existing active tag to a target (milestone or decision). Idempotent. " +
+      "Bind an existing active tag to a target (feature or decision). Idempotent. " +
       "Refuses if the tag does not exist or is archived — use tag_propose for new tags.",
     inputSchema: { tagId: z.string(), target: TaggingTargetSchema },
   },

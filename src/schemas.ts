@@ -32,32 +32,15 @@ export const ProjectSchema = z.object({
   createdAt: z.string(),
 });
 
-export const FeatureLinkRelationSchema = z.enum(["depends-on", "depended-on-by"]);
-
-export const FeatureLinkSchema = z.object({
-  to: z.string(),
-  relation: FeatureLinkRelationSchema,
-});
+export const FeatureStateSchema = z.enum(["draft", "going", "winding", "done", "paused"]);
 
 export const FeatureSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   name: z.string(),
-  links: z.array(FeatureLinkSchema).optional(),
-});
-
-// ===========================================================================
-// Milestone
-// ===========================================================================
-
-export const MilestoneStateSchema = z.enum(["draft", "going", "winding", "done", "paused"]);
-
-export const MilestoneSchema = z.object({
-  id: z.string(),
-  featureId: z.string(),
-  name: z.string(),
-  state: MilestoneStateSchema,
+  state: FeatureStateSchema,
   about: z.string().optional(),
+  summary: z.string().optional(),
   sequenceAfter: z.array(z.string()).optional(),
   startedAt: z.string(),
   completedAt: z.string().optional(),
@@ -109,7 +92,7 @@ export const PauseReasonSchema = z.object({
 
 export const SessionSchema = z.object({
   id: z.string(),
-  milestoneId: z.string(),
+  featureId: z.string(),
   source: SessionSourceSchema,
   sourceSessionId: z.string().optional(),
   startedAt: z.string(),
@@ -184,7 +167,7 @@ export const IntentDeltaSchema = z
 export const DecisionSchema = z
   .object({
     id: z.string(),
-    milestoneId: z.string(),
+    featureId: z.string(),
     sessionId: z.string().optional(),
     type: DecisionTypeSchema,
     status: DecisionResolutionStatusSchema.optional(),
@@ -258,7 +241,7 @@ export const EdgeSchema = z.object({
 export const TagOriginSchema = z.enum(["you", "agent"]);
 export const TagStatusSchema = z.enum(["active", "archived"]);
 export const TagPolicySchema = z.enum(["auto", "propose", "locked"]);
-export const TaggingTargetKindSchema = z.enum(["milestone", "decision"]);
+export const TaggingTargetKindSchema = z.enum(["feature", "decision"]);
 export const ProposalOutcomeSchema = z.enum(["pending", "blocked", "auto_adopted"]);
 
 export const TagSchema = z.object({
@@ -296,15 +279,13 @@ export const CaptureTagRequestSchema = z.object({
 // CapturePayload  (extended for 0.1.0)
 // ===========================================================================
 
-export const CaptureMilestoneModeSchema = z.discriminatedUnion("mode", [
+export const CaptureFeatureModeSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("continue"), id: z.string() }),
   z.object({
     mode: z.literal("new"),
     draft: z.object({
       name: z.string(),
       about: z.string().optional(),
-      featureId: z.string().optional(),
-      featureDraft: z.object({ name: z.string() }).optional(),
     }),
   }),
   z.object({ mode: z.literal("unscoped") }),
@@ -318,18 +299,18 @@ export const CaptureSourceSessionSchema = z.object({
 export const CapturePayloadSchema = z.object({
   decision: DecisionSchema,
   edges: z.array(EdgeSchema).optional(),
-  milestone: CaptureMilestoneModeSchema.optional(),
+  feature: CaptureFeatureModeSchema.optional(),
   sourceSession: CaptureSourceSessionSchema.optional(),
   sessionId: z.string().optional(),
   tags: z.array(CaptureTagRequestSchema).optional(),
 });
 
 // ===========================================================================
-// Milestone report draft (/milestone-report)
+// Feature report draft (/feature-report)
 // ===========================================================================
 
-export const MilestoneReportDraftSchema = z.object({
-  milestoneId: z.string(),
+export const FeatureReportDraftSchema = z.object({
+  featureId: z.string(),
   summary: z.string(),
   resumeEdge: z.string().optional(),
   suggestedPauseReason: PauseReasonSchema.optional(),
@@ -340,7 +321,7 @@ export const MilestoneReportDraftSchema = z.object({
       type: DecisionTypeSchema,
     }),
   ),
-  nextStateSuggestion: MilestoneStateSchema.optional(),
+  nextStateSuggestion: FeatureStateSchema.optional(),
 });
 
 // ===========================================================================
