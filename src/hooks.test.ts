@@ -354,6 +354,23 @@ test("install writes SessionStart hook script, executable", () => {
   assert.equal(mode & 0o100, 0o100, "owner exec bit not set on SessionStart hook");
 });
 
+test("SessionStart hook reads + injects main_language config when set", () => {
+  installHooks(projectDir);
+  const hookSrc = readFileSync(
+    join(projectDir, ".claude/hooks/stele-session-start.sh"),
+    "utf8",
+  );
+  // The script must read the config key and emit the bilingual
+  // directive line — regression guard against accidentally dropping
+  // the language section in a future template edit.
+  assert.match(hookSrc, /stele config get main_language/,
+    "hook must shell out to `stele config get main_language`");
+  assert.match(hookSrc, /主语言 \/ main language/,
+    "hook must emit the bilingual `主语言 / main language` label");
+  assert.match(hookSrc, /preserve as-is/,
+    "hook must include the verbatim-terms directive");
+});
+
 test("install merges SessionStart entry into settings.json", () => {
   installHooks(projectDir);
   const s = readSettings();

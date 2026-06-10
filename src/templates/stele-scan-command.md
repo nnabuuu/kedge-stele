@@ -262,6 +262,12 @@ similar — neither has live working context, both reason from text):
   use the current time but flag this in the trigger line.
 - **Don't capture decisions ABOUT how to do this scan.** Your own
   meta-moves don't get captured.
+- **Honour the `主语言 / main language` setting if it's in your
+  SessionStart context.** Write the candidate titles + capture text in
+  that language. The historical source's own language is irrelevant —
+  the user wants the graph in one language regardless of where the
+  decision was originally discussed. Technical terms, ids, file paths,
+  code identifiers stay verbatim.
 
 ## Composes with
 

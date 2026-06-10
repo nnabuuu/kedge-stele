@@ -125,6 +125,12 @@ Be deliberate about affects.
 - The Decision shape itself did NOT change. Field-by-field still in
   `references/decision-schema.md`.
 
+## Main language
+
+If the SessionStart context block injected a `主语言 / main language` line, write every free-text field on the Decision (`title`, `detail.context`, `detail.options[].rationale`, `detail.decision`, `detail.consequences`, the `Feature.summary` you rewrite via `/stele:feature`, etc.) in that language. Preserve verbatim: technical terms (`SQLite`, `WAL`, `dedupKey`), code identifiers, file paths, ids (`F-01/D-04`), proper nouns, command names, and acronyms. When in doubt, prefer the technical term in its original form over a translation that loses precision.
+
+If no `主语言 / main language` line is present, use whatever language the conversation is in — same as before. The user controls this with `stele config set main_language <value>` (free-text; e.g. "中文", "English", "中文，专有名词保留英文").
+
 ## Read this BEFORE you draft
 
 - **`gotchas.md`** — the traps that bite fresh-context agents.

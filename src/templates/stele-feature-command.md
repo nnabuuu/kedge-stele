@@ -101,6 +101,11 @@ now with no other context:
 - What's decided / what's still open? (1-2 sentences)
 - What's the immediate next move? (1 sentence)
 
+If a `主语言 / main language` line was injected by the SessionStart
+hook, write the summary AND every gap-capture title / context in that
+language — technical terms, ids, file paths, code identifiers stay
+verbatim. (Same rule the `stele-capture` skill applies.)
+
 The summary REPLACES whatever was there before — it is not an append.
 **Show the user the draft before writing.** If they correct, use their
 phrasing.

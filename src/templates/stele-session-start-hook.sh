@@ -83,7 +83,21 @@ $tags_lines"
   fi
 fi
 
-# 4. Open loops via the existing CLI flag. Already comes with its own
+# 4. Main language preference. Free-text — the user sets whatever
+#    string they want (e.g. "中文", "English", "日本語",
+#    "中文，专有名词保留英文"). Default: unset (agent uses whatever
+#    language the current conversation is in). Affects free-text
+#    fields on captured decisions; technical terms / IDs / file paths
+#    / proper nouns stay verbatim regardless.
+lang_section=""
+lang_raw="$(cd "$cwd" && stele config get main_language 2>/dev/null | sed -n 's/^main_language = //p')"
+if [ -n "$lang_raw" ] && [ "$lang_raw" != "(unset)" ]; then
+  lang_section="主语言 / main language: $lang_raw
+自由文本字段 (title / context / detail.* / summary / rationale) 一律用此语言;
+technical terms, IDs, file paths, code identifiers, proper nouns — preserve as-is."
+fi
+
+# 5. Open loops via the existing CLI flag. Already comes with its own
 #    declarative prose + closing disclaimer. We append it AFTER our
 #    sections (so the agent reads "what's around" first, then "what's
 #    waiting").
@@ -92,7 +106,7 @@ resume_block="$( ( cd "$cwd" && stele resume --for-context 2>/dev/null ) || true
 # Assemble. If nothing landed in any section, exit silently — the
 # hook contributes no context, which is the right move on an empty
 # project.
-if [ -z "$sid_section" ] && [ -z "$features_section" ] && [ -z "$tags_section" ] && [ -z "$resume_block" ]; then
+if [ -z "$sid_section" ] && [ -z "$features_section" ] && [ -z "$tags_section" ] && [ -z "$lang_section" ] && [ -z "$resume_block" ]; then
   exit 0
 fi
 
@@ -102,7 +116,8 @@ fi
   if [ -n "$sid_section" ]; then printf '\n%s\n' "$sid_section"; fi
   if [ -n "$features_section" ]; then printf '\n%s\n' "$features_section"; fi
   if [ -n "$tags_section" ]; then printf '\n%s\n' "$tags_section"; fi
-  # 5. Standing capture criteria — short prose, no imperatives. The
+  if [ -n "$lang_section" ]; then printf '\n%s\n' "$lang_section"; fi
+  # 6. Standing capture criteria — short prose, no imperatives. The
   #    skill's SKILL.md carries the longer reference; this is the in-
   #    line nudge so the agent doesn't have to load the skill before
   #    noticing a capture-worthy moment.

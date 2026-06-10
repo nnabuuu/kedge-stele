@@ -330,6 +330,34 @@ to tag the new decision in one round-trip. Each name flows through the
 policy engine, and the capture result tells you which landed, which are
 pending, and which were blocked.
 
+## Main language
+
+If you want every captured decision written in a specific language
+regardless of what language you're chatting in, set:
+
+```bash
+stele config set main_language 中文
+stele config set main_language English
+stele config set main_language "中文，专有名词保留英文"   # free-text, the agent reads it
+```
+
+The next time Claude Code opens a session in this project, the
+SessionStart hook injects the setting plus the rule:
+
+> 自由文本字段 (title / context / detail.* / summary / rationale) 一律用此语言;
+> technical terms, IDs, file paths, code identifiers, proper nouns — preserve as-is.
+
+So `title` and `context` land in your chosen language while file paths,
+schema field names, command names, and ids stay verbatim. Unset (the
+default) means the agent uses whatever language the conversation is
+in — no change from before.
+
+To clear:
+
+```bash
+stele config set main_language ""
+```
+
 ## Backup
 
 `.stele/decisions.db` is a regular SQLite file. While no MCP server is
