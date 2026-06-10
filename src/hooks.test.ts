@@ -196,6 +196,68 @@ test("install cleans up legacy 0.2.x command files", () => {
   assert.ok(existsSync(join(cmdsDir, "stele/feature.md")), "new /stele:feature didn't write");
 });
 
+// ---- User-level legacy cleanup (0.4.0-snapshot.11) -------------------
+// The project-level cleanup above misses globally-installed legacy
+// commands at ~/.claude/commands/. snapshot.11 extends the sweep to
+// user level, but ONLY when content carries the stele fingerprint —
+// the filenames (decision.md / milestone-report.md / resume.md) are
+// generic enough that a user might have their own.
+
+test("install removes stele-fingerprinted user-level legacy commands", () => {
+  const fakeHome = mkdtempSync(join(tmpdir(), "stele-fake-home-"));
+  const realHome = process.env.HOME;
+  process.env.HOME = fakeHome;
+  try {
+    const userCmdsDir = join(fakeHome, ".claude/commands");
+    mkdirSync(userCmdsDir, { recursive: true });
+    // Genuine stele 0.2-era /decision — carries the fingerprint
+    writeFileSync(
+      join(userCmdsDir, "decision.md"),
+      "---\nname: decision\ndescription: Carve the decision just made into the stele (实录) store.\n---\n",
+    );
+    // 0.2-era /resume — also stele
+    writeFileSync(
+      join(userCmdsDir, "resume.md"),
+      "---\nname: resume\ndescription: stele resume digest\n---\n",
+    );
+
+    installHooks(projectDir);
+
+    assert.equal(existsSync(join(userCmdsDir, "decision.md")), false,
+      "user-level /decision with stele fingerprint must be removed");
+    assert.equal(existsSync(join(userCmdsDir, "resume.md")), false,
+      "user-level /resume with stele fingerprint must be removed");
+  } finally {
+    if (realHome === undefined) delete process.env.HOME;
+    else process.env.HOME = realHome;
+    rmSync(fakeHome, { recursive: true, force: true });
+  }
+});
+
+test("install LEAVES non-stele user-level files with the same name alone", () => {
+  const fakeHome = mkdtempSync(join(tmpdir(), "stele-fake-home-"));
+  const realHome = process.env.HOME;
+  process.env.HOME = fakeHome;
+  try {
+    const userCmdsDir = join(fakeHome, ".claude/commands");
+    mkdirSync(userCmdsDir, { recursive: true });
+    // User-authored /decision for a different purpose — no stele in it
+    const userContent = "---\nname: decision\ndescription: My personal decision-making helper.\n---\nDo the thing.\n";
+    writeFileSync(join(userCmdsDir, "decision.md"), userContent);
+
+    installHooks(projectDir);
+
+    assert.equal(existsSync(join(userCmdsDir, "decision.md")), true,
+      "user-authored /decision (no stele fingerprint) must NOT be removed");
+    assert.equal(readFileSync(join(userCmdsDir, "decision.md"), "utf8"), userContent,
+      "user-authored content must not be modified");
+  } finally {
+    if (realHome === undefined) delete process.env.HOME;
+    else process.env.HOME = realHome;
+    rmSync(fakeHome, { recursive: true, force: true });
+  }
+});
+
 // ---- Upgrade path — legacy 0.0.1 broken-shape Stop entries -----------
 // (0.0.1 bug: { type, command } directly in the Stop array instead of
 // { matcher, hooks: [...] }. 0.4.0-snapshot.10 retires the Stop hook

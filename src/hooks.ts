@@ -16,7 +16,8 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 // 0.4.0-snapshot.10 — the Stop hook is GONE. No per-turn regex
@@ -477,21 +478,62 @@ function installCommand(projectRoot: string, relPath: string, templateName: stri
  * 0.3.0 dropped the three 0.2.x slash commands (/decision,
  * /milestone-report, /resume). Re-running `stele init` on a project
  * upgraded from 0.2.x should delete the orphaned command files so the
- * user doesn't have unreachable / outdated commands lingering in their
- * `.claude/commands/`. We delete unconditionally — these were
- * tool-managed files, not user-authored content.
+ * user doesn't have unreachable / outdated commands lingering.
+ *
+ * Two scopes:
+ * - Project-level (`<projectRoot>/.claude/commands/<name>.md`): delete
+ *   unconditionally. These were stele-managed in this project; nothing
+ *   else writes them.
+ * - User-level (`~/.claude/commands/<name>.md`): fingerprint-match
+ *   before deleting. The filenames are generic enough that a user might
+ *   plausibly have their own `/decision` or `/resume` from another tool.
+ *   Only delete if content carries the stele fingerprint ("stele" or
+ *   "实录"); otherwise skip and report.
  */
+const LEGACY_USER_COMMAND_NAMES = LEGACY_COMMAND_RELS.map((rel) => basename(rel));
+const STELE_FINGERPRINT_RE = /stele|实录/i;
+
 function cleanLegacyCommands(projectRoot: string): string {
-  const removed: string[] = [];
+  const removedProject: string[] = [];
   for (const rel of LEGACY_COMMAND_RELS) {
     const p = join(projectRoot, rel);
     if (existsSync(p)) {
       rmSync(p);
-      removed.push(rel);
+      removedProject.push(rel);
     }
   }
-  if (removed.length === 0) return "no legacy commands to clean";
-  return `removed ${removed.length} legacy command${removed.length === 1 ? "" : "s"} (${removed.join(", ")})`;
+
+  const removedUser: string[] = [];
+  const skippedUser: string[] = [];
+  const userCommandsDir = join(homedir(), ".claude", "commands");
+  for (const name of LEGACY_USER_COMMAND_NAMES) {
+    const p = join(userCommandsDir, name);
+    if (!existsSync(p)) continue;
+    try {
+      const content = readFileSync(p, "utf-8");
+      if (STELE_FINGERPRINT_RE.test(content)) {
+        rmSync(p);
+        removedUser.push(`~/.claude/commands/${name}`);
+      } else {
+        skippedUser.push(`~/.claude/commands/${name}`);
+      }
+    } catch {
+      // unreadable — leave it alone
+    }
+  }
+
+  const total = removedProject.length + removedUser.length;
+  if (total === 0) {
+    if (skippedUser.length > 0) {
+      return `no stele legacy commands to clean (${skippedUser.length} user-level file${skippedUser.length === 1 ? "" : "s"} skipped — no stele fingerprint)`;
+    }
+    return "no legacy commands to clean";
+  }
+  const parts: string[] = [];
+  if (removedProject.length) parts.push(`project: ${removedProject.join(", ")}`);
+  if (removedUser.length) parts.push(`user: ${removedUser.join(", ")}`);
+  if (skippedUser.length) parts.push(`skipped ${skippedUser.length} non-stele user-level file${skippedUser.length === 1 ? "" : "s"}`);
+  return `removed ${total} legacy command${total === 1 ? "" : "s"} (${parts.join("; ")})`;
 }
 
 export function installHooks(
