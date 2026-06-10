@@ -615,7 +615,10 @@ async function dispatchApi(
       const s = store.getSession(decodeURIComponent(mSessionResume[1]));
       if (!s) return notFound(res);
       const layoutAlive = s.provenance?.layoutAlive ?? false;
-      const cwd = s.provenance?.cwd ?? "";
+      // Fall back to the project's path when the session didn't record its own
+      // cwd (scan / session-extract captures have no provenance.cwd) so the
+      // resume command is a valid `cd <project> && …` rather than `cd  && …`.
+      const cwd = s.provenance?.cwd ?? store.theProject()?.path ?? "";
       const ccSid = s.sourceSessionId ?? "";
       return json(res, 200, {
         mode: layoutAlive ? "jump" : "rebuild",

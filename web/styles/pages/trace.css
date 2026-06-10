@@ -128,6 +128,69 @@
 }
 .where-sep { opacity: 0.5; margin: 0 4px; }
 
+/* Resume launcher (web/components/resume-launcher.js) */
+.resume-launcher { margin-top: 16px; }
+.resume-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--seal);
+  background: var(--seal-bg);
+  border: 1px solid color-mix(in srgb, var(--seal) 22%, var(--border));
+  border-radius: var(--r-sm, 6px);
+  padding: 7px 13px;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+.resume-btn:hover { background: color-mix(in srgb, var(--seal) 12%, var(--seal-bg)); }
+.resume-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--seal);
+}
+.resume-pop {
+  margin-top: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 8px);
+  padding: 12px 14px;
+}
+.resume-pop-label {
+  font-size: 11px;
+  color: var(--t3);
+  margin-bottom: 8px;
+}
+.resume-cmd-row { display: flex; align-items: center; gap: 10px; }
+.resume-cmd {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--t1);
+  background: var(--surface2);
+  border-radius: 5px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.resume-copy {
+  flex: none;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--t2);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 7px 11px;
+  cursor: pointer;
+}
+.resume-copy:hover { color: var(--t1); border-color: var(--t2); }
+
 /* ============================================================
  * Stitch band — cross-session resolves arc
  * ============================================================ */

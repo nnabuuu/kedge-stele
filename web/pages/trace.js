@@ -10,6 +10,7 @@
 //   GET /<slug>/api/decisions/<mid>/<localId>/stitch    new in 0.2.0-snapshot.4
 
 import { apiGet, ensureCss, slugUrl } from "../api.js";
+import { renderResumeLauncher } from "../components/resume-launcher.js";
 
 // -------------------------------------------------------------------
 // Enums
@@ -179,6 +180,7 @@ function renderFocalCard(trace) {
         " 触发: ",
         h("span", {}, d.detail.trigger)) : null,
     ),
+    d.sessionId ? renderResumeLauncher({ sessionId: d.sessionId }) : null,
   );
 }
 
