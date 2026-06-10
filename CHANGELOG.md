@@ -16,6 +16,132 @@ npm install -g stele-mcp@snapshot
 
 — nothing yet —
 
+## [0.4.0] · 2026-06-11
+
+**Auto-capture, three layers deep, with a shared dedup floor.** 0.3.0
+shipped `/stele:feature` as the single agent-facing reconciler, but it
+still needed a human to invoke. 0.4.0 layers automated capture on top
+without breaking the manual path — and explicitly without taking a
+billing-surface dependency on `claude -p`.
+
+The model is three layers because each has a different fidelity / cost
+trade-off, and they backstop each other through a shared `dedupKey`:
+
+1. **Layer 1 — live.** The agent self-governs in-conversation via the
+   `stele-capture` skill. Auto-activates from the skill description
+   when the agent is reasoning about whether to capture. Highest
+   fidelity (full working context), zero per-turn overhead. No Stop
+   hook, no regex pre-filter, no per-turn nag.
+2. **Layer 2 — read-side context inject.** SessionStart hook fires
+   once per session open and emits a declarative block: `cc_session_id`,
+   active features (state=going) with open-loop counts, tag policy,
+   up to 10 active tags, the resume digest, and a single-line standing
+   capture criteria. Every section collapses silently if empty. Ends
+   with a fixed disclaimer line to sidestep prompt-injection defense.
+3. **Layer 3 — post-hoc.** Two variants, both writing
+   `source='session-extract'`:
+   - **Opt-in agent-type SessionEnd hook.** Off by default. Enable
+     via `stele hooks install --enable-session-end-auto-extract` (or
+     `stele hooks enable session-end-auto-extract` after the fact).
+     Spawns an isolated Claude on the user's existing plan with a
+     tight MCP allow-list. Decision schema is inlined into the agent
+     prompt (subagents don't inherit the parent's loaded skills).
+     Blocks session close ≤60s.
+   - **`/stele:scan` slash command.** Manual, user-invoked any time.
+     Reconciles historical CC transcripts at
+     `~/.claude/projects/<sanitized-cwd>/*.jsonl`, optional
+     `git log --since=<date>`, optional `--files <path>...`.
+     Presents candidates for confirm-before-capture; first-install
+     backfill is just the most common use case.
+
+### Schema additions (additive — no migration)
+
+- `Decision.source: DecisionSource` — `'manual' | 'agent-live' |
+  'session-extract'`. Defaults to `'manual'` on legacy rows.
+- `Decision.confidence: 0..1` — optional, meaningful only when source
+  is not `'manual'`.
+- `Decision.dedupKey: string` — sha256 of
+  `${featureId}|${normalizeTitle}|${sortedAffects}`, first 16 hex
+  chars. **`UNIQUE` partial index** is the cross-layer dedup floor.
+  Computed inside `Store.putDecision` before write; a collision returns
+  `{ skipped: true, existingId }` and the MCP tool surfaces
+  `dup-skip: <existingId>`.
+
+### Hook system additions
+
+- `.claude/hooks/stele-session-start.sh` — always installed.
+- `.claude/hooks/stele-session-end.sh` + `.claude/agents/stele-extract.md`
+  — installed only when `--enable-session-end-auto-extract` is passed
+  (or `stele hooks enable session-end-auto-extract` is run later).
+- `requiredMinimumVersion: "2.1.0"` pinned in `settings.json` — Claude
+  Code refuses to start below this version (async-agent hook floor).
+- **The Stop hook is gone.** Earlier snapshots (.3 through .9) experi-
+  mented with a regex-based pre-filter + per-turn directive injected
+  through the Stop hook. snapshot.10 ripped it out — the 12 bilingual
+  regex patterns turned out to be both ugly and a worse judge of "is
+  this a decision" than the agent itself, and the per-turn cost was
+  unjustified once the SessionStart inject covered the same context
+  in one shot. The legacy `.claude/hooks/stele-stop.sh` is cleaned up
+  on upgrade.
+- **Legacy command cleanup is now two-scope.** Project-level deletes
+  the 0.2-era `/decision`, `/milestone-report`, `/resume` unconditional-
+  ly. User-level (`~/.claude/commands/`) only deletes when the file
+  carries the `stele|实录` content fingerprint — protects user-authored
+  commands of the same name from other tools.
+
+### CLI additions
+
+- `stele --version` — prints version from `package.json` (was missing,
+  surfaced during snapshot.7 dogfooding).
+- `stele resume --for-context` — formats the resume digest as
+  declarative prose for hook-stdin consumption.
+- `stele features list --state going --json` — used by the
+  SessionStart hook to build the active-features block.
+- `stele config get tag_policy` + `stele tags list --json` — used by
+  the SessionStart hook for the tag-policy + active-tags block.
+- `stele hooks enable session-end-auto-extract` /
+  `stele hooks disable session-end-auto-extract` — opt-in toggles for
+  Layer 3 auto. Same effect as passing `--enable-session-end-auto-
+  extract` to `stele hooks install`.
+- `package.json` now runs a `prepare` build hook, so
+  `npm install -g .` rebuilds `dist/` reliably (previously only
+  `npm publish` rebuilt via `prepublishOnly`).
+
+### Web UI
+
+- Decision chips in the project page now render a source pill: warm
+  for `agent-live`, amber for `session-extract`, no pill for `manual`.
+- New rail filter: `?src=session-extract` for batch review of
+  post-hoc captures. `?src=agent-live` filters to live captures.
+
+### MCP
+
+- `decision_capture` payload accepts new optional `source` and
+  `confidence` fields; the tool handler defaults `source` to
+  `'manual'` if omitted.
+- Tool count unchanged at 19 — no new MCP tools were added for
+  auto-capture; the agent + hook templates do the orchestration.
+
+### What's NOT in this release (and why)
+
+- **`IntentDelta` bundle layer** — still deferred-but-on-purpose.
+- **`EntityResolver`** — still a stub.
+- **Auto-proposing `depends_on`** — consolidate heuristic still
+  emits only `relates` / `resolves`.
+- **ExitPlanMode enrichment** — deferred pending post-hoc extraction
+  quality observations.
+- **Stop-hook opt-in re-add** — not configurable. It's gone.
+
+### Migration / upgrade notes
+
+- Existing 0.3.0 databases open clean (all schema additions are
+  nullable; legacy rows decode as `source='manual'` implicitly).
+- Re-run `stele hooks install` in projects upgraded from 0.3.x to
+  pick up the SessionStart hook + the `requiredMinimumVersion` pin
+  + the new legacy-command sweep.
+- The user-level legacy-command cleanup fires automatically on the
+  next `stele init` / `stele hooks install` after upgrade.
+
 ## [0.3.0] · 2026-06-10
 
 **Breaking release.** Four product-shape changes shipped together — the
