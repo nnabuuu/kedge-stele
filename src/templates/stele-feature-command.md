@@ -50,14 +50,14 @@ liberal in matching — capturing the same decision twice under different
 words is a bigger problem than missing one near-duplicate.
 
 **0.4.0 — handle auto-captured rows the same as anything else.** The
-list from step 2 includes decisions captured by the live-track Stop hook
-(`source='agent-live'`) and by the SessionEnd subagent
-(`source='session-extract'`). Treat all of them as "already captured" —
-they're on disk, the dedup_key protects against re-writes, and
-attempting to re-capture an existing decision wastes context. Only
+list from step 2 includes decisions captured by the live agent
+self-governing (`source='agent-live'`) and by the optional SessionEnd
+subagent (`source='session-extract'`). Treat all of them as "already
+captured" — they're on disk, the dedup_key protects against re-writes,
+and attempting to re-capture an existing decision wastes context. Only
 genuinely new transcript moments need to land here.
 
-A "decision-y moment" is the same set the Stop hook is looking at:
+A "decision-y moment" — the same set the live agent watches for:
 
 - An option chosen over alternatives ("we'll go with per-session DBs")
 - Something explicitly deferred ("punt cascade DELETE for now")
@@ -81,7 +81,8 @@ skill describes. Key fields for the 0.3.0 surface:
 - `feature: { mode: "continue", id: "<the Feature id from step 1>" }` —
   always `continue`; you already resolved the Feature in step 1.
 - `sourceSession: { source: "claude-code", sourceSessionId: <cc_session_id> }`
-  if the Stop hook injected one; otherwise omit.
+  if the SessionStart hook injected one (you'd have it from earlier in
+  this session); otherwise omit.
 - Everything else: see `stele-capture/SKILL.md` and
   `stele-capture/references/decision-schema.md`. The Decision shape did
   NOT change in 0.3.0.

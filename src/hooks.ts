@@ -19,10 +19,19 @@ import {
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const HOOK_PATH_REL = ".claude/hooks/stele-stop.sh";
-// 0.4.0 — SessionStart hook ("read-side inject"): runs `stele resume
-// --for-context` and the stdout becomes additionalContext at session-start
-// so the agent sees open loops without the user having to ask.
+// 0.4.0-snapshot.10 — the Stop hook is GONE. No per-turn regex
+// pre-filter, no per-turn nag. The live agent self-governs when to
+// capture (see .claude/skills/stele-capture/SKILL.md). SessionStart
+// (below) does the one-shot context inject for the whole session.
+// We keep one constant pointing at the legacy path so install/
+// uninstall can clean it up on upgrade.
+const LEGACY_STOP_HOOK_PATH_REL = ".claude/hooks/stele-stop.sh";
+
+// 0.4.0 — SessionStart hook (read-side + capture context inject):
+// runs `stele resume --for-context` plus emits cc_session_id + active
+// features + tag policy. stdout becomes additionalContext at session-
+// start so the agent gets everything it needs for a whole session of
+// captures in one shot.
 const SESSION_START_HOOK_PATH_REL = ".claude/hooks/stele-session-start.sh";
 // 0.4.0 — SessionEnd auto-extract (OPT-IN, Layer 3 post-hoc capture).
 //
@@ -209,9 +218,15 @@ export interface InstallOptions {
   sessionEndAutoExtract?: boolean;
 }
 
-const STOP_ENTRY: ManagedEntry = {
+// 0.4.0-snapshot.10 — Stop entry is gone. The unmerger still scrubs
+// any legacy entry (matched by the script name) so projects that have
+// the old Stop entry from earlier snapshots get cleaned up on uninstall.
+const LEGACY_STOP_ENTRY: ManagedEntry = {
   event: "Stop",
-  build: () => ({ matcher: "", hooks: [{ type: "command", command: HOOK_PATH_REL }] }),
+  // build() is never called for this entry — it's only used during
+  // unmerge to detect+remove the legacy hook. We provide a sentinel
+  // shape so TypeScript is happy.
+  build: () => ({ matcher: "", hooks: [] }),
   isOurs: (e) => nestedHasScript(e, "stele-stop.sh"),
 };
 
@@ -248,7 +263,9 @@ const SESSION_END_ENTRY: ManagedEntry = {
  * SessionEnd entry.
  */
 function managedEntriesFor(opts: InstallOptions = {}): ManagedEntry[] {
-  const list: ManagedEntry[] = [STOP_ENTRY, SESSION_START_ENTRY];
+  // 0.4.0-snapshot.10: Stop entry dropped from defaults. SessionStart
+  // is the only always-on entry. SessionEnd remains opt-in.
+  const list: ManagedEntry[] = [SESSION_START_ENTRY];
   if (opts.sessionEndAutoExtract) list.push(SESSION_END_ENTRY);
   return list;
 }
@@ -275,11 +292,14 @@ function nestedHasAgentMarker(entry: unknown, marker: string): boolean {
 }
 
 /**
- * The full list of entries the uninstaller / status walks. Includes
- * optional entries unconditionally so uninstall always cleans up
- * regardless of what the user originally opted in to.
+ * The full list of entries the uninstaller / status / mergeSettings
+ * walks. Includes opt-in entries AND the legacy Stop entry so:
+ *   - uninstall cleans Stop from projects upgraded from earlier snapshots
+ *   - mergeSettings strips Stop on `stele hooks install` (no flag) after
+ *     an upgrade, even though we don't install it ourselves anymore
+ *   - opt-in entries (SessionEnd) are removed when not requested this round
  */
-const ALL_KNOWN_ENTRIES: ManagedEntry[] = [STOP_ENTRY, SESSION_START_ENTRY, SESSION_END_ENTRY];
+const ALL_KNOWN_ENTRIES: ManagedEntry[] = [LEGACY_STOP_ENTRY, SESSION_START_ENTRY, SESSION_END_ENTRY];
 
 function loadSettings(projectRoot: string): SettingsShape {
   const path = join(projectRoot, SETTINGS_REL);
@@ -428,7 +448,10 @@ function settingsHasSessionEndAutoExtract(settings: SettingsShape): boolean {
 // -----------------------------------------------------------------------------
 
 export interface InstallReport {
-  hook: string;
+  /** 0.4.0-snapshot.10: Stop hook is gone. This field reports what
+   *  install did about it — either "removed legacy" (upgrading from
+   *  pre-snapshot.10) or "not present" (fresh install). */
+  legacyStopHook: string;
   sessionStartHook: string;
   /** 0.4.0-snapshot.9: opt-in SessionEnd auto-extract. Empty when
    *  not requested; describes the agent file when enabled. */
@@ -476,18 +499,24 @@ export function installHooks(
   opts: InstallOptions = {},
 ): InstallReport {
   const report: InstallReport = {
-    hook: "", sessionStartHook: "", sessionEndAutoExtract: "",
+    legacyStopHook: "", sessionStartHook: "", sessionEndAutoExtract: "",
     skill: "", steleFeature: "", steleScan: "",
     legacyCommandsCleaned: "", settings: "",
   };
 
-  // 1. Stop hook script (per-turn nudge — strengthened in phase 3 to drive
-  //    the live-track decision_capture call)
-  const hookPath = join(projectRoot, HOOK_PATH_REL);
-  ensureDir(dirname(hookPath));
-  writeFileSync(hookPath, readTemplate("stele-stop-hook.sh"));
-  chmodSync(hookPath, 0o755);
-  report.hook = `wrote ${HOOK_PATH_REL} (executable)`;
+  // 1. Legacy Stop hook cleanup. 0.4.0-snapshot.10 dropped the regex-
+  //    based Stop hook entirely — the agent self-governs now. If a
+  //    prior snapshot installed the .sh, delete it. settings.json gets
+  //    cleaned by mergeSettings below (LEGACY_STOP_ENTRY is in
+  //    ALL_KNOWN_ENTRIES, so non-enabled events get their entries
+  //    stripped).
+  const legacyStopPath = join(projectRoot, LEGACY_STOP_HOOK_PATH_REL);
+  if (existsSync(legacyStopPath)) {
+    rmSync(legacyStopPath);
+    report.legacyStopHook = `removed legacy ${LEGACY_STOP_HOOK_PATH_REL} (Stop hook retired in 0.4.0-snapshot.10; agent self-governs Layer 1)`;
+  } else {
+    report.legacyStopHook = `Stop hook retired in 0.4.0-snapshot.10 — agent self-governs Layer 1 via the stele-capture skill`;
+  }
 
   // 1b. SessionStart hook script (0.4.0 — read-side inject of open loops
   //     via `stele resume --for-context`)
@@ -550,17 +579,18 @@ export function installHooks(
 
 export function uninstallHooks(projectRoot: string): InstallReport {
   const report: InstallReport = {
-    hook: "", sessionStartHook: "", sessionEndAutoExtract: "",
+    legacyStopHook: "", sessionStartHook: "", sessionEndAutoExtract: "",
     skill: "", steleFeature: "", steleScan: "",
     legacyCommandsCleaned: "", settings: "",
   };
 
-  const hookPath = join(projectRoot, HOOK_PATH_REL);
-  if (existsSync(hookPath)) {
-    rmSync(hookPath);
-    report.hook = `removed ${HOOK_PATH_REL}`;
+  // Legacy Stop hook — same cleanup as install.
+  const legacyStopPath = join(projectRoot, LEGACY_STOP_HOOK_PATH_REL);
+  if (existsSync(legacyStopPath)) {
+    rmSync(legacyStopPath);
+    report.legacyStopHook = `removed legacy ${LEGACY_STOP_HOOK_PATH_REL}`;
   } else {
-    report.hook = `${HOOK_PATH_REL} not present`;
+    report.legacyStopHook = `${LEGACY_STOP_HOOK_PATH_REL} not present`;
   }
 
   const sessionStartPath = join(projectRoot, SESSION_START_HOOK_PATH_REL);
@@ -602,7 +632,11 @@ export function uninstallHooks(projectRoot: string): InstallReport {
 }
 
 export interface StatusReport {
-  hook: boolean;
+  /** 0.4.0-snapshot.10: TRUE if a legacy stele-stop.sh exists on disk
+   *  (upgrade hint). FALSE on fresh installs. The Stop hook is gone in
+   *  this release; the field is here so `stele hooks status` can
+   *  surface a hint when there's leftover state. */
+  legacyStopHookPresent: boolean;
   sessionStartHook: boolean;
   /** 0.4.0-snapshot.9: opt-in SessionEnd auto-extract. True only when
    *  BOTH the agent file AND the settings.json entry are present. */
@@ -631,7 +665,7 @@ export function hooksStatus(projectRoot: string): StatusReport {
   }
   const agentFileExists = existsSync(join(projectRoot, EXTRACT_AGENT_REL));
   return {
-    hook: existsSync(join(projectRoot, HOOK_PATH_REL)),
+    legacyStopHookPresent: existsSync(join(projectRoot, LEGACY_STOP_HOOK_PATH_REL)),
     sessionStartHook: existsSync(join(projectRoot, SESSION_START_HOOK_PATH_REL)),
     // Auto-extract is "on" only when BOTH parts agree: settings entry
     // exists AND the agent file (which the inlined prompt Reads) is

@@ -1,40 +1,90 @@
 ---
 name: stele-capture
-description: Carve a decision that just crystallized in this conversation into the stele decision graph, or run the /stele:feature reconcile pass that catches everything the conversation has already decided. Activates when a decision was reached (an option chosen over alternatives, something explicitly deferred, a constraint locked in) and should be recorded for future sessions, or when the user invokes /stele:feature. Drafts the full CapturePayload from conversation context and calls the stele MCP decision_capture tool. Triggered semantically when the stele decision detector hook flags a moment, when the user mentions capturing a decision, carving to stele, recording a choice, deferring a question, locking in a constraint, or running /stele:feature.
-when_to_use: when a decision crystallizes, when capturing to stele, when carving a decision, when /stele:feature is invoked, when the stele decision detector flags a moment, when the user just chose between alternatives, when an option is locked in, when something is explicitly deferred, when a constraint is locked in, when an open question needs recording
+description: Carve a decision that just crystallized in this conversation into the stele decision graph, or run the /stele:feature reconcile pass that catches everything the conversation has already decided. Activates when a decision was reached (an option chosen over alternatives, something explicitly deferred, a constraint locked in) and should be recorded for future sessions, or when the user invokes /stele:feature. Drafts the full CapturePayload from conversation context and calls the stele MCP decision_capture tool. Triggered semantically when the user mentions capturing a decision, carving to stele, recording a choice, deferring a question, locking in a constraint, running /stele:feature, or whenever YOU (the live agent) notice a decision crystallizing in your own reply.
+when_to_use: when a decision crystallizes, when capturing to stele, when carving a decision, when /stele:feature is invoked, when the user just chose between alternatives, when an option is locked in, when something is explicitly deferred, when a constraint is locked in, when an open question needs recording, when reviewing your own reply and noticing you just made a decision
 ---
 
-# stele-capture — decision capture across three layers
+# stele-capture — decision capture, self-governed
 
-This skill activates in **three** situations, each at a different
-fidelity tier (0.4.0 widened the surface from two to three):
+This skill activates whenever you (the live agent) notice that a
+decision has crystallized in the conversation, OR when the user invokes
+`/stele:feature` or `/stele:scan`, OR when the SessionEnd extract
+subagent reads a transcript post-hoc. Three activation paths, three
+fidelity tiers — but the **judgment of "did a decision crystallize"
+is always yours**. There is no regex pre-filter, no per-turn nag, no
+external arbiter. You read your own reply, you decide, you capture.
 
-1. **Live track (Layer 1)** — the Stop hook detected decision-y language
-   and told the LIVE agent (you, right now, with full conversation
-   context) to call `decision_capture` immediately. **Highest fidelity:
-   you just lived through the decision.** Set `source='agent-live'` +
-   a `confidence` 0..1.
-2. **Reconcile (the `/stele:feature` command)** — the user typed the
-   command; its template (`.claude/commands/stele/feature.md`) carries
-   the 5-step reconcile algorithm. Step 3 diffs the transcript against
-   captured decisions and step 4 captures each gap. Same fidelity as
-   live (you're the live agent here too), and the recommended path for
-   explicit "catch up the graph" moments.
-3. **Post-hoc (Layer 3)** — the SessionEnd subagent hook spawns a
-   FRESH Claude with stele MCP access. It reads the JSONL transcript,
-   identifies anything the live agent missed, and calls
-   `decision_capture` with `source='session-extract'`. **It's
-   archaeology, not recall** — that subagent didn't live through the
-   decisions; it reconstructs from text. Quality ceiling is lower than
-   live, but it backstops anything the live agent forgot or filtered
-   out as "not crystallized yet" that later did crystallize.
+## The three layers
 
-In all three cases your job is the same: **author the full record from
-the available context** — the user should not type fields. They
-confirm or correct (in the SPA, post-hoc).
+1. **Live track (Layer 1, highest fidelity) — `source='agent-live'`.**
+   You just made a decision in your reply: chose option A over B,
+   explicitly deferred X, locked in a constraint. **Call
+   `mcp__stele__decision_capture` immediately** with
+   `source='agent-live'` + a confidence 0..1. You have the full
+   conversation context; nobody else does. SessionStart already
+   injected `cc_session_id` + active features + tag policy — use them
+   when filling the payload to avoid round-trips.
+
+2. **Reconcile (`/stele:feature` command).** The user typed
+   `/stele:feature`. Its template (`.claude/commands/stele/feature.md`)
+   carries the 5-step reconcile algorithm. Step 3 diffs the transcript
+   against captured decisions; step 4 captures each gap. Same
+   fidelity as live (you're still the live agent here too).
+   `/stele:scan` is the same idea, but over historical sources
+   (older transcripts, git log, external files).
+
+3. **Post-hoc (Layer 3, opt-in) — `source='session-extract'`.** When
+   the user has enabled SessionEnd auto-extract via
+   `stele hooks enable session-end-auto-extract`, an agent-type hook
+   spawns a fresh Claude at session close with stele MCP access.
+   That subagent reads `transcript_path` and captures anything the
+   live track missed. **It's archaeology, not recall** — it didn't
+   live through the decisions. Quality ceiling is lower than live.
+
+In all paths, **author the full record from the available context** —
+the user should not type fields. They confirm or correct later in the
+SPA.
 
 > **Transport**: this skill drives the `stele` MCP server. If the tools
 > aren't visible, remind the user to run `stele init`.
+
+## When IS a decision
+
+You'll decide. Here's the definition the dedup_key + the SPA assume:
+
+- An option chosen over alternatives ("we'll go with per-session DBs",
+  "use SQLite not Postgres", "agent-type hook over command + claude -p")
+- Something explicitly deferred ("punt cascade DELETE for now", "WAL
+  config later when perf bites")
+- A constraint locked in ("staying on zero deps", "must run on Node ≥22.6")
+
+NOT decisions:
+
+- Generic problem-solving ("here's how to fix the bug")
+- Tactical edits ("renamed foo to bar")
+- Discussion of options without commitment
+- Your own meta-moves about how to follow this skill
+
+When in doubt about whether something is decision-y enough to capture:
+**capture it as `type='open'`** (open question) with confidence in the
+0.30-0.55 band. The SPA flags those for human review. Better an open
+question that turns out to be settled than a missed decision.
+
+## When NOT to capture mid-reply
+
+A few sanity checks before you reach for `decision_capture`:
+
+- **Are you in the middle of presenting options to the user?** If
+  you're listing trade-offs and waiting for them to pick, no decision
+  yet. The decision crystallizes when the user (or you on the user's
+  behalf with prior context) commits.
+- **Did the user just say "let's go with X"?** Yes → capture.
+- **Did YOU just write "let's go with X" because the prior turns
+  established it?** Yes → capture. The author of the decision is
+  `actor: 'agent'` (you), `layer: 'personal'`.
+- **Is the conversation still in "planning together" mode?** Hold off.
+  Capture the firmed-up decisions at the end of the planning round, or
+  let the user run `/stele:feature` to reconcile.
 
 ## The dedup contract — why silent overlap is safe
 
@@ -61,11 +111,17 @@ Be deliberate about affects.
 - 0.3.0: all three old slash commands (`/decision`,
   `/milestone-report`, `/resume`) are gone. The single replacement is
   `/stele:feature`.
-- 0.4.0: 3-layer capture model — live (this skill from the Stop hook),
-  reconcile (the `/stele:feature` command), post-hoc (SessionEnd
-  agent-type hook). Schema added optional `source` + `confidence` +
-  `dedupKey` to Decision; pass `source` at the top level of the
-  decision_capture payload so the SPA can group machine captures.
+- 0.4.0: 3-layer capture model. Live (you self-govern via this skill),
+  reconcile (`/stele:feature` + `/stele:scan`), post-hoc (opt-in
+  SessionEnd agent-type hook). Schema added optional `source` +
+  `confidence` + `dedupKey` to Decision; pass `source` at the top
+  level of the decision_capture payload so the SPA can group machine
+  captures.
+- 0.4.0-snapshot.10: the Stop hook is GONE. No per-turn regex
+  pre-filter; no per-turn nag. SessionStart injects `cc_session_id` +
+  active features + tag policy + open loops in one shot at session
+  start. You read your own reply and decide whether to capture. The
+  judgment is yours, not regex's.
 - The Decision shape itself did NOT change. Field-by-field still in
   `references/decision-schema.md`.
 
@@ -88,12 +144,15 @@ command); for each one, walk through this 4-step checklist.
 
 ### Step 0 — Feature + Tag judgment
 
-The Stop hook injects the current `state='going'` features, your Claude
-Code session_id, the active tags, and the current `tag_policy` into your
-context. The `/stele:feature` command resolves the Feature for you in its
-step 1; that resolved id is what you use here (with `mode: "continue"`).
+The SessionStart hook injected the current `state='going'` features,
+your Claude Code `cc_session_id`, the active tags, and the current
+`tag_policy` at session start — pull them from your earlier context.
+If the session is long enough that those got compacted out, re-query
+via `mcp__stele__feature_list` / `mcp__stele__tags list`. The
+`/stele:feature` command resolves the Feature for you in its step 1;
+that resolved id is what you use here (with `mode: "continue"`).
 
-For freelance captures outside the command:
+For freelance live captures (the most common case):
 - `feature` — see `references/feature-judgment.md`
 - `tags` — see `references/tag-judgment.md`
 - `sourceSession` — always `{source: "claude-code", sourceSessionId: <the
@@ -145,7 +204,7 @@ decision_capture
   feature:       <Step 0 judgment, or { mode:"continue", id:<from /stele:feature> }>
   sourceSession: { source: "claude-code", sourceSessionId: <hook-provided id> }
   tags:          <Step 0 tag requests (optional)>
-  source:        "agent-live"   // live track (Stop hook woke you, full context)
+  source:        "agent-live"   // live track (you self-governed, full context)
                                 // or "session-extract" (you're the post-hoc subagent;
                                 // your hook prompt told you to use this value)
   confidence:    0..1            // how clearly did the decision crystallize?

@@ -41,13 +41,95 @@ function readSettings(): any {
 
 // ---- Fresh install -------------------------------------------------------
 
-test("install writes hook script, executable", () => {
+// 0.4.0-snapshot.10 — the Stop hook is gone. The regex-based per-turn
+// detector retired; the live agent self-governs via the stele-capture
+// skill. Install MUST NOT create the .sh, and MUST remove any leftover
+// from prior snapshots.
+
+test("install does NOT write the legacy Stop hook script", () => {
   installHooks(projectDir);
-  const hookPath = join(projectDir, ".claude/hooks/stele-stop.sh");
-  assert.ok(existsSync(hookPath), "hook script missing");
-  // Check mode bit (0o100755 → executable)
-  const mode = statSync(hookPath).mode & 0o777;
-  assert.equal(mode & 0o100, 0o100, "owner exec bit not set");
+  assert.equal(
+    existsSync(join(projectDir, ".claude/hooks/stele-stop.sh")),
+    false,
+    "0.4.0-snapshot.10 retired the Stop hook — installer must not write it",
+  );
+});
+
+test("install removes a legacy Stop hook script if one is present (upgrade)", () => {
+  // Simulate a project upgraded from an earlier snapshot that had the
+  // Stop hook installed.
+  mkdirSync(join(projectDir, ".claude/hooks"), { recursive: true });
+  writeFileSync(
+    join(projectDir, ".claude/hooks/stele-stop.sh"),
+    "#!/usr/bin/env bash\n# legacy from snapshot.3 etc.\n",
+  );
+  installHooks(projectDir);
+  assert.equal(
+    existsSync(join(projectDir, ".claude/hooks/stele-stop.sh")),
+    false,
+    "install must scrub the legacy Stop hook script on upgrade",
+  );
+});
+
+test("install does NOT write a Stop entry in settings.json", () => {
+  installHooks(projectDir);
+  const s = readSettings();
+  assert.equal(
+    s.hooks?.Stop === undefined || (Array.isArray(s.hooks.Stop) && s.hooks.Stop.length === 0),
+    true,
+    "Stop entry must NOT appear in settings.json after 0.4.0-snapshot.10 install",
+  );
+});
+
+test("install scrubs a previously-installed Stop entry from settings.json (upgrade)", () => {
+  const claudeDir = join(projectDir, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(
+    settingsPath(),
+    JSON.stringify(
+      {
+        hooks: {
+          Stop: [
+            { matcher: "", hooks: [{ type: "command", command: ".claude/hooks/stele-stop.sh" }] },
+          ],
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  installHooks(projectDir);
+  const s = readSettings();
+  assert.equal(
+    s.hooks?.Stop === undefined || s.hooks.Stop.length === 0,
+    true,
+    "install must drop the legacy stele Stop entry on upgrade",
+  );
+});
+
+test("install preserves unrelated Stop entries from other extensions", () => {
+  const claudeDir = join(projectDir, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  writeFileSync(
+    settingsPath(),
+    JSON.stringify(
+      {
+        hooks: {
+          Stop: [
+            { matcher: "", hooks: [{ type: "command", command: "other-script.sh" }] },
+          ],
+        },
+        otherTopLevelKey: "stays here",
+      },
+      null,
+      2,
+    ),
+  );
+  installHooks(projectDir);
+  const s = readSettings();
+  assert.equal(s.otherTopLevelKey, "stays here");
+  assert.equal(s.hooks.Stop.length, 1, "unrelated Stop entry was nuked");
+  assert.equal(s.hooks.Stop[0].hooks[0].command, "other-script.sh");
 });
 
 test("install writes skill file with frontmatter", () => {
@@ -114,134 +196,12 @@ test("install cleans up legacy 0.2.x command files", () => {
   assert.ok(existsSync(join(cmdsDir, "stele/feature.md")), "new /stele:feature didn't write");
 });
 
-// ---- THE settings.json regression --------------------------------------
+// ---- Upgrade path — legacy 0.0.1 broken-shape Stop entries -----------
+// (0.0.1 bug: { type, command } directly in the Stop array instead of
+// { matcher, hooks: [...] }. 0.4.0-snapshot.10 retires the Stop hook
+// entirely, so this scrubs both legacy shapes on upgrade.)
 
-test("install writes CORRECT nested { matcher, hooks: [...] } shape", () => {
-  installHooks(projectDir);
-  const s = readSettings();
-  assert.ok(s.hooks, "no hooks key");
-  assert.ok(Array.isArray(s.hooks.Stop), "Stop not array");
-  assert.equal(s.hooks.Stop.length, 1);
-  const entry = s.hooks.Stop[0];
-  assert.equal(typeof entry.matcher, "string", "missing matcher field — THIS WAS THE 0.0.1 BUG");
-  assert.ok(Array.isArray(entry.hooks), "missing nested hooks array — THIS WAS THE 0.0.1 BUG");
-  assert.equal(entry.hooks[0].type, "command");
-  assert.ok(entry.hooks[0].command.endsWith("stele-stop.sh"));
-});
-
-test("install does NOT write the flat { type, command } shape (0.0.1 bug)", () => {
-  installHooks(projectDir);
-  const s = readSettings();
-  // Top-level Stop entry must NOT have a direct `command` field
-  const entry = s.hooks.Stop[0];
-  assert.equal(
-    entry.command,
-    undefined,
-    "Stop entry has top-level command — the 0.0.1 broken shape is back",
-  );
-});
-
-// ---- Heal-from-broken on reinstall -------------------------------------
-
-test("reinstall on 0.0.1 broken shape heals to correct shape", () => {
-  // Plant the buggy 0.0.1-style settings.json
-  const claudeDir = join(projectDir, ".claude");
-  mkdirSync(claudeDir, { recursive: true });
-  writeFileSync(
-    settingsPath(),
-    JSON.stringify(
-      {
-        hooks: {
-          Stop: [
-            // Buggy 0.0.1 shape
-            { type: "command", command: ".claude/hooks/stele-stop.sh" },
-          ],
-        },
-      },
-      null,
-      2,
-    ),
-  );
-
-  installHooks(projectDir);
-
-  const s = readSettings();
-  assert.equal(s.hooks.Stop.length, 1, "should still have ONE entry, not duplicate");
-  const entry = s.hooks.Stop[0];
-  assert.equal(typeof entry.matcher, "string", "didn't heal to nested shape");
-  assert.ok(Array.isArray(entry.hooks));
-  assert.equal(entry.hooks[0].command, ".claude/hooks/stele-stop.sh");
-});
-
-// ---- Merge with unrelated hooks ----------------------------------------
-
-test("install preserves unrelated Stop hooks AND other event hooks", () => {
-  const claudeDir = join(projectDir, ".claude");
-  mkdirSync(claudeDir, { recursive: true });
-  writeFileSync(
-    settingsPath(),
-    JSON.stringify(
-      {
-        hooks: {
-          Stop: [{ matcher: "", hooks: [{ type: "command", command: "other-script.sh" }] }],
-          PostToolUse: [
-            { matcher: "Bash", hooks: [{ type: "command", command: "audit.sh" }] },
-          ],
-        },
-        otherTopLevelKey: "stays here",
-      },
-      null,
-      2,
-    ),
-  );
-
-  installHooks(projectDir);
-
-  const s = readSettings();
-  assert.equal(s.otherTopLevelKey, "stays here", "top-level keys clobbered");
-  assert.equal(s.hooks.Stop.length, 2, "other Stop entries lost");
-  assert.equal(s.hooks.PostToolUse.length, 1, "PostToolUse hook lost");
-  assert.equal(s.hooks.PostToolUse[0].hooks[0].command, "audit.sh");
-});
-
-// ---- Uninstall ---------------------------------------------------------
-
-test("uninstall removes hook script + skill dir, leaves /stele:feature command", () => {
-  installHooks(projectDir);
-  uninstallHooks(projectDir);
-  assert.equal(
-    existsSync(join(projectDir, ".claude/hooks/stele-stop.sh")),
-    false,
-    "hook script not removed",
-  );
-  assert.equal(
-    existsSync(join(projectDir, ".claude/skills/stele-capture")),
-    false,
-    "skill dir not removed",
-  );
-  // /stele:feature should stay (user may have customized)
-  assert.ok(
-    existsSync(join(projectDir, ".claude/commands/stele/feature.md")),
-    "command removed unexpectedly",
-  );
-});
-
-test("uninstall removes the stele Stop entry, preserves others", () => {
-  installHooks(projectDir);
-  // Manually add an extra entry
-  const s = readSettings();
-  s.hooks.Stop.push({ matcher: "", hooks: [{ type: "command", command: "other.sh" }] });
-  writeFileSync(settingsPath(), JSON.stringify(s, null, 2));
-
-  uninstallHooks(projectDir);
-
-  const after = readSettings();
-  assert.equal(after.hooks.Stop.length, 1);
-  assert.equal(after.hooks.Stop[0].hooks[0].command, "other.sh");
-});
-
-test("uninstall also handles the OLD broken shape", () => {
-  // Plant broken 0.0.1 entry directly (without installing first)
+test("uninstall scrubs 0.0.1 broken-shape Stop entries", () => {
   const claudeDir = join(projectDir, ".claude");
   mkdirSync(claudeDir, { recursive: true });
   writeFileSync(
@@ -267,11 +227,33 @@ test("uninstall also handles the OLD broken shape", () => {
   assert.equal(s.hooks.Stop[0].hooks[0].command, "other.sh");
 });
 
+// ---- Uninstall ---------------------------------------------------------
+
+test("uninstall removes the SessionStart hook + skill dir, leaves /stele:feature command", () => {
+  installHooks(projectDir);
+  uninstallHooks(projectDir);
+  assert.equal(
+    existsSync(join(projectDir, ".claude/hooks/stele-session-start.sh")),
+    false,
+    "SessionStart hook script not removed",
+  );
+  assert.equal(
+    existsSync(join(projectDir, ".claude/skills/stele-capture")),
+    false,
+    "skill dir not removed",
+  );
+  // /stele:feature should stay (user may have customized)
+  assert.ok(
+    existsSync(join(projectDir, ".claude/commands/stele/feature.md")),
+    "command removed unexpectedly",
+  );
+});
+
 // ---- Status ------------------------------------------------------------
 
 test("status reports ✗ on fresh dir, ✓ after install", () => {
   let s = hooksStatus(projectDir);
-  assert.equal(s.hook, false);
+  assert.equal(s.legacyStopHookPresent, false);
   assert.equal(s.sessionStartHook, false);
   assert.equal(s.skill, false);
   assert.equal(s.steleFeature, false);
@@ -280,12 +262,24 @@ test("status reports ✗ on fresh dir, ✓ after install", () => {
 
   installHooks(projectDir);
   s = hooksStatus(projectDir);
-  assert.equal(s.hook, true);
+  // 0.4.0-snapshot.10: no Stop hook installed.
+  assert.equal(s.legacyStopHookPresent, false);
   assert.equal(s.sessionStartHook, true);
   assert.equal(s.skill, true);
   assert.equal(s.steleFeature, true);
   assert.equal(s.settingsHasEntry, true);
   assert.equal(s.settingsHasMinVersion, true);
+});
+
+test("status surfaces a legacy Stop hook when present (upgrade hint)", () => {
+  mkdirSync(join(projectDir, ".claude/hooks"), { recursive: true });
+  writeFileSync(
+    join(projectDir, ".claude/hooks/stele-stop.sh"),
+    "#!/usr/bin/env bash\n# legacy\n",
+  );
+  const s = hooksStatus(projectDir);
+  assert.equal(s.legacyStopHookPresent, true,
+    "status must flag the legacy Stop hook so the user knows to re-run install");
 });
 
 // ---- 0.4.0 — SessionStart hook + requiredMinimumVersion ----------------

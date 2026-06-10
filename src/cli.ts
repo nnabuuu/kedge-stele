@@ -293,7 +293,7 @@ async function initCommand(args: string[]): Promise<void> {
   if (!skipHooks) {
     try {
       const r = installHooks(cwd, { sessionEndAutoExtract: enableSessionEndAutoExtract });
-      console.log(`  ${r.hook}`);
+      console.log(`  ${r.legacyStopHook}`);
       console.log(`  ${r.sessionStartHook}`);
       console.log(`  ${r.sessionEndAutoExtract}`);
       console.log(`  ${r.skill}`);
@@ -348,7 +348,7 @@ function hooksCommand(args: string[]): void {
     try {
       const r = installHooks(cwd, { sessionEndAutoExtract: enableSessionEndAutoExtract });
       console.log(`hooks installed in ${cwd}:`);
-      console.log(`  ${r.hook}`);
+      console.log(`  ${r.legacyStopHook}`);
       console.log(`  ${r.sessionStartHook}`);
       console.log(`  ${r.sessionEndAutoExtract}`);
       console.log(`  ${r.skill}`);
@@ -364,7 +364,7 @@ function hooksCommand(args: string[]): void {
     try {
       const r = uninstallHooks(cwd);
       console.log(`hooks uninstalled from ${cwd}:`);
-      console.log(`  ${r.hook}`);
+      console.log(`  ${r.legacyStopHook}`);
       console.log(`  ${r.sessionStartHook}`);
       console.log(`  ${r.sessionEndAutoExtract}`);
       console.log(`  ${r.skill}`);
@@ -417,7 +417,6 @@ function hooksCommand(args: string[]): void {
     const s = hooksStatus(cwd);
     const mark = (b: boolean) => (b ? "✓" : "✗");
     console.log(`stele hooks status (${cwd}):`);
-    console.log(`  ${mark(s.hook)}  .claude/hooks/stele-stop.sh`);
     console.log(`  ${mark(s.sessionStartHook)}  .claude/hooks/stele-session-start.sh`);
     console.log(`  ${mark(s.sessionEndAutoExtract)}  SessionEnd auto-extract (opt-in, agent type, blocks close ≤60s)`);
     console.log(`  ${mark(s.skill)}  .claude/skills/stele-capture/SKILL.md`);
@@ -425,6 +424,12 @@ function hooksCommand(args: string[]): void {
     console.log(`  ${mark(s.steleScan)}  .claude/commands/stele/scan.md`);
     console.log(`  ${mark(s.settingsHasEntry)}  stele entries in .claude/settings.json`);
     console.log(`  ${mark(s.settingsHasMinVersion)}  requiredMinimumVersion pinned in .claude/settings.json`);
+    if (s.legacyStopHookPresent) {
+      console.log("");
+      console.log("⚠  Legacy .claude/hooks/stele-stop.sh found. The Stop hook was retired");
+      console.log("   in 0.4.0-snapshot.10 (the agent self-governs Layer 1 capture now via");
+      console.log("   the stele-capture skill). Run `stele hooks install` to clean it up.");
+    }
     if (!s.sessionEndAutoExtract) {
       console.log("");
       console.log("Enable SessionEnd auto-extract with: stele hooks enable session-end-auto-extract");

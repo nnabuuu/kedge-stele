@@ -268,15 +268,16 @@ similar — neither has live working context, both reason from text):
 - **`/stele:feature`** — reconciles the CURRENT session's transcript.
   Run frequently during work. `/stele:scan` reconciles OTHER sources.
   Run on first install + when you want a deeper audit.
-- **SessionEnd subagent** — runs automatically at session close, reads
-  the JUST-ENDED session's transcript. `/stele:scan` reads earlier
-  ones (the SessionEnd subagent has already done the current one for
-  you). Together: live → SessionEnd → /stele:scan covers every
-  conceivable backfill source.
-- **Stop hook (live track)** — fires per turn during work. Captures
-  decisions in-flight with full context. Highest fidelity; `/stele:scan`
-  is the lowest-fidelity tier (text archaeology over historical
-  sources), so let the live track win whenever both look at the
-  same content. The dedup_key in `decision_capture` handles this for
-  you — your scan's writes get `dup-skip:` whenever the live track
-  already wrote the same observation.
+- **SessionEnd subagent (opt-in)** — when the user has enabled
+  `session-end-auto-extract`, runs automatically at session close
+  over the JUST-ENDED transcript. `/stele:scan` reads earlier ones.
+  Off by default; if it's not on, `/stele:scan --last 1` after a
+  session is the manual equivalent.
+- **Live track (agent self-governs, no hook)** — during work, the
+  live agent captures in-flight with full context as decisions
+  crystallize. Highest fidelity. `/stele:scan` is the lowest-fidelity
+  tier (text archaeology over historical sources), so let live wins
+  whenever both look at the same content. The dedup_key in
+  `decision_capture` handles this for you — your scan's writes get
+  `dup-skip:` whenever the live track already wrote the same
+  observation.
