@@ -1,3 +1,302 @@
-/* Decision Graph page — to be filled in Phase 6 (0.2.0-snapshot.6).
-   Layout per design/Decision Graph.html: feature rail + phase pills +
-   phase-panel card OR feature-map + loose-ends rail. */
+/* ----------------------------------------------------------------------
+ * Decision Graph page — interactive viewer at /<slug>/graph.
+ * Token scope: v-graph (Base minus --seal/--mono, plus --blue/--teal-soft +
+ * layout knobs --seg-gap/--dd-gap/--card-pad-y).
+ * ---------------------------------------------------------------------- */
+
+/* ============================================================
+ * Header
+ * ============================================================ */
+.graph-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.graph-head .sec-head h1 {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(26px, 3.6vw, 32px);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  margin-top: 6px;
+}
+.graph-stats {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11.5px;
+  color: var(--t3);
+}
+.graph-stats .n {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--t1);
+  margin-right: 4px;
+}
+.graph-stats .sep {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--t3);
+  opacity: 0.5;
+}
+
+/* ============================================================
+ * Filter pills
+ * ============================================================ */
+.graph-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.filt-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.filt-lbl {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--t3);
+  margin-right: 6px;
+}
+.filt-chip {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--t2);
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, background 0.16s ease;
+}
+.filt-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--t1);
+}
+.filt-chip.on {
+  background: var(--teal-soft);
+  border-color: var(--teal);
+  color: var(--teal);
+}
+
+/* ============================================================
+ * SVG canvas
+ * ============================================================ */
+.graph-scroll {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl, 12px);
+  padding: 8px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+}
+.graph-svg {
+  display: block;
+  font-family: var(--sans);
+}
+
+.col-bg {
+  fill: var(--bg);
+  stroke: var(--border);
+  stroke-width: 0.8;
+}
+.col-h-label {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+  fill: var(--t1);
+}
+.col-h-state {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.col-h-state.state-going   { fill: var(--teal); }
+.col-h-state.state-winding { fill: var(--amber); }
+.col-h-state.state-done    { fill: var(--green); }
+.col-h-state.state-paused  { fill: var(--t3); }
+.col-h-state.state-draft   { fill: var(--t3); }
+.col-h-count {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--t3);
+}
+
+/* Nodes */
+.node { cursor: pointer; }
+.node .node-bg {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 1;
+  transition: stroke 0.16s ease, fill 0.16s ease;
+}
+.node:hover .node-bg { stroke: var(--border-strong); fill: var(--surface2); }
+.node:focus { outline: none; }
+.node:focus .node-bg { stroke: var(--teal); stroke-width: 1.5; }
+.node.hi .node-bg {
+  fill: var(--teal-soft);
+  stroke: var(--teal);
+  stroke-width: 2;
+}
+.node-id {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  font-weight: 700;
+  fill: var(--teal);
+  letter-spacing: 0.02em;
+}
+.node.node-deferred .node-id { fill: var(--amber); }
+.node.node-open .node-id { fill: var(--purple); }
+.node-state {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  fill: var(--t3);
+}
+.node.state-deferred .node-state { fill: var(--amber); }
+.node.state-resolved .node-state { fill: var(--green); }
+.node.state-open .node-state { fill: var(--purple); }
+.node.state-superseded .node-state { fill: var(--t3); }
+.node.state-decided .node-state { fill: var(--teal); }
+.node-title {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  fill: var(--t1);
+}
+
+/* Edges */
+.edge {
+  transition: opacity 0.16s ease, stroke-width 0.16s ease;
+}
+.edge.hi { opacity: 1 !important; }
+
+/* ============================================================
+ * Legend
+ * ============================================================ */
+.graph-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 10.5px;
+  color: var(--t2);
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 8px);
+  flex-wrap: wrap;
+}
+.leg-h {
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--t3);
+}
+.leg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.leg-line {
+  display: inline-block;
+  width: 22px;
+  height: 2px;
+  border-radius: 1px;
+}
+.leg-line.dashed {
+  background: linear-gradient(90deg, currentColor 50%, transparent 50%) !important;
+  background-size: 6px 100% !important;
+}
+
+/* ============================================================
+ * Highlight hint banner
+ * ============================================================ */
+.graph-hi {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--teal-soft);
+  border: 1px solid var(--teal);
+  border-radius: var(--r-md, 8px);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11.5px;
+  color: var(--teal);
+  flex-wrap: wrap;
+}
+.hi-lbl {
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.hi-id {
+  font-weight: 700;
+  padding: 2px 6px;
+  background: rgba(var(--teal-rgb), 0.15);
+  border-radius: 3px;
+}
+.hi-title {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--t1);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hi-hint {
+  color: var(--t3);
+  font-style: italic;
+}
+
+.btn-mini {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 5px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border-strong);
+  background: var(--t1);
+  color: var(--bg);
+  cursor: pointer;
+}
+.btn-mini.ghost {
+  background: transparent;
+  color: var(--t2);
+  border-color: var(--border);
+}
+.btn-mini.ghost:hover {
+  color: var(--t1);
+  border-color: var(--t1);
+}
+
+/* ============================================================
+ * Responsive
+ * ============================================================ */
+@media (max-width: 720px) {
+  .graph-stats { font-size: 10.5px; }
+}

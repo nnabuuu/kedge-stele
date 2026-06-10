@@ -23,6 +23,7 @@ import { Store } from "./store.ts";
 import { proposeEdges } from "./consolidate.ts";
 import {
   featureRail,
+  graphSlice,
   milestoneDetail,
   milestoneSummary,
   projectListSummary,
@@ -629,6 +630,16 @@ async function dispatchApi(
     if (apiPath === "/api/feature-rail") {
       // Project page's left rail — features grouped with milestone summaries.
       return json(res, 200, featureRail(store));
+    }
+    if (apiPath === "/api/graph") {
+      // Decision graph slice — {nodes, edges, features, milestones} with
+      // optional feature/milestone/tag filters in the querystring.
+      const filter = {
+        feature: searchParams.get("feature") ?? undefined,
+        milestone: searchParams.get("milestone") ?? undefined,
+        tag: searchParams.get("tag") ?? undefined,
+      };
+      return json(res, 200, graphSlice(store, filter));
     }
     const mFeature = apiPath.match(/^\/api\/features\/([^/]+)$/);
     if (mFeature) {

@@ -14,8 +14,10 @@ import type {
   Decision,
   DecisionId,
   DecisionType,
+  EdgeRelation,
   EntityRef,
   Feature,
+  FeatureId,
   Milestone,
   MilestoneId,
   MilestoneState,
@@ -813,4 +815,153 @@ export function projectListSummary(
       topMilestone: top,
     };
   });
+}
+
+// ===========================================================================
+// Decision graph slice — interactive Decision Graph page
+// ===========================================================================
+
+export type GraphNodeState =
+  | "decided" | "deferred" | "resolved" | "superseded" | "open" | "conflicted";
+
+export interface GraphSliceNode {
+  id: DecisionId;
+  title: string;
+  type: DecisionType;
+  state: GraphNodeState;
+  milestoneId: MilestoneId;
+  featureId?: FeatureId;
+  sessionId?: SessionId;
+  tags: Array<{ id: string; name: string; color: string }>;
+}
+
+export interface GraphSliceEdge {
+  from: DecisionId;
+  to: DecisionId;
+  relation: EdgeRelation;
+  note?: string;
+}
+
+export interface GraphSliceFeature {
+  id: FeatureId;
+  name: string;
+}
+
+export interface GraphSliceMilestone {
+  id: MilestoneId;
+  name: string;
+  state: MilestoneState;
+  featureId: FeatureId;
+}
+
+export interface GraphSlice {
+  nodes: GraphSliceNode[];
+  edges: GraphSliceEdge[];
+  // Pivot data for the UI's filter pills (always returns the full set so
+  // the user can broaden the filter without a second round-trip).
+  features: GraphSliceFeature[];
+  milestones: GraphSliceMilestone[];
+}
+
+export interface GraphSliceFilter {
+  feature?: FeatureId;
+  milestone?: MilestoneId;
+  tag?: string;     // tag id OR tag name (case-insensitive)
+}
+
+/**
+ * Return the decision graph as `{nodes, edges}` plus the feature + milestone
+ * pivot lists. Filters narrow the scope (feature, milestone, tag) but
+ * pivots remain global so the UI can switch filters without a refetch.
+ */
+export function graphSlice(store: Store, filter?: GraphSliceFilter): GraphSlice {
+  const projects = store.allProjects();
+  const project = projects[0];
+  if (!project) {
+    return { nodes: [], edges: [], features: [], milestones: [] };
+  }
+
+  // Pivots — always full project scope.
+  const features = store.featuresIn(project.id);
+  const featureIds = new Set(features.map((f) => f.id));
+  const allMilestones = store.allMilestones().filter((m) => featureIds.has(m.featureId));
+
+  // Apply filter to scope which milestones / decisions land in the slice.
+  let scopedMilestones = allMilestones;
+  if (filter?.feature) {
+    scopedMilestones = scopedMilestones.filter((m) => m.featureId === filter.feature);
+  }
+  if (filter?.milestone) {
+    scopedMilestones = scopedMilestones.filter((m) => m.id === filter.milestone);
+  }
+  const milestoneById = new Map(scopedMilestones.map((m) => [m.id, m]));
+
+  let decisions = store
+    .allDecisions()
+    .filter((d) => milestoneById.has(d.milestoneId));
+
+  // Tag filter is decision-level
+  if (filter?.tag) {
+    const tag = store.getTag(filter.tag) ?? store.findTagByName(filter.tag);
+    if (!tag) {
+      return {
+        nodes: [],
+        edges: [],
+        features: features.map((f) => ({ id: f.id, name: f.name })),
+        milestones: allMilestones.map((m) => ({
+          id: m.id, name: m.name, state: m.state, featureId: m.featureId,
+        })),
+      };
+    }
+    const taggedDecisionIds = new Set(
+      store
+        .targetsForTag(tag.id)
+        .filter((t) => t.kind === "decision")
+        .map((t) => t.id),
+    );
+    decisions = decisions.filter((d) => taggedDecisionIds.has(d.id));
+  }
+
+  const nodeIdSet = new Set(decisions.map((d) => d.id));
+
+  const nodes: GraphSliceNode[] = decisions.map((d) => {
+    const m = milestoneById.get(d.milestoneId);
+    return {
+      id: d.id,
+      title: d.title,
+      type: d.type,
+      state: nodeState(d) as GraphNodeState,
+      milestoneId: d.milestoneId,
+      featureId: m?.featureId,
+      sessionId: d.sessionId,
+      tags: store.taggingsForTarget("decision", d.id).map((t) => ({
+        id: t.id, name: t.name, color: t.color,
+      })),
+    };
+  });
+
+  // Collect edges where both ends survived the filter. edgesFrom(d.id)
+  // iterates from one side so we see each edge exactly once.
+  const edges: GraphSliceEdge[] = [];
+  for (const d of decisions) {
+    for (const e of store.edgesFrom(d.id)) {
+      if (nodeIdSet.has(e.to)) {
+        edges.push({
+          from: e.from,
+          to: e.to,
+          relation: e.relation,
+          note: e.note,
+        });
+      }
+    }
+  }
+
+  return {
+    nodes,
+    edges,
+    features: features.map((f) => ({ id: f.id, name: f.name })),
+    milestones: allMilestones.map((m) => ({
+      id: m.id, name: m.name, state: m.state, featureId: m.featureId,
+    })),
+  };
 }
