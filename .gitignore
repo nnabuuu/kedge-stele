@@ -6,10 +6,11 @@ resume.html
 .DS_Store
 *.tgz
 
-# Per-machine `stele init` artifacts — leave .claude/commands/ tracked
-# (the /decision command is part of the project), but everything else
-# is local config.
+# Per-machine `stele init` artifacts — leave .claude/commands/ and
+# .claude/agents/ tracked (the stele slash commands + extract agent are part
+# of the project), but everything else is local config or runtime state.
 .mcp.json
 .claude/settings.json
 .claude/hooks/
 .claude/skills/
+.claude/scheduled_tasks.lock
