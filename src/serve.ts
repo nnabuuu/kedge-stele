@@ -8,15 +8,17 @@
 //     a Store per registered project, routes at `/<slug>/api/*` plus an
 //     overview at `/`. Used by the always-on daemon (com.stele.daemon).
 //
-// Static assets (web/index.html, web/styles.css, web/app.js) are read once
-// at startup into memory — no filesystem IO per request.
+// Static assets (web/index.html, web/app.js, web/pages/*, …) are read from
+// disk per request. On localhost this IO is negligible, and it means an
+// upgraded package's new web/ assets are served immediately rather than a
+// stale in-memory copy surviving until the daemon process restarts.
 //
 // Business logic lives in projections.ts / store.ts / consolidate.ts. The
 // handlers here are thin wrappers.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { spawn } from "node:child_process";
 import { z } from "zod";
 import { Store } from "./store.ts";
@@ -87,32 +89,53 @@ const MIME: Record<string, string> = {
   ".svg":  "image/svg+xml",
 };
 
-function loadAssets(): { index: Asset; landing: Asset; files: Map<string, Asset> } {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const webDir = join(here, "..", "web");
+interface AssetServer {
+  index(): Asset;
+  landing(): Asset;
+  file(rel: string): Asset | null;   // null = not found or outside web/
+}
+
+// Resolve web/ once, then read files on demand. `file()` is hardened against
+// path traversal: `rel` comes straight off the `/assets/<rel>` URL, so a
+// request for `../../etc/passwd` must resolve outside web/ and return null
+// rather than leak an arbitrary file.
+function loadAssets(): AssetServer {
+  const webDir = join(dirname(fileURLToPath(import.meta.url)), "..", "web");
   const read = (relPath: string): Asset => {
     const ext = relPath.slice(relPath.lastIndexOf("."));
     return { body: readFileSync(join(webDir, relPath)), type: MIME[ext] ?? "application/octet-stream" };
   };
-  const index = read("index.html");
-  const landing = read("landing.html");
-  // Walk web/ recursively; register every file by its relative path so
-  // GET /assets/<rel> resolves regardless of nesting. Skips the two
-  // named-key assets above (index.html, landing.html) — those are served
-  // by the dispatcher directly, not via /assets/.
-  const files = new Map<string, Asset>();
-  const walk = (dir: string, prefix: string) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
-        walk(join(dir, entry.name), rel);
-      } else if (entry.isFile() && rel !== "index.html" && rel !== "landing.html") {
-        files.set(rel, read(rel));
-      }
+  const file = (rel: string): Asset | null => {
+    const full = join(webDir, rel);
+    const within = relative(webDir, full);
+    if (within.startsWith("..") || isAbsolute(within)) return null;  // escaped web/
+    if (!existsSync(full)) return null;
+    try {
+      return read(rel);
+    } catch {
+      return null;  // races with deletion / directory paths
     }
   };
-  walk(webDir, "");
-  return { index, landing, files };
+  return {
+    index: () => read("index.html"),
+    landing: () => read("landing.html"),
+    file,
+  };
+}
+
+// Version this process booted with, re-read live from the installed
+// package.json. The daemon polls this to detect an `npm update` and restart
+// itself (see startServerForeground). Returns null if the file is missing or
+// mid-write so the caller treats it as "no change".
+function pkgVersion(): string | null {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const raw = readFileSync(join(here, "..", "package.json"), "utf8");
+    const v = (JSON.parse(raw) as { version?: string }).version;
+    return typeof v === "string" ? v : null;
+  } catch {
+    return null;
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -737,10 +760,10 @@ async function dispatchSingle(
   const method = req.method ?? "GET";
   try {
     if (method === "GET") {
-      if (path === "/" || path === "/index.html") return asset(res, assets.index);
-      if (path === "/welcome" || path === "/welcome.html") return asset(res, assets.landing);
+      if (path === "/" || path === "/index.html") return asset(res, assets.index());
+      if (path === "/welcome" || path === "/welcome.html") return asset(res, assets.landing());
       if (path.startsWith("/assets/")) {
-        const file = assets.files.get(path.slice("/assets/".length));
+        const file = assets.file(path.slice("/assets/".length));
         return file ? asset(res, file) : notFound(res);
       }
     }
@@ -757,11 +780,11 @@ async function dispatchSingle(
         if (rest.startsWith("/api/")) {
           path = rest;
         } else if (method === "GET") {
-          return asset(res, assets.index);
+          return asset(res, assets.index());
         }
       }
     }
-    if (method === "GET" && !path.startsWith("/api/")) return asset(res, assets.index);
+    if (method === "GET" && !path.startsWith("/api/")) return asset(res, assets.index());
     return await dispatchApi(store, path, url.searchParams, method, req, res);
   } catch (e) {
     console.error(`[stele] handler error: ${(e as Error).message}`);
@@ -806,7 +829,7 @@ async function dispatchMulti(
   try {
     // Static assets shared across projects
     if (method === "GET" && parts.length > 0 && parts[0] === "assets") {
-      const file = assets.files.get(parts.slice(1).join("/"));
+      const file = assets.file(parts.slice(1).join("/"));
       return file ? asset(res, file) : notFound(res);
     }
 
@@ -817,12 +840,12 @@ async function dispatchMulti(
 
     // Overview at /
     if (method === "GET" && parts.length === 0) {
-      return asset(res, assets.index);
+      return asset(res, assets.index());
     }
 
     // Marketing landing at /welcome (single static page, no slug)
     if (method === "GET" && parts.length === 1 && (parts[0] === "welcome" || parts[0] === "welcome.html")) {
-      return asset(res, assets.landing);
+      return asset(res, assets.landing());
     }
 
     // /<slug>/...
@@ -835,7 +858,7 @@ async function dispatchMulti(
     if (!got) {
       // SPA fallback for GETs to a slug that doesn't exist — the frontend
       // will show "no such project" and offer the overview.
-      if (method === "GET" && !path.includes("/api/")) return asset(res, assets.index);
+      if (method === "GET" && !path.includes("/api/")) return asset(res, assets.index());
       return notFound(res, `no such project: ${slug}`);
     }
 
@@ -843,7 +866,7 @@ async function dispatchMulti(
 
     if (method === "GET" && !rest.startsWith("/api/")) {
       // SPA fallback for any non-API path under the slug
-      return asset(res, assets.index);
+      return asset(res, assets.index());
     }
 
     return await dispatchApi(got.store, rest, url.searchParams, method, req, res);
@@ -938,6 +961,30 @@ export async function startServerForeground(opts: ServeOptions & { open?: boolea
   }
   console.log(`(Ctrl-C to stop)`);
   if (open) openBrowser(running.url);
+
+  // Daemon self-restart on upgrade. `npm update -g stele-mcp` swaps the
+  // package files under the running process but can't bounce it, so the
+  // long-lived daemon would keep serving old code (and, before per-request
+  // asset reads, old UI) until the next login/reboot. Poll the installed
+  // version; when it changes, exit cleanly — launchd (KeepAlive) and systemd
+  // (Restart=always) respawn us on the new code, which re-reads everything.
+  // Only in multi mode (the daemon); a foreground `stele serve` in a project
+  // is the user's own process to manage.
+  if (multi) {
+    const booted = pkgVersion();
+    if (booted) {
+      const watch = setInterval(() => {
+        const now = pkgVersion();
+        if (now && now !== booted) {
+          console.log(`[stele] package upgraded ${booted} → ${now}; restarting daemon to load new code`);
+          const hardExit = setTimeout(() => process.exit(0), 2000);
+          hardExit.unref();
+          void running.close().then(() => process.exit(0), () => process.exit(0));
+        }
+      }, 30_000);
+      watch.unref();  // the server keeps the loop alive; this timer must not
+    }
+  }
 
   process.on("SIGINT", () => {
     console.log("");
