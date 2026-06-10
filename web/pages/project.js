@@ -16,6 +16,7 @@
 //                                                 sessions + per-session decisions
 
 import { apiGet, ensureCss, slugUrl } from "../api.js";
+import { renderResumeLauncher } from "../components/resume-launcher.js";
 
 // -------------------------------------------------------------------
 // Static enums (mirror src/types.ts)
@@ -385,6 +386,7 @@ function renderResumeStrip(latestBucket, totalSessions) {
         h("span", { class: "lead" }, "上次聊到"),
         summary),
       h("div", { class: "resume-foot" },
+        s.id ? renderResumeLauncher({ sessionId: s.id }) : null,
         h("span", { class: "resume-ccid" },
           s.sourceSessionId
             ? `cc · ${s.sourceSessionId.slice(0, 8)}…`
