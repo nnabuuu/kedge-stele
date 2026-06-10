@@ -217,7 +217,7 @@ function renderLibrary(tags, onRename, onRecolor, onArchive) {
       h("span", { class: "hint" }, "点色块改色 · 悬停看操作"),
     ),
     tags.length === 0
-      ? h("div", { class: "lib-empty" }, "还没有标签 — agent 在 /decision 流程里识别到的标签会出现在这里。")
+      ? h("div", { class: "lib-empty" }, "还没有标签 — agent 在 /stele:feature 流程里识别到的标签会出现在这里。")
       : h("div", { class: "tlib" },
           ...tags.map((tg) => renderTagRow(tg, false, onRename, onRecolor, onArchive)),
         ),
@@ -417,12 +417,17 @@ let rootEl = null;
 function rerender() {
   if (!rootEl) return;
   rootEl.innerHTML = "";
+  // renderPending / renderArchived return null when their lists are empty;
+  // Element.append() stringifies null → a literal "null" text node, so filter
+  // them out before appending.
   rootEl.append(
-    renderHeader(state.active.length, state.pending.length, state.archived.length),
-    renderPolicy(state, onPolicyChange, onRequireReasonChange),
-    renderPending(state.pending, state.policy, onConfirm, onReject),
-    renderLibrary(state.active, onRename, onRecolor, onArchive),
-    renderArchived(state.archived, onRestore),
+    ...[
+      renderHeader(state.active.length, state.pending.length, state.archived.length),
+      renderPolicy(state, onPolicyChange, onRequireReasonChange),
+      renderPending(state.pending, state.policy, onConfirm, onReject),
+      renderLibrary(state.active, onRename, onRecolor, onArchive),
+      renderArchived(state.archived, onRestore),
+    ].filter(Boolean),
   );
 }
 
