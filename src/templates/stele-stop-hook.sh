@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
-# stele decision detector — Stop hook
+# stele decision detector — Stop hook (Layer 1, live-track capture)
 #
 # Stop hook payload arrives on stdin as JSON:
 #   { session_id, transcript_path, cwd, permission_mode, hook_event_name, response_text }
 #
 # We scan `response_text` (Claude's reply that's about to end the turn) for
 # decision-y language. On a hit, we emit `hookSpecificOutput.additionalContext`
-# nudging Claude to load the stele-capture skill on the next turn.
+# telling the LIVE agent to call decision_capture RIGHT NOW with
+# source='agent-live' — not "load a skill and consider drafting", which the
+# 0.3.0 phrasing did. Live capture has the full conversation context, so
+# this is the highest-fidelity layer of the three-layer model.
+#
+# The post-hoc SessionEnd subagent (Layer 3, phase 4) backstops anything
+# the live agent misses. Both write via decision_capture; dedup_key
+# collapses any overlap.
 #
 # Set STELE_HOOK_DEBUG=1 to log matched signals to stderr.
 #
@@ -91,7 +98,11 @@ if printf '%s' "$response_text" | grep -qE "$joined"; then
 
   context="stele decision detector: 上一轮检测到决策迹象。
 
-如果对话中刚刚有一个决策 crystallize (an option chosen over alternatives, something explicitly deferred, a constraint locked in), 请加载 stele-capture skill 并按它的剧本起草 CapturePayload, 然后调用 decision_capture MCP 工具记录到 stele decision store。如果没真正定下来 (只是讨论选项), 忽略本提醒, 不要打扰用户。"
+LIVE-TRACK CAPTURE (Layer 1) — 你刚活过这个决策，上下文最全。如果对话中刚刚有一个决策 crystallize (an option chosen over alternatives, something explicitly deferred, a constraint locked in), 立刻调用 decision_capture MCP 工具记录, 并在调用时传入 source='agent-live' + 一个 confidence 数字 (0..1, 表示决策落地的清晰度)。这是 0.4.0 三层捕获模型的第一层 — 现场保真度最高的那一层。
+
+需要 Decision 字段细节, 查 stele-capture skill: SKILL.md (4 步流程) + references/decision-schema.md (字段逐项) + references/feature-judgment.md (feature.mode 怎么选) + references/tag-judgment.md (tags 怎么传) + gotchas.md (10 个常见坑)。但跑这套不要预先全部加载 — 按需 Read。
+
+如果觉得没真正定下来 (只是讨论选项 / 还在权衡), 忽略本提醒不要打扰用户。SessionEnd 的 post-hoc subagent (Layer 3) 会兜底, 它读 transcript 后还会再过一遍 — dedup_key 保证同一个决策不会被重复落库, 所以你这次过滤掉的也不会真丢。"
 
   if [ -n "$features_block" ]; then
     context="$context
@@ -118,7 +129,7 @@ $tags_block"
   if [ -n "$claude_sid" ]; then
     context="$context
 
-When you call decision_capture, also pass sourceSession: { source: \"claude-code\", sourceSessionId: \"$claude_sid\" } — multiple captures in this same conversation should land on one Session."
+When you call decision_capture, also pass sourceSession: { source: \"claude-code\", sourceSessionId: \"$claude_sid\" } — multiple captures in this same conversation should land on one Session. (This is separate from the top-level source='agent-live' field above; sourceSession identifies the cc_session_id, source classifies the capture path.)"
   fi
 
   jq -n --arg ctx "$context" '{

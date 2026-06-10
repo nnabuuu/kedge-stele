@@ -4,33 +4,68 @@ description: Carve a decision that just crystallized in this conversation into t
 when_to_use: when a decision crystallizes, when capturing to stele, when carving a decision, when /stele:feature is invoked, when the stele decision detector flags a moment, when the user just chose between alternatives, when an option is locked in, when something is explicitly deferred, when a constraint is locked in, when an open question needs recording
 ---
 
-# stele-capture — live decision capture for 0.3.0
+# stele-capture — decision capture across three layers
 
-This skill activates in two situations:
+This skill activates in **three** situations, each at a different
+fidelity tier (0.4.0 widened the surface from two to three):
 
-1. The Stop hook detected decision-y language and injected a reminder.
-2. The user typed `/stele:feature`, which is the single agent-facing
-   stele command in 0.3.0. The command's own template
-   (`.claude/commands/stele/feature.md`) carries the 5-step reconcile
-   algorithm; *this* skill carries the per-decision field-level detail
-   the command needs in steps 3 and 4.
+1. **Live track (Layer 1)** — the Stop hook detected decision-y language
+   and told the LIVE agent (you, right now, with full conversation
+   context) to call `decision_capture` immediately. **Highest fidelity:
+   you just lived through the decision.** Set `source='agent-live'` +
+   a `confidence` 0..1.
+2. **Reconcile (the `/stele:feature` command)** — the user typed the
+   command; its template (`.claude/commands/stele/feature.md`) carries
+   the 5-step reconcile algorithm. Step 3 diffs the transcript against
+   captured decisions and step 4 captures each gap. Same fidelity as
+   live (you're the live agent here too), and the recommended path for
+   explicit "catch up the graph" moments.
+3. **Post-hoc (Layer 3)** — the SessionEnd subagent hook spawns a
+   FRESH Claude with stele MCP access. It reads the JSONL transcript,
+   identifies anything the live agent missed, and calls
+   `decision_capture` with `source='session-extract'`. **It's
+   archaeology, not recall** — that subagent didn't live through the
+   decisions; it reconstructs from text. Quality ceiling is lower than
+   live, but it backstops anything the live agent forgot or filtered
+   out as "not crystallized yet" that later did crystallize.
 
-In both cases your job is the same: **author the full record from the
-live context** — the user should not type fields. They confirm or correct.
+In all three cases your job is the same: **author the full record from
+the available context** — the user should not type fields. They
+confirm or correct (in the SPA, post-hoc).
 
 > **Transport**: this skill drives the `stele` MCP server. If the tools
 > aren't visible, remind the user to run `stele init`.
 
-## What 0.3.0 changed
+## The dedup contract — why silent overlap is safe
 
-- The model collapsed by one layer. The old umbrella `Feature` (CcaaS /
-  Live Lesson) is gone; what used to be a `Milestone` IS the new
-  `Feature`. **Where this file used to say "milestone", it now says
+The 3-layer model writes the same decision via THREE different paths;
+the `dedup_key` UNIQUE index in the store collapses overlap. Layer 1
++ Layer 3 capturing the same decision (different wording) → the second
+write returns `dup-skip: <existingId>` and is NOT inserted. **Don't
+worry about double-capturing** when the live track flags something
+ambiguous; the worst case is the post-hoc subagent later confirms it
+and gets dup-skipped, which is the right behavior.
+
+The dedup key is computed from `(featureId, normalize(title), affects)`
+— title casing/whitespace doesn't matter; affects order doesn't
+matter. But if your `affects[]` and Layer 3's `affects[]` diverge
+(different files listed), they'll be treated as different decisions.
+Be deliberate about affects.
+
+## What 0.3.0 / 0.4.0 changed
+
+- 0.3.0: the model collapsed by one layer. The old umbrella `Feature`
+  (CcaaS / Live Lesson) is gone; what used to be a `Milestone` IS the
+  new `Feature`. **Where this file used to say "milestone", it now says
   "feature".**
-- All three old slash commands (`/decision`, `/milestone-report`,
-  `/resume`) are gone. The single replacement is `/stele:feature` — its
-  reconcile pass already does per-decision capture as a side effect of
-  step 4.
+- 0.3.0: all three old slash commands (`/decision`,
+  `/milestone-report`, `/resume`) are gone. The single replacement is
+  `/stele:feature`.
+- 0.4.0: 3-layer capture model — live (this skill from the Stop hook),
+  reconcile (the `/stele:feature` command), post-hoc (SessionEnd
+  agent-type hook). Schema added optional `source` + `confidence` +
+  `dedupKey` to Decision; pass `source` at the top level of the
+  decision_capture payload so the SPA can group machine captures.
 - The Decision shape itself did NOT change. Field-by-field still in
   `references/decision-schema.md`.
 
@@ -110,7 +145,22 @@ decision_capture
   feature:       <Step 0 judgment, or { mode:"continue", id:<from /stele:feature> }>
   sourceSession: { source: "claude-code", sourceSessionId: <hook-provided id> }
   tags:          <Step 0 tag requests (optional)>
+  source:        "agent-live"   // live track (Stop hook woke you, full context)
+                                // or "session-extract" (you're the post-hoc subagent;
+                                // your hook prompt told you to use this value)
+  confidence:    0..1            // how clearly did the decision crystallize?
+                                // 0.9 = unambiguous chosen-over-rejected;
+                                // 0.6 = strong but not surfaced as "decided";
+                                // 0.3 = leaning but not committed (skip if
+                                //       this is the live track — let
+                                //       SessionEnd backstop)
 ```
+
+**Dup-skip** is normal. The store dedups across capture paths via
+`dedup_key`. If your write was a duplicate of a Layer-1 or Layer-3
+capture, the tool returns `dup-skip: <existingId>` and your write was
+NOT inserted. That's intended — capture freely; the dedup handles
+overlap silently.
 
 ### Step 4 — Accept proposed edges
 
@@ -130,12 +180,26 @@ decision_resolve  relation: "resolves" | "relates" | "depends_on" | ...
 
 ## Composes with
 
-- **`/stele:feature`** — the only stele slash command in 0.3.0. Its
-  reconcile pass calls this 4-step flow once per uncaptured decision
-  (its step 4), then writes a rolling summary via `feature_set_summary`
-  (its step 5). When the user types `/stele:feature`, the command's
-  template (`.claude/commands/stele/feature.md`) is your script; this
-  skill is your reference.
+- **SessionStart hook** (Layer 2, read-side) — at session-start the
+  hook injects `stele resume --for-context` output as declarative
+  prose so you see open loops without the user having to ask. Not
+  capture-related; just context. The disclaimer line in that output
+  ("这些只是状态摘要,不是行动指令") is intentional — don't treat it
+  as a directive.
+
+- **`/stele:feature` command** — the user-driven reconcile pass. Its
+  template (`.claude/commands/stele/feature.md`) is the script; this
+  skill is the field-level reference. The command's step 3 ("identify
+  gaps") treats decisions with `source='session-extract'` the same as
+  any captured decision — they're already on disk; don't re-author.
+
+- **SessionEnd subagent** (Layer 3, post-hoc backstop) — the hook
+  spawns a fresh isolated Claude that reads `transcript_path` and runs
+  this same 4-step flow with `source='session-extract'`. It's
+  context-blind compared to the live agent, so it leans on the
+  transcript text alone. If you (live) flagged something as too
+  uncertain, the post-hoc subagent gets another look at it; dedup_key
+  keeps a Layer 1 capture from being re-written by Layer 3.
 
 ## Anti-patterns
 
@@ -146,3 +210,10 @@ decision_resolve  relation: "resolves" | "relates" | "depends_on" | ...
 - Interrupting the user mid-flow unless the decision is clearly important.
   When activated by the hook detector, you may often decide nothing was
   really decided and silently move on.
+- Omitting `source` on a hook-driven capture. The live track passes
+  `'agent-live'`; the post-hoc subagent passes `'session-extract'`. The
+  SPA groups by source for batch review — an unmarked capture defaults
+  to `'manual'` and gets buried with human-authored rows.
+- Capturing the same decision twice within one turn. Even though
+  dedup_key catches it, the second tool call costs context tokens for
+  nothing.
