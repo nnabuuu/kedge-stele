@@ -24,18 +24,56 @@ const HOOK_PATH_REL = ".claude/hooks/stele-stop.sh";
 // --for-context` and the stdout becomes additionalContext at session-start
 // so the agent sees open loops without the user having to ask.
 const SESSION_START_HOOK_PATH_REL = ".claude/hooks/stele-session-start.sh";
-// 0.4.0 — SessionEnd hook (Layer 3, post-hoc capture). Async-detached
-// shell wrapper that spawns `claude -p` with the stele-extract agent
-// definition as the prompt. `type:"agent"` hooks in Claude Code 2.1.x
-// take only a `prompt: string` field (no allowed_tools, no documented
-// async), so we use command-type + a wrapper instead. The trade-off is
-// `claude -p` being billed (per the design doc's warning) — bounded to
-// once per session.
-const SESSION_END_HOOK_PATH_REL = ".claude/hooks/stele-session-end.sh";
-// The agent definition file is what the wrapper reads to construct the
-// prompt sent to `claude -p`. Replaced wholesale on each install so the
-// algorithm + schema reference stay in sync with the templated version.
+// 0.4.0 — SessionEnd auto-extract (OPT-IN, Layer 3 post-hoc capture).
+//
+// Off by default. When the user opts in via
+// `stele init --enable-session-end-auto-extract` or
+// `stele hooks enable session-end-auto-extract`, we install a
+// `type: "agent"` SessionEnd hook with an inlined POINTER prompt that
+// tells the subagent to Read the EXTRACT_AGENT_REL file for the
+// algorithm + schema reference.
+//
+// Why agent type, not command + `claude -p`?
+//   • zero `claude -p` billing
+//   • zero extra subprocess wrapper
+//   • the subagent inherits the parent's MCP / file-system access so
+//     it can call mcp__stele__decision_capture directly
+//
+// The known limitation (per Claude Code 2.1.x docs):
+//   • `agent` type has no documented `async` field, so the SessionEnd
+//     hook BLOCKS session close for up to `timeout` seconds (default
+//     60). The user accepted this trade-off when opting in.
+//
+// Layer 3 still exists as `/stele:scan` (manual, user-driven) for users
+// who don't opt in. Both paths set source='session-extract' and run
+// through the same dedup_key, so a project can use either or both.
 const EXTRACT_AGENT_REL = ".claude/agents/stele-extract.md";
+
+// Marker string embedded in the inlined SessionEnd agent prompt. Lets
+// `isOurs` detect our entry without inspecting the full prompt body.
+const SESSION_END_PROMPT_MARKER = "[stele:session-end-auto-extract]";
+
+// The inlined prompt that goes into settings.json's SessionEnd agent
+// entry. Short — points the subagent at the on-disk algorithm file
+// rather than embedding the full ~250-line content. Kept short so
+// settings.json stays readable. The agent file is what the user edits
+// to tweak extraction behavior.
+const SESSION_END_AGENT_PROMPT = [
+  SESSION_END_PROMPT_MARKER,
+  "You are stele's Layer 3 post-hoc extract subagent. The user's Claude Code session just ended; your job is to read the transcript and capture decisions the live agent missed.",
+  "",
+  "Hook payload (JSON, contains transcript_path, session_id, cwd):",
+  "$ARGUMENTS",
+  "",
+  "Steps:",
+  "  1. Parse $ARGUMENTS as JSON. Extract transcript_path, session_id, cwd.",
+  "  2. Read <cwd>/.claude/agents/stele-extract.md for the full 5-step algorithm + the inlined Decision schema reference. Do NOT try to load skills — they don't carry over to subagents.",
+  "  3. Follow the algorithm. For each decision the live agent missed, call mcp__stele__decision_capture with source='session-extract' and a confidence value.",
+  "  4. `dup-skip: <existingId>` responses are SUCCESS — the live track already captured that one. Move on, don't retry.",
+  "  5. Log errors to <cwd>/.stele/extract.log; never write to stderr (nobody's reading it).",
+  "",
+  "IMPORTANT: this hook BLOCKS the user's session close for up to 60 seconds (Claude Code's agent-type hook has no async support as of 2.1.x). Work fast — prefer capturing fewer high-confidence decisions over many low-confidence ones. If you've been running ~50 seconds, gracefully wrap up the current decision and exit.",
+].join("\n");
 const SKILL_DIR_REL = ".claude/skills/stele-capture";
 const SKILL_FILE_REL = ".claude/skills/stele-capture/SKILL.md";
 // 0.3.0 — single namespaced slash command `/stele:feature` replaces the
@@ -115,7 +153,14 @@ function copyTemplateDir(templateSubdir: string, destDir: string): number {
 
 type HookEvent = "Stop" | "SessionStart" | "SessionEnd";
 
-type StopHookCommand = { type?: string; command?: string; agent?: string; async?: boolean };
+type StopHookCommand = {
+  type?: string;
+  command?: string;
+  agent?: string;       // legacy (snapshot.4) — kept for detection compat
+  prompt?: string;      // 0.4.0-snapshot.9: agent-type entries inline a prompt here
+  async?: boolean;
+  timeout?: number;
+};
 type StopHookEntry = { matcher?: string; hooks?: StopHookCommand[] };
 
 type SettingsShape = {
@@ -155,46 +200,86 @@ function nestedHasScript(entry: unknown, basename: string): boolean {
   return false;
 }
 
-const MANAGED_ENTRIES: ManagedEntry[] = [
-  {
-    event: "Stop",
-    build: () => ({ matcher: "", hooks: [{ type: "command", command: HOOK_PATH_REL }] }),
-    isOurs: (e) => nestedHasScript(e, "stele-stop.sh"),
-  },
-  {
-    event: "SessionStart",
-    build: () => ({
-      matcher: "",
-      hooks: [{ type: "command", command: SESSION_START_HOOK_PATH_REL }],
-    }),
-    isOurs: (e) => nestedHasScript(e, "stele-session-start.sh"),
-  },
-  {
-    // 0.4.0 — Layer 3: post-hoc extract via command-type hook + wrapper.
-    // The wrapper script spawns `claude -p` in the background with the
-    // stele-extract agent definition as the prompt. `async: true` on a
-    // command-type hook IS documented and works — the user's session
-    // close doesn't wait. The wrapper uses setsid+nohup to fully detach
-    // so the extraction subprocess survives Claude Code exiting.
-    //
-    // Previous attempt used `type: "agent"` with `agent: <path>` — that
-    // shape doesn't match the actual Claude Code 2.1.x schema (which
-    // takes a `prompt: string` only on agent type, no async). The
-    // settings.json was rejected at parse time. command+wrapper is the
-    // design the original auto-capture doc described.
-    event: "SessionEnd",
-    build: () => ({
-      matcher: "",
-      hooks: [{
-        type: "command",
-        command: SESSION_END_HOOK_PATH_REL,
-        async: true,
-        timeout: 10,
-      }],
-    }),
-    isOurs: (e) => nestedHasScript(e, "stele-session-end.sh"),
-  },
-];
+// 0.4.0-snapshot.9 — opt-in feature flags. The default install only
+// writes the always-on entries (Stop + SessionStart). Optional entries
+// (SessionEnd auto-extract) are gated by user choice.
+export interface InstallOptions {
+  /** Opt-in to SessionEnd auto-extract via agent-type hook. Blocks
+   *  session close for up to 60s. Off by default. */
+  sessionEndAutoExtract?: boolean;
+}
+
+const STOP_ENTRY: ManagedEntry = {
+  event: "Stop",
+  build: () => ({ matcher: "", hooks: [{ type: "command", command: HOOK_PATH_REL }] }),
+  isOurs: (e) => nestedHasScript(e, "stele-stop.sh"),
+};
+
+const SESSION_START_ENTRY: ManagedEntry = {
+  event: "SessionStart",
+  build: () => ({
+    matcher: "",
+    hooks: [{ type: "command", command: SESSION_START_HOOK_PATH_REL }],
+  }),
+  isOurs: (e) => nestedHasScript(e, "stele-session-start.sh"),
+};
+
+// 0.4.0-snapshot.9 — SessionEnd as type:"agent" with inlined pointer
+// prompt. The subagent Reads .claude/agents/stele-extract.md at runtime
+// for the algorithm; the prompt itself is small. NO `async` (not
+// supported on agent type per Claude Code 2.1.x docs) — blocks session
+// close for up to `timeout` seconds. Opt-in only.
+const SESSION_END_ENTRY: ManagedEntry = {
+  event: "SessionEnd",
+  build: () => ({
+    matcher: "",
+    hooks: [{
+      type: "agent",
+      prompt: SESSION_END_AGENT_PROMPT,
+      timeout: 60,
+    }],
+  }),
+  isOurs: (e) => nestedHasAgentMarker(e, SESSION_END_PROMPT_MARKER),
+};
+
+/**
+ * The list of MANAGED_ENTRIES depends on opts. Default = always-on
+ * entries only. Pass opts.sessionEndAutoExtract=true to include the
+ * SessionEnd entry.
+ */
+function managedEntriesFor(opts: InstallOptions = {}): ManagedEntry[] {
+  const list: ManagedEntry[] = [STOP_ENTRY, SESSION_START_ENTRY];
+  if (opts.sessionEndAutoExtract) list.push(SESSION_END_ENTRY);
+  return list;
+}
+
+/**
+ * Detect "this is OUR agent-type SessionEnd entry" by checking the
+ * inlined prompt for our marker string. Doesn't depend on prompt body
+ * surviving verbatim — only the marker line needs to match.
+ */
+function nestedHasAgentMarker(entry: unknown, marker: string): boolean {
+  if (!entry || typeof entry !== "object") return false;
+  const e = entry as StopHookEntry & StopHookCommand;
+  if (typeof e.prompt === "string" && e.prompt.includes(marker)) return true;
+  if (Array.isArray(e.hooks)) {
+    return e.hooks.some(
+      (h) =>
+        h &&
+        typeof h === "object" &&
+        typeof h.prompt === "string" &&
+        h.prompt.includes(marker),
+    );
+  }
+  return false;
+}
+
+/**
+ * The full list of entries the uninstaller / status walks. Includes
+ * optional entries unconditionally so uninstall always cleans up
+ * regardless of what the user originally opted in to.
+ */
+const ALL_KNOWN_ENTRIES: ManagedEntry[] = [STOP_ENTRY, SESSION_START_ENTRY, SESSION_END_ENTRY];
 
 function loadSettings(projectRoot: string): SettingsShape {
   const path = join(projectRoot, SETTINGS_REL);
@@ -223,7 +308,7 @@ function saveSettings(projectRoot: string, settings: SettingsShape): void {
   writeFileSync(path, JSON.stringify(settings, null, 2) + "\n");
 }
 
-function mergeSettings(projectRoot: string): { note: string } {
+function mergeSettings(projectRoot: string, opts: InstallOptions = {}): { note: string } {
   const settings = loadSettings(projectRoot);
 
   if (!settings.hooks || typeof settings.hooks !== "object") {
@@ -233,7 +318,14 @@ function mergeSettings(projectRoot: string): { note: string } {
 
   const notes: string[] = [];
 
-  for (const m of MANAGED_ENTRIES) {
+  // 0.4.0-snapshot.9 — split path: always-on entries get merged in;
+  // opt-out entries that are NOT enabled get REMOVED if previously
+  // present (so toggling off via `--enable-...=false` actually takes
+  // effect on reinstall).
+  const enabled = managedEntriesFor(opts);
+  const enabledEvents = new Set(enabled.map((e) => e.event));
+
+  for (const m of enabled) {
     if (!Array.isArray(hooks[m.event])) hooks[m.event] = [];
     const arr = hooks[m.event] as Array<StopHookEntry & StopHookCommand>;
     let replaced = false;
@@ -246,6 +338,21 @@ function mergeSettings(projectRoot: string): { note: string } {
     }
     if (!replaced) arr.push(m.build());
     notes.push(replaced ? `updated ${m.event} entry` : `added ${m.event} entry`);
+  }
+
+  // Strip our entries for optional events that the caller did NOT
+  // enable this round. Lets `stele hooks install` (no flag) toggle
+  // auto-extract OFF if it was previously on.
+  for (const m of ALL_KNOWN_ENTRIES) {
+    if (enabledEvents.has(m.event)) continue;
+    const arr = hooks[m.event];
+    if (!Array.isArray(arr)) continue;
+    const filtered = (arr as Array<StopHookEntry & StopHookCommand>).filter((e) => !m.isOurs(e));
+    if (filtered.length !== arr.length) {
+      if (filtered.length === 0) delete hooks[m.event];
+      else hooks[m.event] = filtered;
+      notes.push(`disabled ${m.event} entry (opt-in not requested this round)`);
+    }
   }
 
   // 0.4.0 — pin requiredMinimumVersion. Claude Code refuses to start when
@@ -271,7 +378,10 @@ function unmergeSettings(projectRoot: string): { note: string } {
   const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
 
   const removed: string[] = [];
-  for (const m of MANAGED_ENTRIES) {
+  // Walk ALL_KNOWN_ENTRIES (not just enabled), so uninstall cleans up
+  // opt-in entries regardless of whether the user enabled them this
+  // session.
+  for (const m of ALL_KNOWN_ENTRIES) {
     const arr = hooks[m.event];
     if (!Array.isArray(arr)) continue;
     const before = arr.length;
@@ -294,14 +404,23 @@ function unmergeSettings(projectRoot: string): { note: string } {
 }
 
 // Detect whether the settings.json carries any stele hook entry across
-// all managed events. Used by hooksStatus().
+// all known events (incl. opt-ins). Used by hooksStatus().
 function settingsHasAnyEntry(settings: SettingsShape): boolean {
   const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
-  for (const m of MANAGED_ENTRIES) {
+  for (const m of ALL_KNOWN_ENTRIES) {
     const arr = hooks[m.event];
     if (Array.isArray(arr) && arr.some((e) => m.isOurs(e))) return true;
   }
   return false;
+}
+
+// 0.4.0-snapshot.9 — is the SessionEnd auto-extract opt-in currently
+// active in settings.json? Used by hooksStatus + the toggle commands.
+function settingsHasSessionEndAutoExtract(settings: SettingsShape): boolean {
+  const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
+  const arr = hooks["SessionEnd"];
+  if (!Array.isArray(arr)) return false;
+  return arr.some((e) => SESSION_END_ENTRY.isOurs(e));
 }
 
 // -----------------------------------------------------------------------------
@@ -311,7 +430,9 @@ function settingsHasAnyEntry(settings: SettingsShape): boolean {
 export interface InstallReport {
   hook: string;
   sessionStartHook: string;
-  extractAgent: string;
+  /** 0.4.0-snapshot.9: opt-in SessionEnd auto-extract. Empty when
+   *  not requested; describes the agent file when enabled. */
+  sessionEndAutoExtract: string;
   skill: string;
   steleFeature: string;
   steleScan: string;
@@ -350,9 +471,12 @@ function cleanLegacyCommands(projectRoot: string): string {
   return `removed ${removed.length} legacy command${removed.length === 1 ? "" : "s"} (${removed.join(", ")})`;
 }
 
-export function installHooks(projectRoot: string): InstallReport {
+export function installHooks(
+  projectRoot: string,
+  opts: InstallOptions = {},
+): InstallReport {
   const report: InstallReport = {
-    hook: "", sessionStartHook: "", extractAgent: "",
+    hook: "", sessionStartHook: "", sessionEndAutoExtract: "",
     skill: "", steleFeature: "", steleScan: "",
     legacyCommandsCleaned: "", settings: "",
   };
@@ -373,25 +497,26 @@ export function installHooks(projectRoot: string): InstallReport {
   chmodSync(sessionStartPath, 0o755);
   report.sessionStartHook = `wrote ${SESSION_START_HOOK_PATH_REL} (executable)`;
 
-  // 1c. SessionEnd wrapper script (0.4.0 — Layer 3, post-hoc capture).
-  //     Async-detached shell that spawns `claude -p` with the extract
-  //     agent prompt in the background. Wire `async: true` on the hook
-  //     entry (set above in MANAGED_ENTRIES) so the user's session
-  //     close doesn't wait.
-  const sessionEndPath = join(projectRoot, SESSION_END_HOOK_PATH_REL);
-  ensureDir(dirname(sessionEndPath));
-  writeFileSync(sessionEndPath, readTemplate("stele-session-end-hook.sh"));
-  chmodSync(sessionEndPath, 0o755);
-
-  // 1d. Extract agent definition file — the wrapper reads this to build
-  //     the prompt for `claude -p`. Replaced wholesale on each install
-  //     so the algorithm + schema reference stay in sync with the
-  //     templated version. The user is welcome to edit it; reinstall
-  //     blows their edits away (the prompt is part of the contract).
+  // 1c. SessionEnd auto-extract (OPT-IN). Writes the agent definition
+  //     file (.claude/agents/stele-extract.md) only when enabled — the
+  //     settings.json SessionEnd entry's inlined prompt tells the
+  //     subagent to Read this file at runtime. When disabled, neither
+  //     the file nor the settings entry exists; the subagent never
+  //     spawns; Layer 3 lives in `/stele:scan` (manual).
   const extractPath = join(projectRoot, EXTRACT_AGENT_REL);
-  ensureDir(dirname(extractPath));
-  writeFileSync(extractPath, readTemplate("stele-extract-agent.md"));
-  report.extractAgent = `wrote ${SESSION_END_HOOK_PATH_REL} (executable) + ${EXTRACT_AGENT_REL}`;
+  if (opts.sessionEndAutoExtract) {
+    ensureDir(dirname(extractPath));
+    writeFileSync(extractPath, readTemplate("stele-extract-agent.md"));
+    report.sessionEndAutoExtract =
+      `wrote ${EXTRACT_AGENT_REL} (SessionEnd auto-extract ENABLED — will block session close up to 60s)`;
+  } else {
+    // Disabled this round — clean up any previously-installed agent
+    // file so the system stays consistent with the settings.json
+    // (which mergeSettings strips below).
+    if (existsSync(extractPath)) rmSync(extractPath);
+    report.sessionEndAutoExtract =
+      `SessionEnd auto-extract not enabled — pass --enable-session-end-auto-extract to opt in (Layer 3 lives in /stele:scan otherwise)`;
+  }
 
   // 2. Skill — the stele-capture skill is a folder (SKILL.md + gotchas.md +
   // references/*.md) per Anthropic's progressive-disclosure pattern. Recursive
@@ -412,8 +537,12 @@ export function installHooks(projectRoot: string): InstallReport {
   // 4. Clean up legacy 0.2.x commands from prior installs.
   report.legacyCommandsCleaned = cleanLegacyCommands(projectRoot);
 
-  // 5. Settings merge (Stop + SessionStart entries + requiredMinimumVersion)
-  const s = mergeSettings(projectRoot);
+  // 5. Settings merge — pass opts so SessionEnd is included only when
+  //    requested. mergeSettings ALSO strips our entries for opt-in
+  //    events that weren't enabled this round (so toggling off via
+  //    plain `stele hooks install` removes a previously-enabled
+  //    SessionEnd entry).
+  const s = mergeSettings(projectRoot, opts);
   report.settings = s.note;
 
   return report;
@@ -421,7 +550,7 @@ export function installHooks(projectRoot: string): InstallReport {
 
 export function uninstallHooks(projectRoot: string): InstallReport {
   const report: InstallReport = {
-    hook: "", sessionStartHook: "", extractAgent: "",
+    hook: "", sessionStartHook: "", sessionEndAutoExtract: "",
     skill: "", steleFeature: "", steleScan: "",
     legacyCommandsCleaned: "", settings: "",
   };
@@ -442,22 +571,16 @@ export function uninstallHooks(projectRoot: string): InstallReport {
     report.sessionStartHook = `${SESSION_START_HOOK_PATH_REL} not present`;
   }
 
-  const sessionEndPath = join(projectRoot, SESSION_END_HOOK_PATH_REL);
-  if (existsSync(sessionEndPath)) {
-    rmSync(sessionEndPath);
-  }
+  // SessionEnd opt-in artifacts: agent file + (legacy) snapshot.8
+  // wrapper script. Clean both regardless of which was last installed.
   const extractPath = join(projectRoot, EXTRACT_AGENT_REL);
-  if (existsSync(extractPath)) {
-    rmSync(extractPath);
-  }
-  // Combined report — they're a pair now.
-  const sessionEndRemoved = !existsSync(sessionEndPath);
-  const extractRemoved = !existsSync(extractPath);
-  if (sessionEndRemoved || extractRemoved) {
-    report.extractAgent = `removed ${SESSION_END_HOOK_PATH_REL} + ${EXTRACT_AGENT_REL}`;
-  } else {
-    report.extractAgent = `${SESSION_END_HOOK_PATH_REL} + ${EXTRACT_AGENT_REL} not present`;
-  }
+  const legacyWrapperPath = join(projectRoot, ".claude/hooks/stele-session-end.sh");
+  const cleaned: string[] = [];
+  if (existsSync(extractPath)) { rmSync(extractPath); cleaned.push(EXTRACT_AGENT_REL); }
+  if (existsSync(legacyWrapperPath)) { rmSync(legacyWrapperPath); cleaned.push(".claude/hooks/stele-session-end.sh (legacy)"); }
+  report.sessionEndAutoExtract = cleaned.length > 0
+    ? `removed ${cleaned.join(" + ")}`
+    : `SessionEnd auto-extract artifacts not present`;
 
   const skillDir = join(projectRoot, SKILL_DIR_REL);
   if (existsSync(skillDir)) {
@@ -481,7 +604,9 @@ export function uninstallHooks(projectRoot: string): InstallReport {
 export interface StatusReport {
   hook: boolean;
   sessionStartHook: boolean;
-  extractAgent: boolean;
+  /** 0.4.0-snapshot.9: opt-in SessionEnd auto-extract. True only when
+   *  BOTH the agent file AND the settings.json entry are present. */
+  sessionEndAutoExtract: boolean;
   skill: boolean;
   steleFeature: boolean;
   steleScan: boolean;
@@ -493,23 +618,47 @@ export function hooksStatus(projectRoot: string): StatusReport {
   const settingsPath = join(projectRoot, SETTINGS_REL);
   let settingsHasEntry = false;
   let settingsHasMinVersion = false;
+  let settingsHasSessionEnd = false;
   if (existsSync(settingsPath)) {
     try {
       const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as SettingsShape;
       settingsHasEntry = settingsHasAnyEntry(settings);
       settingsHasMinVersion = settings.requiredMinimumVersion === REQUIRED_MIN_VERSION;
+      settingsHasSessionEnd = settingsHasSessionEndAutoExtract(settings);
     } catch {
       // ignore — treat as no entry
     }
   }
+  const agentFileExists = existsSync(join(projectRoot, EXTRACT_AGENT_REL));
   return {
     hook: existsSync(join(projectRoot, HOOK_PATH_REL)),
     sessionStartHook: existsSync(join(projectRoot, SESSION_START_HOOK_PATH_REL)),
-    extractAgent: existsSync(join(projectRoot, EXTRACT_AGENT_REL)),
+    // Auto-extract is "on" only when BOTH parts agree: settings entry
+    // exists AND the agent file (which the inlined prompt Reads) is
+    // on disk. Either alone is a broken/half-installed state.
+    sessionEndAutoExtract: settingsHasSessionEnd && agentFileExists,
     skill: existsSync(join(projectRoot, SKILL_FILE_REL)),
     steleFeature: existsSync(join(projectRoot, STELE_FEATURE_COMMAND_REL)),
     steleScan: existsSync(join(projectRoot, STELE_SCAN_COMMAND_REL)),
     settingsHasEntry,
     settingsHasMinVersion,
   };
+}
+
+/**
+ * 0.4.0-snapshot.9 — enable the SessionEnd auto-extract opt-in
+ * incrementally (without re-running the full install). Writes the
+ * agent file and merges the SessionEnd entry. Idempotent.
+ */
+export function enableSessionEndAutoExtract(projectRoot: string): InstallReport {
+  return installHooks(projectRoot, { sessionEndAutoExtract: true });
+}
+
+/**
+ * 0.4.0-snapshot.9 — disable the SessionEnd auto-extract opt-in
+ * without touching the always-on hooks. Removes the agent file and
+ * strips the SessionEnd entry from settings.json. Idempotent.
+ */
+export function disableSessionEndAutoExtract(projectRoot: string): InstallReport {
+  return installHooks(projectRoot, { sessionEndAutoExtract: false });
 }

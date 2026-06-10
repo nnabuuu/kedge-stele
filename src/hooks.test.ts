@@ -406,80 +406,83 @@ test("reinstall is idempotent: SessionStart count stays at 1", () => {
     "duplicate SessionStart entries piled up across reinstalls");
 });
 
-// ---- 0.4.0 phase 4 — SessionEnd extract agent + hook entry --------------
+// ---- 0.4.0-snapshot.9 — SessionEnd auto-extract is OPT-IN ----------------
+// Default install no longer writes SessionEnd. Layer 3 lives in
+// /stele:scan otherwise.
 
-test("install writes the stele-extract agent definition file", () => {
+test("default install does NOT write a SessionEnd entry", () => {
   installHooks(projectDir);
-  const agentPath = join(projectDir, ".claude/agents/stele-extract.md");
-  assert.ok(existsSync(agentPath), "stele-extract.md missing");
-  const content = readFileSync(agentPath, "utf8");
-  assert.ok(content.startsWith("---"), "agent missing YAML frontmatter");
-  assert.ok(content.includes("name: stele-extract"));
-  // The agent's algorithm + schema reference live in the body. The
-  // SessionEnd wrapper script reads this file and embeds it in the
-  // prompt sent to `claude -p`.
-  assert.ok(
-    content.includes("decision_capture") && content.includes("session-extract"),
-    "agent body must describe the decision_capture call + source classifier",
+  const s = readSettings();
+  assert.equal(
+    s.hooks.SessionEnd === undefined || (Array.isArray(s.hooks.SessionEnd) && s.hooks.SessionEnd.length === 0),
+    true,
+    "default install must not enable SessionEnd auto-extract",
   );
 });
 
-test("install merges SessionEnd command-type entry into settings.json with async:true", () => {
+test("default install does NOT write the extract agent file", () => {
   installHooks(projectDir);
+  assert.equal(
+    existsSync(join(projectDir, ".claude/agents/stele-extract.md")),
+    false,
+    "default install must skip the agent file (opt-in only)",
+  );
+});
+
+test("opt-in install writes SessionEnd entry as type:agent with inlined prompt + no async", () => {
+  installHooks(projectDir, { sessionEndAutoExtract: true });
   const s = readSettings();
   assert.ok(Array.isArray(s.hooks.SessionEnd), "SessionEnd not an array");
   assert.equal(s.hooks.SessionEnd.length, 1);
-  const entry = s.hooks.SessionEnd[0];
-  assert.equal(typeof entry.matcher, "string");
-  assert.ok(Array.isArray(entry.hooks));
-  const inner = entry.hooks[0];
-  // 0.4.0-snapshot.8: Claude Code's `type:"agent"` schema only accepts a
-  // `prompt: string` field with NO documented async — the wrapper would
-  // block session close. Switched to command-type with async:true (which
-  // IS documented for command hooks) + a shell wrapper that spawns
-  // `claude -p` in the background.
-  assert.equal(inner.type, "command",
-    "SessionEnd must be command-type (agent-type doesn't support async)");
-  assert.ok(typeof inner.command === "string" && inner.command.endsWith("stele-session-end.sh"),
-    "SessionEnd entry must point at the wrapper script");
-  assert.equal(inner.async, true,
-    "async:true is load-bearing — without it the hook would block session close");
+  const inner = s.hooks.SessionEnd[0].hooks[0];
+  // 0.4.0-snapshot.9: switched from snapshot.8's command+claude-p wrapper
+  // to agent type with inlined pointer prompt. No `claude -p` billing.
+  // Agent type has no `async` field per Claude Code 2.1.x docs — the
+  // hook BLOCKS session close for up to `timeout` seconds. Accepted
+  // trade-off when opting in.
+  assert.equal(inner.type, "agent",
+    "SessionEnd opt-in must be agent-type (no claude -p billing)");
+  assert.equal(typeof inner.prompt, "string",
+    "agent-type entry must inline a `prompt: string`");
+  assert.ok(inner.prompt.includes("stele:session-end-auto-extract"),
+    "inlined prompt must carry the stele marker so isOurs() can detect it");
+  assert.ok(inner.prompt.includes("decision_capture"),
+    "inlined prompt must reference the capture tool");
+  assert.equal(inner.async, undefined,
+    "agent-type hooks don't accept async per Claude Code docs");
+  assert.equal(typeof inner.timeout, "number",
+    "timeout should be set explicitly so the user knows the upper bound");
 });
 
-test("install writes the SessionEnd wrapper script, executable", () => {
-  installHooks(projectDir);
-  const wrapperPath = join(projectDir, ".claude/hooks/stele-session-end.sh");
-  assert.ok(existsSync(wrapperPath), "SessionEnd wrapper script missing");
-  const mode = statSync(wrapperPath).mode & 0o777;
-  assert.equal(mode & 0o100, 0o100, "owner exec bit not set on SessionEnd wrapper");
-  const content = readFileSync(wrapperPath, "utf8");
-  assert.ok(content.includes("claude -p"),
-    "wrapper must spawn `claude -p` for the post-hoc extract");
-  assert.ok(content.includes("setsid") || content.includes("nohup"),
-    "wrapper must detach the subprocess (setsid/nohup) — async:true on the hook isn't enough by itself");
+test("opt-in install writes the extract agent file", () => {
+  installHooks(projectDir, { sessionEndAutoExtract: true });
+  const agentPath = join(projectDir, ".claude/agents/stele-extract.md");
+  assert.ok(existsSync(agentPath), "agent file missing under opt-in install");
+  const content = readFileSync(agentPath, "utf8");
+  assert.ok(content.includes("decision_capture") && content.includes("session-extract"),
+    "agent body must describe the capture flow");
 });
 
-test("status reports the extract agent + SessionEnd entry", () => {
-  let s = hooksStatus(projectDir);
-  assert.equal(s.extractAgent, false);
+test("re-running install WITHOUT the flag DISABLES a previously opted-in SessionEnd", () => {
+  installHooks(projectDir, { sessionEndAutoExtract: true });
+  let s = readSettings();
+  assert.equal(s.hooks.SessionEnd.length, 1);
 
-  installHooks(projectDir);
-  s = hooksStatus(projectDir);
-  assert.equal(s.extractAgent, true);
-  assert.equal(s.settingsHasEntry, true,
-    "settingsHasAnyEntry should still fire — covers Stop OR SessionStart OR SessionEnd");
+  installHooks(projectDir);  // no opt-in this round
+  s = readSettings();
+  assert.equal(
+    s.hooks.SessionEnd === undefined || s.hooks.SessionEnd.length === 0,
+    true,
+    "plain install must strip a previously-enabled stele SessionEnd entry",
+  );
+  assert.equal(
+    existsSync(join(projectDir, ".claude/agents/stele-extract.md")),
+    false,
+    "agent file must be removed when SessionEnd is disabled on reinstall",
+  );
 });
 
-test("reinstall is idempotent: SessionEnd count stays at 1", () => {
-  installHooks(projectDir);
-  installHooks(projectDir);
-  installHooks(projectDir);
-  const s = readSettings();
-  assert.equal(s.hooks.SessionEnd.length, 1,
-    "duplicate SessionEnd entries piled up across reinstalls");
-});
-
-test("install preserves unrelated SessionEnd entries (other extensions)", () => {
+test("opt-in install preserves unrelated SessionEnd entries (other extensions)", () => {
   const claudeDir = join(projectDir, ".claude");
   mkdirSync(claudeDir, { recursive: true });
   writeFileSync(
@@ -496,47 +499,83 @@ test("install preserves unrelated SessionEnd entries (other extensions)", () => 
       2,
     ),
   );
-  installHooks(projectDir);
+  installHooks(projectDir, { sessionEndAutoExtract: true });
   const s = readSettings();
-  assert.equal(s.hooks.SessionEnd.length, 2,
-    "other SessionEnd entries lost");
+  assert.equal(s.hooks.SessionEnd.length, 2, "other SessionEnd entry lost");
   const others = s.hooks.SessionEnd.filter((e: any) =>
     e.hooks?.[0]?.command === "other-session-end.sh");
   assert.equal(others.length, 1, "non-stele SessionEnd entry survived");
 });
 
-test("uninstall removes the SessionEnd wrapper + extract agent + settings entry", () => {
-  installHooks(projectDir);
+test("reinstall WITH opt-in is idempotent: SessionEnd count stays at 1", () => {
+  installHooks(projectDir, { sessionEndAutoExtract: true });
+  installHooks(projectDir, { sessionEndAutoExtract: true });
+  installHooks(projectDir, { sessionEndAutoExtract: true });
+  const s = readSettings();
+  assert.equal(s.hooks.SessionEnd.length, 1,
+    "duplicate SessionEnd entries piled up across opt-in reinstalls");
+});
+
+test("uninstall removes SessionEnd auto-extract artifacts unconditionally", () => {
+  installHooks(projectDir, { sessionEndAutoExtract: true });
   uninstallHooks(projectDir);
-  assert.equal(
-    existsSync(join(projectDir, ".claude/hooks/stele-session-end.sh")),
-    false,
-    "SessionEnd wrapper script not removed",
-  );
   assert.equal(
     existsSync(join(projectDir, ".claude/agents/stele-extract.md")),
     false,
-    "extract agent file not removed",
+    "extract agent file not removed by uninstall",
   );
   const s = readSettings();
   assert.equal(
     Array.isArray(s.hooks.SessionEnd) && s.hooks.SessionEnd.length > 0,
     false,
-    "stele SessionEnd entry not removed",
+    "stele SessionEnd entry not removed by uninstall",
   );
 });
 
-test("install replaces the extract agent file wholesale (no stale content)", () => {
-  installHooks(projectDir);
+test("uninstall also cleans the legacy (snapshot.8) wrapper script if present", () => {
+  // Simulate a snapshot.8 install: legacy wrapper at
+  // .claude/hooks/stele-session-end.sh that snapshot.9 doesn't write.
+  const legacyWrapper = join(projectDir, ".claude/hooks/stele-session-end.sh");
+  mkdirSync(join(projectDir, ".claude/hooks"), { recursive: true });
+  writeFileSync(legacyWrapper, "#!/usr/bin/env bash\n# legacy snapshot.8 wrapper\n");
+  uninstallHooks(projectDir);
+  assert.equal(existsSync(legacyWrapper), false,
+    "uninstall must clean snapshot.8 legacy wrapper");
+});
+
+test("opt-in install replaces the extract agent file wholesale (no stale content)", () => {
+  installHooks(projectDir, { sessionEndAutoExtract: true });
   const agentPath = join(projectDir, ".claude/agents/stele-extract.md");
-  // Mutate the installed copy — simulating drift from a prior version's template
   writeFileSync(agentPath, "STALE CONTENT FROM PRIOR VERSION");
-  installHooks(projectDir);
+  installHooks(projectDir, { sessionEndAutoExtract: true });
   const content = readFileSync(agentPath, "utf8");
   assert.ok(content.startsWith("---"),
-    "extract agent must be re-written from template on every install");
-  assert.ok(!content.includes("STALE CONTENT"),
-    "stale agent content survived reinstall — overwrite missed");
+    "agent file must be re-written from template on every opt-in install");
+  assert.ok(!content.includes("STALE CONTENT"));
+});
+
+test("status: sessionEndAutoExtract starts off, flips on under opt-in", () => {
+  let s = hooksStatus(projectDir);
+  assert.equal(s.sessionEndAutoExtract, false);
+
+  installHooks(projectDir);  // default: off
+  s = hooksStatus(projectDir);
+  assert.equal(s.sessionEndAutoExtract, false,
+    "default install should leave auto-extract off");
+
+  installHooks(projectDir, { sessionEndAutoExtract: true });
+  s = hooksStatus(projectDir);
+  assert.equal(s.sessionEndAutoExtract, true,
+    "opt-in install should flip auto-extract on");
+});
+
+test("status: auto-extract is only 'on' when BOTH settings entry AND agent file exist", () => {
+  installHooks(projectDir, { sessionEndAutoExtract: true });
+  // Delete agent file but leave settings entry — broken half-state.
+  rmSync(join(projectDir, ".claude/agents/stele-extract.md"));
+  const s = hooksStatus(projectDir);
+  assert.equal(s.sessionEndAutoExtract, false,
+    "half-installed state must report off — both parts must agree");
 });
 
 // ---- 0.4.0 snapshot.6 — /stele:scan slash command -----------------------

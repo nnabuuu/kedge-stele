@@ -174,11 +174,15 @@ itself was installed via \`npm install -g stele-mcp\`.*
 async function initCommand(args: string[]): Promise<void> {
   let skipDaemon = false;
   let skipHooks = false;
+  // 0.4.0-snapshot.9: opt-in flag for SessionEnd auto-extract. Off
+  // by default — Layer 3 lives in /stele:scan otherwise.
+  let enableSessionEndAutoExtract = false;
   let port = 3939;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--skip-daemon") skipDaemon = true;
     else if (a === "--skip-hooks") skipHooks = true;
+    else if (a === "--enable-session-end-auto-extract") enableSessionEndAutoExtract = true;
     else if (a === "--port") {
       const n = Number(args[++i]);
       if (!Number.isInteger(n) || n < 1 || n > 65535) {
@@ -282,15 +286,16 @@ async function initCommand(args: string[]): Promise<void> {
     console.error(`  ⚠ registry write failed (continuing): ${(e as Error).message}`);
   }
 
-  // Default-install hooks (Stop + SessionStart + SessionEnd extract agent
-  // + stele-capture skill + /stele:feature + /stele:scan slash commands)
-  // — opt-out with --skip-hooks
+  // Default-install hooks (Stop + SessionStart + stele-capture skill +
+  // /stele:feature + /stele:scan slash commands). SessionEnd auto-
+  // extract is opt-in via --enable-session-end-auto-extract.
+  // — opt-out everything with --skip-hooks
   if (!skipHooks) {
     try {
-      const r = installHooks(cwd);
+      const r = installHooks(cwd, { sessionEndAutoExtract: enableSessionEndAutoExtract });
       console.log(`  ${r.hook}`);
       console.log(`  ${r.sessionStartHook}`);
-      console.log(`  ${r.extractAgent}`);
+      console.log(`  ${r.sessionEndAutoExtract}`);
       console.log(`  ${r.skill}`);
       console.log(`  ${r.steleFeature}`);
       console.log(`  ${r.steleScan}`);
@@ -337,12 +342,15 @@ function hooksCommand(args: string[]): void {
   const sub = args[0];
   const cwd = process.cwd();
   if (sub === "install") {
+    // 0.4.0-snapshot.9: accept --enable-session-end-auto-extract here
+    // too so re-runs on an existing project can flip the opt-in on.
+    const enableSessionEndAutoExtract = args.includes("--enable-session-end-auto-extract");
     try {
-      const r = installHooks(cwd);
+      const r = installHooks(cwd, { sessionEndAutoExtract: enableSessionEndAutoExtract });
       console.log(`hooks installed in ${cwd}:`);
       console.log(`  ${r.hook}`);
       console.log(`  ${r.sessionStartHook}`);
-      console.log(`  ${r.extractAgent}`);
+      console.log(`  ${r.sessionEndAutoExtract}`);
       console.log(`  ${r.skill}`);
       console.log(`  ${r.steleFeature}`);
       console.log(`  ${r.steleScan}`);
@@ -358,7 +366,7 @@ function hooksCommand(args: string[]): void {
       console.log(`hooks uninstalled from ${cwd}:`);
       console.log(`  ${r.hook}`);
       console.log(`  ${r.sessionStartHook}`);
-      console.log(`  ${r.extractAgent}`);
+      console.log(`  ${r.sessionEndAutoExtract}`);
       console.log(`  ${r.skill}`);
       console.log(`  ${r.steleFeature}`);
       console.log(`  ${r.steleScan}`);
@@ -368,20 +376,61 @@ function hooksCommand(args: string[]): void {
       console.error(`hooks uninstall failed: ${(e as Error).message}`);
       process.exit(1);
     }
+  } else if (sub === "enable") {
+    // 0.4.0-snapshot.9: stele hooks enable <feature>
+    const feature = args[1];
+    if (feature !== "session-end-auto-extract") {
+      console.error(`unknown hooks feature: ${feature ?? "(none)"} — try: session-end-auto-extract`);
+      process.exit(1);
+    }
+    try {
+      const r = installHooks(cwd, { sessionEndAutoExtract: true });
+      console.log(`enabled session-end-auto-extract in ${cwd}:`);
+      console.log(`  ${r.sessionEndAutoExtract}`);
+      console.log(`  ${r.settings}`);
+      console.log("");
+      console.log("⚠  This hook BLOCKS session close for up to 60s while the");
+      console.log("   post-hoc subagent reads the transcript and captures decisions.");
+      console.log("   /stele:scan is the manual equivalent and never blocks.");
+    } catch (e) {
+      console.error(`enable failed: ${(e as Error).message}`);
+      process.exit(1);
+    }
+  } else if (sub === "disable") {
+    const feature = args[1];
+    if (feature !== "session-end-auto-extract") {
+      console.error(`unknown hooks feature: ${feature ?? "(none)"} — try: session-end-auto-extract`);
+      process.exit(1);
+    }
+    try {
+      const r = installHooks(cwd, { sessionEndAutoExtract: false });
+      console.log(`disabled session-end-auto-extract in ${cwd}:`);
+      console.log(`  ${r.sessionEndAutoExtract}`);
+      console.log(`  ${r.settings}`);
+      console.log("");
+      console.log("Layer 3 still available manually: /stele:scan");
+    } catch (e) {
+      console.error(`disable failed: ${(e as Error).message}`);
+      process.exit(1);
+    }
   } else if (sub === "status" || sub === undefined) {
     const s = hooksStatus(cwd);
     const mark = (b: boolean) => (b ? "✓" : "✗");
     console.log(`stele hooks status (${cwd}):`);
     console.log(`  ${mark(s.hook)}  .claude/hooks/stele-stop.sh`);
     console.log(`  ${mark(s.sessionStartHook)}  .claude/hooks/stele-session-start.sh`);
-    console.log(`  ${mark(s.extractAgent)}  .claude/agents/stele-extract.md`);
+    console.log(`  ${mark(s.sessionEndAutoExtract)}  SessionEnd auto-extract (opt-in, agent type, blocks close ≤60s)`);
     console.log(`  ${mark(s.skill)}  .claude/skills/stele-capture/SKILL.md`);
     console.log(`  ${mark(s.steleFeature)}  .claude/commands/stele/feature.md`);
     console.log(`  ${mark(s.steleScan)}  .claude/commands/stele/scan.md`);
     console.log(`  ${mark(s.settingsHasEntry)}  stele entries in .claude/settings.json`);
     console.log(`  ${mark(s.settingsHasMinVersion)}  requiredMinimumVersion pinned in .claude/settings.json`);
+    if (!s.sessionEndAutoExtract) {
+      console.log("");
+      console.log("Enable SessionEnd auto-extract with: stele hooks enable session-end-auto-extract");
+    }
   } else {
-    console.error(`unknown hooks subcommand: ${sub} — try install / uninstall / status`);
+    console.error(`unknown hooks subcommand: ${sub} — try install / uninstall / enable <feature> / disable <feature> / status`);
     process.exit(1);
   }
 }
