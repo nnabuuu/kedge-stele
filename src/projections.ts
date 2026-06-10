@@ -414,6 +414,140 @@ export function continueLast(store: Store, scope?: { milestoneId?: MilestoneId }
 }
 
 // ===========================================================================
+// Trace stitch — the cross-session resolves arc behind a decision
+// ===========================================================================
+
+export interface TraceStitchSession {
+  id: SessionId;
+  startedAt: string;
+  milestoneId: MilestoneId;
+  milestoneName?: string;
+}
+
+export interface TraceStitchDecision {
+  id: DecisionId;
+  title: string;
+  type: DecisionType;
+  sessionId?: SessionId;
+}
+
+export interface TraceStitch {
+  // The resolving decision (the one that closed the loop) — typically the
+  // newer of the pair.
+  resolver: TraceStitchDecision;
+  // The decision that was resolved — typically the older deferred loop.
+  resolved: TraceStitchDecision;
+  // Sessions in which each side was captured. earlier/later derived by
+  // startedAt; either may be undefined if the decision lacks a sessionId.
+  earlierSession?: TraceStitchSession;
+  laterSession?: TraceStitchSession;
+  // Whole-day gap between earlier→later session start. Undefined if either
+  // session is unknown.
+  daysSpanned?: number;
+  // The `resolves` edge note, if recorded.
+  edgeNote?: string;
+}
+
+/**
+ * For a focal decision id, find a `resolves` edge it participates in and
+ * report it as a cross-session stitch — IF the two sides are in different
+ * sessions. Same-session resolves don't qualify (no "stitching across time"
+ * to surface).
+ */
+export function traceStitch(store: Store, decisionId: DecisionId): TraceStitch | null {
+  const focal = store.getDecision(decisionId);
+  if (!focal) return null;
+
+  // Find ANY resolves edge involving this decision. Outgoing means this
+  // decision resolves something else; incoming means something else
+  // resolves this decision.
+  let resolverId: DecisionId | null = null;
+  let resolvedId: DecisionId | null = null;
+  let edgeNote: string | undefined;
+
+  for (const e of store.edgesFrom(decisionId)) {
+    if (e.relation === "resolves") {
+      resolverId = decisionId;
+      resolvedId = e.to;
+      edgeNote = e.note;
+      break;
+    }
+  }
+  if (!resolverId) {
+    for (const e of store.edgesTo(decisionId)) {
+      if (e.relation === "resolves") {
+        resolverId = e.from;
+        resolvedId = decisionId;
+        edgeNote = e.note;
+        break;
+      }
+    }
+  }
+  if (!resolverId || !resolvedId) return null;
+
+  const resolverDec = store.getDecision(resolverId);
+  const resolvedDec = store.getDecision(resolvedId);
+  if (!resolverDec || !resolvedDec) return null;
+
+  const resolverSession = resolverDec.sessionId ? store.getSession(resolverDec.sessionId) : null;
+  const resolvedSession = resolvedDec.sessionId ? store.getSession(resolvedDec.sessionId) : null;
+
+  // Same session → not a cross-session stitch; don't surface.
+  if (resolverSession && resolvedSession && resolverSession.id === resolvedSession.id) {
+    return null;
+  }
+
+  const enrich = (s: Session | null): TraceStitchSession | undefined => {
+    if (!s) return undefined;
+    return {
+      id: s.id,
+      startedAt: s.startedAt,
+      milestoneId: s.milestoneId,
+      milestoneName: store.getMilestone(s.milestoneId)?.name,
+    };
+  };
+
+  // Pick the older as "earlier", newer as "later".
+  let earlier: Session | null = null;
+  let later: Session | null = null;
+  if (resolverSession && resolvedSession) {
+    if (resolvedSession.startedAt <= resolverSession.startedAt) {
+      earlier = resolvedSession;
+      later = resolverSession;
+    } else {
+      earlier = resolverSession;
+      later = resolvedSession;
+    }
+  } else {
+    earlier = resolvedSession ?? resolverSession;
+    later = null;
+  }
+
+  let daysSpanned: number | undefined;
+  if (earlier && later) {
+    daysSpanned = Math.round(
+      (Date.parse(later.startedAt) - Date.parse(earlier.startedAt)) / 86_400_000,
+    );
+  }
+
+  const decRef = (d: Decision): TraceStitchDecision => ({
+    id: d.id,
+    title: d.title,
+    type: d.type,
+    sessionId: d.sessionId,
+  });
+
+  return {
+    resolver: decRef(resolverDec),
+    resolved: decRef(resolvedDec),
+    earlierSession: enrich(earlier),
+    laterSession: enrich(later),
+    daysSpanned,
+    edgeNote,
+  };
+}
+
+// ===========================================================================
 // Feature rail — left navigation on the Project page
 // ===========================================================================
 

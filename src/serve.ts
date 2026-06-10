@@ -30,6 +30,7 @@ import {
   resumeDigest,
   trace,
   traceEntity,
+  traceStitch,
 } from "./projections.ts";
 import {
   recordSessionEnd,
@@ -597,8 +598,19 @@ async function dispatchApi(
     // 0.1.0 — decision id is `<milestoneId>/<local>` which contains a slash.
     // The decisions route therefore takes the WHOLE remainder of the path
     // after `/api/decisions/`, not just the next segment.
+    //
+    // 0.2.0 — `/stitch` suffix returns the cross-session resolves projection
+    // for the Trace page.
     if (apiPath.startsWith("/api/decisions/")) {
-      const id = decodeURIComponent(apiPath.slice("/api/decisions/".length));
+      const raw = apiPath.slice("/api/decisions/".length);
+      if (raw.endsWith("/stitch")) {
+        const id = decodeURIComponent(raw.slice(0, -"/stitch".length));
+        if (id) {
+          const s = traceStitch(store, id);
+          return json(res, 200, s);
+        }
+      }
+      const id = decodeURIComponent(raw);
       if (id && !id.includes("?")) return await handleDecision(store, id, res);
     }
     const mEntity = apiPath.match(/^\/api\/entity\/([^/]+)\/([^/]+)$/);
