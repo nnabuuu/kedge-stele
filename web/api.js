@@ -5,6 +5,8 @@
 // lives at /api/*. The current slug is derived from the URL — first
 // path segment, unless it's a reserved word.
 
+import { getLocale } from "./i18n.js";
+
 const RESERVED_FIRST_SEG = new Set([
   "",         // root
   "welcome",  // landing stub
@@ -23,8 +25,20 @@ export function apiBase() {
   return slug ? `/${slug}/api` : "/api";
 }
 
+// Append `?lang=` to the URL so server-rendered prose (Trace.statusLine,
+// resumeDigest's trigger field) comes back in the current locale. This is
+// independent of the SPA's t() calls — those use the client-side locale
+// directly — but server-rendered strings have to be requested with the
+// correct locale or they fall through to the daemon's process default.
+function withLang(path) {
+  const lang = getLocale();
+  if (!lang) return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}lang=${encodeURIComponent(lang)}`;
+}
+
 export async function apiGet(path) {
-  const r = await fetch(`${apiBase()}${path}`, {
+  const r = await fetch(`${apiBase()}${withLang(path)}`, {
     headers: { accept: "application/json" },
   });
   if (!r.ok) {

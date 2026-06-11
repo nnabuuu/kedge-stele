@@ -470,6 +470,34 @@ export const EN = {
   // cli.usage.* — main help/usage block
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // projection.* — server-rendered prose for the Trace projection and the
+  // resume digest. Crosses the wire so the SPA / CLI / SessionStart hook can
+  // all render them as-is. Locale arrives via:
+  //   • CLI: getDefaultLocale() (process-level, set at main() startup)
+  //   • Web UI: explicit `?lang=` query param on the API request (the SPA's
+  //     apiGet appends getLocale() automatically). Server reads it,
+  //     overrides the default for that request.
+  // ---------------------------------------------------------------------------
+
+  "projection.status.open": "OPEN — {trigger}",
+  "projection.status.decided": "DECIDED — chose {why}",
+  "projection.status.decided_unknown": "?",
+  "projection.status.deferred":
+    "DEFERRED — {trigger} (revisit: {revisit})",
+  "projection.status.resolved":
+    "RESOLVED — by {by}{title}",
+  "projection.status.superseded":
+    "SUPERSEDED — replaced by {by}",
+  "projection.status.conflicted":
+    "CONFLICTED — (reserved; not produced in 0.1.0)",
+  "projection.status.unknown_id": "?",
+  "projection.trigger.manual": "manual revisit",
+  "projection.trigger.metric": "metric: {expr}",
+  "projection.trigger.event": "event: {name}",
+  "projection.trigger.dependency": "dependency: {on}",
+  "projection.trigger.absent": "no trigger",
+
   "cli.usage.full": `usage: stele <cmd>
   init                          create .stele/ + .mcp.json + register + hooks + daemon
   hooks <install|uninstall|status>     manage Stop hook + stele-capture skill

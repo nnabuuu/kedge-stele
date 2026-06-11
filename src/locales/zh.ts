@@ -464,6 +464,28 @@ export const ZH = {
   // cli.usage.* — 主 help 块
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // projection.* — 服务器端渲染的散文 (Trace statusLine + resume digest)
+  // ---------------------------------------------------------------------------
+
+  "projection.status.open": "OPEN — {trigger}",
+  "projection.status.decided": "DECIDED — 选了 {why}",
+  "projection.status.decided_unknown": "?",
+  "projection.status.deferred":
+    "DEFERRED — {trigger} (复审: {revisit})",
+  "projection.status.resolved":
+    "RESOLVED — 由 {by}{title} 解决",
+  "projection.status.superseded":
+    "SUPERSEDED — 被 {by} 取代",
+  "projection.status.conflicted":
+    "CONFLICTED — (reserved; not produced in 0.1.0)",
+  "projection.status.unknown_id": "?",
+  "projection.trigger.manual": "手动复审",
+  "projection.trigger.metric": "指标: {expr}",
+  "projection.trigger.event": "事件: {name}",
+  "projection.trigger.dependency": "依赖: {on}",
+  "projection.trigger.absent": "无触发",
+
   "cli.usage.full": `用法: stele <cmd>
   init                          建立 .stele/ + .mcp.json + 注册到 registry + hooks + daemon
   hooks <install|uninstall|status>     管理 Stop hook + stele-capture skill

@@ -38,6 +38,7 @@ import {
 } from "./projections.ts";
 import { stubResolver } from "./resolver.ts";
 import { resumeCommand, isResumableSessionId } from "./resume.ts";
+import { isLocale, type Locale } from "./i18n.ts";
 import {
   CaptureTagRequestSchema,
   CapturePayloadSchema,
@@ -262,10 +263,15 @@ function handleNextId(
   json(res, 200, store.nextLocalDecisionId(featureId, type));
 }
 
-async function handleDecision(store: Store, id: string, res: ServerResponse): Promise<void> {
-  const t = await trace(store, id, stubResolver);
-  if (!t) return notFound(res);
-  json(res, 200, t);
+async function handleDecision(
+  store: Store,
+  id: string,
+  res: ServerResponse,
+  locale: Locale | undefined,
+): Promise<void> {
+  const tr = await trace(store, id, stubResolver, locale);
+  if (!tr) return notFound(res);
+  json(res, 200, tr);
 }
 
 async function handleEntity(
@@ -273,9 +279,10 @@ async function handleEntity(
   kind: string,
   id: string,
   res: ServerResponse,
+  locale: Locale | undefined,
 ): Promise<void> {
   const ref: EntityRef = { kind, id };
-  const traces = await traceEntity(store, ref, stubResolver);
+  const traces = await traceEntity(store, ref, stubResolver, locale);
   json(res, 200, { ref, traces });
 }
 
@@ -518,8 +525,15 @@ async function dispatchApi(
   req: IncomingMessage,
   res: ServerResponse,
 ): Promise<void> {
+  // Per-request locale for server-rendered prose (Trace.statusLine, the
+  // deferred decision's trigger field in resumeDigest). The SPA's apiGet()
+  // appends `?lang=` automatically; if absent we leave it undefined and
+  // projections fall through to the process-level default.
+  const langRaw = searchParams.get("lang");
+  const locale: Locale | undefined = isLocale(langRaw) ? langRaw : undefined;
+
   if (method === "GET") {
-    if (apiPath === "/api/resume") return json(res, 200, resumeDigest(store));
+    if (apiPath === "/api/resume") return json(res, 200, resumeDigest(store, locale));
     if (apiPath === "/api/decisions") return json(res, 200, store.allDecisions());
     if (apiPath === "/api/next-id") {
       return handleNextId(
@@ -567,10 +581,10 @@ async function dispatchApi(
         }
       }
       const id = decodeURIComponent(raw);
-      if (id && !id.includes("?")) return await handleDecision(store, id, res);
+      if (id && !id.includes("?")) return await handleDecision(store, id, res, locale);
     }
     const mEntity = apiPath.match(/^\/api\/entity\/([^/]+)\/([^/]+)$/);
-    if (mEntity) return await handleEntity(store, decodeURIComponent(mEntity[1]), decodeURIComponent(mEntity[2]), res);
+    if (mEntity) return await handleEntity(store, decodeURIComponent(mEntity[1]), decodeURIComponent(mEntity[2]), res, locale);
     // 0.1.0 — projects + features + sessions
     if (apiPath === "/api/project") {
       const p = store.theProject();

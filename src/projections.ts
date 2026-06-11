@@ -30,6 +30,7 @@ import type {
 } from "./types.ts";
 import type { ProjectEntry } from "./registry.ts";
 import type { EntityResolver } from "./resolver.ts";
+import { t, type Locale } from "./i18n.ts";
 
 const DAY = 86_400_000;
 
@@ -39,12 +40,12 @@ function ageDays(iso: string): number {
   return Math.max(0, Math.floor((Date.now() - t) / DAY));
 }
 
-function triggerText(t: Trigger): string {
-  switch (t.kind) {
-    case "manual": return "手动复审";
-    case "metric": return `指标: ${t.expr}`;
-    case "event": return `事件: ${t.name}`;
-    case "dependency": return `依赖: ${t.on}`;
+function triggerText(trig: Trigger, locale?: Locale): string {
+  switch (trig.kind) {
+    case "manual": return t("projection.trigger.manual", undefined, undefined, locale);
+    case "metric": return t("projection.trigger.metric", { expr: trig.expr }, undefined, locale);
+    case "event": return t("projection.trigger.event", { name: trig.name }, undefined, locale);
+    case "dependency": return t("projection.trigger.dependency", { on: trig.on }, undefined, locale);
   }
 }
 
@@ -112,7 +113,7 @@ export interface WaitingItem {
  * plus deferred decisions with no resolution. The status column carries the
  * "is this still open" flag — we don't need to also walk edges to find out.
  */
-export function resumeDigest(store: Store): WaitingItem[] {
+export function resumeDigest(store: Store, locale?: Locale): WaitingItem[] {
   const items: WaitingItem[] = [];
 
   // Open decisions where the resolution status hasn't moved to resolved.
@@ -137,7 +138,7 @@ export function resumeDigest(store: Store): WaitingItem[] {
       bucket: "deferred",
       ageDays: ageDays(d.raisedBy.at),
       detail: d.detail?.trigger ?? d.title,
-      trigger: d.revisit ? triggerText(d.revisit.trigger) : undefined,
+      trigger: d.revisit ? triggerText(d.revisit.trigger, locale) : undefined,
       needsCheck: d.revisit ? triggerNeedsCheck(store, d.revisit.trigger) : false,
     });
   }
@@ -169,28 +170,34 @@ export interface Trace {
   tags: { name: string; color?: string }[];
 }
 
-function statusLine(store: Store, d: Decision): string {
+function statusLine(store: Store, d: Decision, locale?: Locale): string {
   const ns = nodeState(d);
   switch (ns) {
     case "open":
-      return `OPEN — ${d.detail?.trigger ?? d.title}`;
+      return t("projection.status.open", { trigger: d.detail?.trigger ?? d.title }, undefined, locale);
     case "decided": {
       const chosen = d.detail?.options?.find((o) => o.verdict === "chosen");
-      const why = chosen ? `${chosen.name}${chosen.desc ? ": " + chosen.desc : ""}` : "?";
-      return `DECIDED — 选了 ${why}`;
+      const why = chosen
+        ? `${chosen.name}${chosen.desc ? ": " + chosen.desc : ""}`
+        : t("projection.status.decided_unknown", undefined, undefined, locale);
+      return t("projection.status.decided", { why }, undefined, locale);
     }
     case "deferred": {
-      const tr = d.revisit ? triggerText(d.revisit.trigger) : "无触发";
-      return `DEFERRED — ${d.detail?.trigger ?? d.title} (复审: ${tr})`;
+      const revisit = d.revisit
+        ? triggerText(d.revisit.trigger, locale)
+        : t("projection.trigger.absent", undefined, undefined, locale);
+      return t("projection.status.deferred", { trigger: d.detail?.trigger ?? d.title, revisit }, undefined, locale);
     }
     case "resolved": {
       const by = d.resolvedBy ? store.getDecision(d.resolvedBy) : null;
-      return `RESOLVED — 由 ${d.resolvedBy ?? "?"}${by ? " (" + by.title + ")" : ""} 解决`;
+      const byId = d.resolvedBy ?? t("projection.status.unknown_id", undefined, undefined, locale);
+      const title = by ? ` (${by.title})` : "";
+      return t("projection.status.resolved", { by: byId, title }, undefined, locale);
     }
     case "superseded":
-      return `SUPERSEDED — 被 ${d.supersededBy ?? "?"} 取代`;
+      return t("projection.status.superseded", { by: d.supersededBy ?? t("projection.status.unknown_id", undefined, undefined, locale) }, undefined, locale);
     case "conflicted":
-      return `CONFLICTED — (reserved; not produced in 0.1.0)`;
+      return t("projection.status.conflicted", undefined, undefined, locale);
   }
 }
 
@@ -198,6 +205,7 @@ export async function trace(
   store: Store,
   id: DecisionId,
   resolver: EntityResolver,
+  locale?: Locale,
 ): Promise<Trace | null> {
   const d = store.getDecision(id);
   if (!d) return null;
@@ -236,19 +244,20 @@ export async function trace(
     .taggingsForTarget("decision", id)
     .map((t) => ({ name: t.name, color: t.color }));
 
-  return { decision: d, statusLine: statusLine(store, d), affects, edges, tags };
+  return { decision: d, statusLine: statusLine(store, d, locale), affects, edges, tags };
 }
 
 export async function traceEntity(
   store: Store,
   ref: EntityRef,
   resolver: EntityResolver,
+  locale?: Locale,
 ): Promise<Trace[]> {
   const ds = store.decisionsAffecting(ref);
   const out: Trace[] = [];
   for (const d of ds) {
-    const t = await trace(store, d.id, resolver);
-    if (t) out.push(t);
+    const tr = await trace(store, d.id, resolver, locale);
+    if (tr) out.push(tr);
   }
   return out;
 }

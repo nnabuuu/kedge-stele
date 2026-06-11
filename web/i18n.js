@@ -16,7 +16,7 @@
 //   3. Set <html lang=...>.
 //   4. Trigger a re-render via the supplied route() callback.
 
-import { currentSlug, apiBase } from "./api.js";
+import { apiBase } from "./api.js";
 import { LOCALES_EN } from "./locales/en.js";
 import { LOCALES_ZH } from "./locales/zh.js";
 
@@ -87,21 +87,21 @@ async function resolveLocale() {
   const fromQuery = url.searchParams.get("lang")?.toLowerCase();
   if (isLocale(fromQuery)) return fromQuery;
 
-  // 2. server config (only when in a project — the projects landing has no slug)
-  const slug = currentSlug();
-  if (slug) {
-    try {
-      const r = await fetch(`${apiBase()}/config`, {
-        headers: { accept: "application/json" },
-      });
-      if (r.ok) {
-        const cfg = await r.json();
-        const fromServer = cfg?.display_language?.toLowerCase();
-        if (isLocale(fromServer)) return fromServer;
-      }
-    } catch {
-      // network error — fall through to localStorage
+  // 2. server config. Try unconditionally — in single-project mode
+  // (`stele serve` without --multi) currentSlug() returns null on every
+  // page but /api/config still exists. A 404 means "no project here"
+  // (the multi-tenant root /api/projects route) and we fall through.
+  try {
+    const r = await fetch(`${apiBase()}/config`, {
+      headers: { accept: "application/json" },
+    });
+    if (r.ok) {
+      const cfg = await r.json();
+      const fromServer = cfg?.display_language?.toLowerCase();
+      if (isLocale(fromServer)) return fromServer;
     }
+  } catch {
+    // network error — fall through
   }
 
   // 3. localStorage
@@ -137,23 +137,26 @@ export async function setLocale(locale, { onChange } = {}) {
     // private mode — no-op
   }
 
-  // Persist to server when in a project. Best-effort; if it fails
-  // (404 in single-project mode without the route, or network down)
-  // localStorage is still the source of truth client-side.
-  const slug = currentSlug();
-  if (slug) {
-    try {
-      await fetch(`${apiBase()}/config/display_language`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json",
-        },
-        body: JSON.stringify({ value: locale }),
-      });
-    } catch {
-      // best-effort
+  // Persist to server. Best-effort: if there's no /api/config/* route
+  // here (e.g. landing.html, or a future read-only mode) the POST 404s
+  // and we keep going — localStorage is still the source of truth
+  // client-side. Non-2xx (including 400 from the strict-enum guard at
+  // src/serve.ts) gets surfaced as a console warning so we don't
+  // silently swallow real errors.
+  try {
+    const r = await fetch(`${apiBase()}/config/display_language`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({ value: locale }),
+    });
+    if (!r.ok && r.status !== 404) {
+      console.warn(`[i18n] persist display_language failed: HTTP ${r.status}`);
     }
+  } catch {
+    // network down — best-effort
   }
 
   if (typeof onChange === "function") {

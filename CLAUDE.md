@@ -219,7 +219,7 @@ The retired 0.2-era commands are not aliased; re-running `stele init` on an upgr
 
 **Locale file layout.** Flat-key tables, no nested objects:
 - `src/i18n.ts` + `src/locales/{en,zh,index}.ts` — CLI surface (~220 strings). The `EN`/`ZH` exports are paired; the `i18n.test.ts` parity invariant fails CI if keys diverge.
-- `web/i18n.js` + `web/locales/{en,zh}.js` — SPA surface (~410 strings). Same key shape as CLI, paired tables, but no test guard (parity is enforced visually — the SPA throws a console warning on missing keys but doesn't fail).
+- `web/i18n.js` + `web/locales/{en,zh}.js` — SPA surface (~410 strings). Same key shape as CLI, paired tables, but no test guard (parity is enforced visually — the SPA emits a `console.warn` on missing keys but doesn't throw).
 
 **`t()` function shape.** Same on both sides:
 

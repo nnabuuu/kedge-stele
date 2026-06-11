@@ -41,6 +41,7 @@ import { renderResume } from "./render.ts";
 import { stubResolver } from "./resolver.ts";
 import { resumeCommand, isResumableSessionId } from "./resume.ts";
 import { resolveDbPath, SteleNotInitializedError } from "./paths.ts";
+import { setDefaultLocale, localeFromEnv, isLocale } from "./i18n.ts";
 import {
   CaptureFeatureModeSchema,
   CaptureSourceSessionSchema,
@@ -194,6 +195,12 @@ function buildFeatureReportDraft(store: Store, featureId: FeatureId): FeatureRep
 // Server setup
 // =============================================================================
 
+// Resolve the CLI locale BEFORE any t() call — SteleNotInitializedError's
+// constructor at paths.ts hits t() and would otherwise produce English even
+// when STELE_LANG=zh is set. Mirrors what cli.ts main() does. After the
+// store opens we refine from `display_language` if it's set on the project.
+setDefaultLocale(localeFromEnv() ?? "en");
+
 let db: string;
 try {
   db = resolveDbPath();
@@ -205,6 +212,12 @@ try {
   throw e;
 }
 const store = new Store(db);
+
+// Refine locale from the per-project store, same as cli.ts main() step 2.
+{
+  const storeLocale = store.getConfig("display_language");
+  if (isLocale(storeLocale)) setDefaultLocale(storeLocale);
+}
 if (store.migratedFromLegacy) {
   console.error(`[stele] ${store.migratedFromLegacy.oldPath}`);
   console.error(`[stele] Pre-0.1.0 schema detected. Old DB preserved at:`);
