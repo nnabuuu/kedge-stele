@@ -161,6 +161,65 @@ export const EN = {
     "3. Ask \"what's waiting on me?\" to see open loops.",
   "cli.init.loaded_yes": "yes",
   "cli.init.loaded_no": "no",
+
+  // ---------------------------------------------------------------------------
+  // cli.hooks_cmd.* — `stele hooks <sub>` CLI-wrapper output (the prose
+  // around the already-i18n'd hooks.ts InstallReport / StatusReport fields)
+  // ---------------------------------------------------------------------------
+
+  "cli.hooks_cmd.installed_header": "hooks installed in {cwd}:",
+  "cli.hooks_cmd.install_failed": "hooks install failed: {reason}",
+  "cli.hooks_cmd.uninstalled_header": "hooks uninstalled from {cwd}:",
+  "cli.hooks_cmd.uninstall_failed": "hooks uninstall failed: {reason}",
+  "cli.hooks_cmd.unknown_feature":
+    "unknown hooks feature: {feature} — try: session-end-auto-extract",
+  "cli.hooks_cmd.enabled_header":
+    "enabled session-end-auto-extract in {cwd}:",
+  "cli.hooks_cmd.enable_failed": "enable failed: {reason}",
+  "cli.hooks_cmd.enable_warn_1":
+    "⚠  This hook BLOCKS session close for up to 60s while the",
+  "cli.hooks_cmd.enable_warn_2":
+    "   post-hoc subagent reads the transcript and captures decisions.",
+  "cli.hooks_cmd.enable_warn_3":
+    "   /stele:scan is the manual equivalent and never blocks.",
+  "cli.hooks_cmd.disabled_header":
+    "disabled session-end-auto-extract in {cwd}:",
+  "cli.hooks_cmd.disable_failed": "disable failed: {reason}",
+  "cli.hooks_cmd.disabled_layer3_hint":
+    "Layer 3 still available manually: /stele:scan",
+  "cli.hooks_cmd.status_header": "stele hooks status ({cwd}):",
+  "cli.hooks_cmd.status_session_end_label":
+    "SessionEnd auto-extract (opt-in, agent type, blocks close ≤60s)",
+  "cli.hooks_cmd.status_settings_label":
+    "stele entries in .claude/settings.json",
+  "cli.hooks_cmd.status_min_version_label":
+    "requiredMinimumVersion pinned in .claude/settings.json",
+  "cli.hooks_cmd.legacy_warn_1":
+    "⚠  Legacy .claude/hooks/stele-stop.sh found. The Stop hook was retired",
+  "cli.hooks_cmd.legacy_warn_2":
+    "   in 0.4.0-snapshot.10 (the agent self-governs Layer 1 capture now via",
+  "cli.hooks_cmd.legacy_warn_3":
+    "   the stele-capture skill). Run `stele hooks install` to clean it up.",
+  "cli.hooks_cmd.enable_hint":
+    "Enable SessionEnd auto-extract with: stele hooks enable session-end-auto-extract",
+  "cli.hooks_cmd.unknown_subcommand":
+    "unknown hooks subcommand: {sub} — try install / uninstall / enable <feature> / disable <feature> / status",
+
+  // ---------------------------------------------------------------------------
+  // cli.daemon_cmd.* — `stele daemon <sub>` CLI-wrapper output
+  // ---------------------------------------------------------------------------
+
+  "cli.daemon_cmd.unknown_flag": "unknown daemon flag: {flag}",
+  "cli.daemon_cmd.installed_header":
+    "stele daemon installed ({platform}, multi-tenant):",
+  "cli.daemon_cmd.imported_legacy":
+    "· imported projects from legacy daemons:",
+  "cli.daemon_cmd.install_failed": "daemon install failed: {reason}",
+  "cli.daemon_cmd.uninstalled_header": "stele daemon uninstalled:",
+  "cli.daemon_cmd.status_header": "stele daemon status:",
+  "cli.daemon_cmd.status_registered_projects": "registered projects: {count}",
+  "cli.daemon_cmd.unknown_subcommand":
+    "unknown daemon subcommand: {sub} — try install / uninstall / status",
 } as const;
 
 export type EnKey = keyof typeof EN;

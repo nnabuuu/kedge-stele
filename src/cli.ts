@@ -354,7 +354,7 @@ function hooksCommand(args: string[]): void {
     const enableSessionEndAutoExtract = args.includes("--enable-session-end-auto-extract");
     try {
       const r = installHooks(cwd, { sessionEndAutoExtract: enableSessionEndAutoExtract });
-      console.log(`hooks installed in ${cwd}:`);
+      console.log(t("cli.hooks_cmd.installed_header", { cwd }));
       console.log(`  ${r.legacyStopHook}`);
       console.log(`  ${r.sessionStartHook}`);
       console.log(`  ${r.sessionEndAutoExtract}`);
@@ -364,13 +364,13 @@ function hooksCommand(args: string[]): void {
       console.log(`  ${r.legacyCommandsCleaned}`);
       console.log(`  ${r.settings}`);
     } catch (e) {
-      console.error(`hooks install failed: ${(e as Error).message}`);
+      console.error(t("cli.hooks_cmd.install_failed", { reason: (e as Error).message }));
       process.exit(1);
     }
   } else if (sub === "uninstall") {
     try {
       const r = uninstallHooks(cwd);
-      console.log(`hooks uninstalled from ${cwd}:`);
+      console.log(t("cli.hooks_cmd.uninstalled_header", { cwd }));
       console.log(`  ${r.legacyStopHook}`);
       console.log(`  ${r.sessionStartHook}`);
       console.log(`  ${r.sessionEndAutoExtract}`);
@@ -380,69 +380,69 @@ function hooksCommand(args: string[]): void {
       console.log(`  ${r.legacyCommandsCleaned}`);
       console.log(`  ${r.settings}`);
     } catch (e) {
-      console.error(`hooks uninstall failed: ${(e as Error).message}`);
+      console.error(t("cli.hooks_cmd.uninstall_failed", { reason: (e as Error).message }));
       process.exit(1);
     }
   } else if (sub === "enable") {
     // 0.4.0-snapshot.9: stele hooks enable <feature>
     const feature = args[1];
     if (feature !== "session-end-auto-extract") {
-      console.error(`unknown hooks feature: ${feature ?? "(none)"} — try: session-end-auto-extract`);
+      console.error(t("cli.hooks_cmd.unknown_feature", { feature: feature ?? "(none)" }));
       process.exit(1);
     }
     try {
       const r = installHooks(cwd, { sessionEndAutoExtract: true });
-      console.log(`enabled session-end-auto-extract in ${cwd}:`);
+      console.log(t("cli.hooks_cmd.enabled_header", { cwd }));
       console.log(`  ${r.sessionEndAutoExtract}`);
       console.log(`  ${r.settings}`);
       console.log("");
-      console.log("⚠  This hook BLOCKS session close for up to 60s while the");
-      console.log("   post-hoc subagent reads the transcript and captures decisions.");
-      console.log("   /stele:scan is the manual equivalent and never blocks.");
+      console.log(t("cli.hooks_cmd.enable_warn_1"));
+      console.log(t("cli.hooks_cmd.enable_warn_2"));
+      console.log(t("cli.hooks_cmd.enable_warn_3"));
     } catch (e) {
-      console.error(`enable failed: ${(e as Error).message}`);
+      console.error(t("cli.hooks_cmd.enable_failed", { reason: (e as Error).message }));
       process.exit(1);
     }
   } else if (sub === "disable") {
     const feature = args[1];
     if (feature !== "session-end-auto-extract") {
-      console.error(`unknown hooks feature: ${feature ?? "(none)"} — try: session-end-auto-extract`);
+      console.error(t("cli.hooks_cmd.unknown_feature", { feature: feature ?? "(none)" }));
       process.exit(1);
     }
     try {
       const r = installHooks(cwd, { sessionEndAutoExtract: false });
-      console.log(`disabled session-end-auto-extract in ${cwd}:`);
+      console.log(t("cli.hooks_cmd.disabled_header", { cwd }));
       console.log(`  ${r.sessionEndAutoExtract}`);
       console.log(`  ${r.settings}`);
       console.log("");
-      console.log("Layer 3 still available manually: /stele:scan");
+      console.log(t("cli.hooks_cmd.disabled_layer3_hint"));
     } catch (e) {
-      console.error(`disable failed: ${(e as Error).message}`);
+      console.error(t("cli.hooks_cmd.disable_failed", { reason: (e as Error).message }));
       process.exit(1);
     }
   } else if (sub === "status" || sub === undefined) {
     const s = hooksStatus(cwd);
     const mark = (b: boolean) => (b ? "✓" : "✗");
-    console.log(`stele hooks status (${cwd}):`);
+    console.log(t("cli.hooks_cmd.status_header", { cwd }));
     console.log(`  ${mark(s.sessionStartHook)}  .claude/hooks/stele-session-start.sh`);
-    console.log(`  ${mark(s.sessionEndAutoExtract)}  SessionEnd auto-extract (opt-in, agent type, blocks close ≤60s)`);
+    console.log(`  ${mark(s.sessionEndAutoExtract)}  ${t("cli.hooks_cmd.status_session_end_label")}`);
     console.log(`  ${mark(s.skill)}  .claude/skills/stele-capture/SKILL.md`);
     console.log(`  ${mark(s.steleFeature)}  .claude/commands/stele/feature.md`);
     console.log(`  ${mark(s.steleScan)}  .claude/commands/stele/scan.md`);
-    console.log(`  ${mark(s.settingsHasEntry)}  stele entries in .claude/settings.json`);
-    console.log(`  ${mark(s.settingsHasMinVersion)}  requiredMinimumVersion pinned in .claude/settings.json`);
+    console.log(`  ${mark(s.settingsHasEntry)}  ${t("cli.hooks_cmd.status_settings_label")}`);
+    console.log(`  ${mark(s.settingsHasMinVersion)}  ${t("cli.hooks_cmd.status_min_version_label")}`);
     if (s.legacyStopHookPresent) {
       console.log("");
-      console.log("⚠  Legacy .claude/hooks/stele-stop.sh found. The Stop hook was retired");
-      console.log("   in 0.4.0-snapshot.10 (the agent self-governs Layer 1 capture now via");
-      console.log("   the stele-capture skill). Run `stele hooks install` to clean it up.");
+      console.log(t("cli.hooks_cmd.legacy_warn_1"));
+      console.log(t("cli.hooks_cmd.legacy_warn_2"));
+      console.log(t("cli.hooks_cmd.legacy_warn_3"));
     }
     if (!s.sessionEndAutoExtract) {
       console.log("");
-      console.log("Enable SessionEnd auto-extract with: stele hooks enable session-end-auto-extract");
+      console.log(t("cli.hooks_cmd.enable_hint"));
     }
   } else {
-    console.error(`unknown hooks subcommand: ${sub} — try install / uninstall / enable <feature> / disable <feature> / status`);
+    console.error(t("cli.hooks_cmd.unknown_subcommand", { sub: sub ?? "" }));
     process.exit(1);
   }
 }
@@ -458,14 +458,14 @@ async function daemonCommand(args: string[]): Promise<void> {
     if (a === "--port") {
       const n = Number(args[++i]);
       if (!Number.isInteger(n) || n < 1 || n > 65535) {
-        console.error(`invalid --port value: ${args[i]}`);
+        console.error(t("cli.init.invalid_port", { value: args[i] }));
         process.exit(1);
       }
       port = n;
     } else if (a === "--print-unit") {
       printUnit = true;
     } else {
-      console.error(`unknown daemon flag: ${a}`);
+      console.error(t("cli.daemon_cmd.unknown_flag", { flag: a }));
       process.exit(1);
     }
   }
@@ -474,35 +474,35 @@ async function daemonCommand(args: string[]): Promise<void> {
     try {
       const r = await installDaemon({ port, printUnit });
       if (printUnit) return; // unit printed to stdout already
-      console.log(`stele daemon installed (${r.platform}, multi-tenant):`);
+      console.log(t("cli.daemon_cmd.installed_header", { platform: r.platform }));
       console.log(`  unit:       ${r.unitPath}`);
       console.log(`  invocation: ${r.invocation}`);
       console.log(`  port:       ${r.port}`);
-      console.log(`  loaded:     ${r.loaded ? "yes" : "no"}`);
+      console.log(`  loaded:     ${t(r.loaded ? "cli.init.loaded_yes" : "cli.init.loaded_no")}`);
       for (const n of r.notes) console.log(`  · ${n}`);
       if (r.legacy.registered.length > 0) {
-        console.log(`  · imported projects from legacy daemons:`);
+        console.log(`  ${t("cli.daemon_cmd.imported_legacy")}`);
         for (const p of r.legacy.registered) console.log(`      ${p}`);
       }
       if (r.loaded) console.log(`\n  → http://127.0.0.1:${r.port}/`);
     } catch (e) {
-      console.error(`daemon install failed: ${(e as Error).message}`);
+      console.error(t("cli.daemon_cmd.install_failed", { reason: (e as Error).message }));
       process.exit(1);
     }
   } else if (sub === "uninstall") {
     const r = uninstallDaemon();
-    console.log(`stele daemon uninstalled:`);
+    console.log(t("cli.daemon_cmd.uninstalled_header"));
     for (const n of r.notes) console.log(`  · ${n}`);
   } else if (sub === "status" || sub === undefined) {
     const s = daemonStatus();
     const n = allProjects().length;
-    console.log(`stele daemon status:`);
+    console.log(t("cli.daemon_cmd.status_header"));
     console.log(`  platform:           ${s.platform}`);
     console.log(`  unit file:          ${s.unitPresent ? "✓" : "✗"} ${s.unitPath}`);
     console.log(`  loaded:             ${s.loaded ? "✓" : "✗"} (${s.loadedNote})`);
-    console.log(`  registered projects: ${n}`);
+    console.log(`  ${t("cli.daemon_cmd.status_registered_projects", { count: n })}`);
   } else {
-    console.error(`unknown daemon subcommand: ${sub} — try install / uninstall / status`);
+    console.error(t("cli.daemon_cmd.unknown_subcommand", { sub: sub ?? "" }));
     process.exit(1);
   }
 }

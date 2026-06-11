@@ -161,6 +161,64 @@ export const ZH = {
     "3. 问 \"什么在等我?\" 看待办循环。",
   "cli.init.loaded_yes": "是",
   "cli.init.loaded_no": "否",
+
+  // ---------------------------------------------------------------------------
+  // cli.hooks_cmd.* — `stele hooks <sub>` 包装层输出
+  // ---------------------------------------------------------------------------
+
+  "cli.hooks_cmd.installed_header": "{cwd} 中已安装 hooks:",
+  "cli.hooks_cmd.install_failed": "hooks 安装失败: {reason}",
+  "cli.hooks_cmd.uninstalled_header": "已从 {cwd} 卸载 hooks:",
+  "cli.hooks_cmd.uninstall_failed": "hooks 卸载失败: {reason}",
+  "cli.hooks_cmd.unknown_feature":
+    "不认识的 hooks feature: {feature} —— 试试: session-end-auto-extract",
+  "cli.hooks_cmd.enabled_header":
+    "已在 {cwd} 启用 session-end-auto-extract:",
+  "cli.hooks_cmd.enable_failed": "启用失败: {reason}",
+  "cli.hooks_cmd.enable_warn_1":
+    "⚠  这个 hook 会在关 session 时堵塞最多 60 秒,期间",
+  "cli.hooks_cmd.enable_warn_2":
+    "   post-hoc 子 agent 会读 transcript 并 capture decision。",
+  "cli.hooks_cmd.enable_warn_3":
+    "   /stele:scan 是同等手动版本,不会堵塞。",
+  "cli.hooks_cmd.disabled_header":
+    "已在 {cwd} 停用 session-end-auto-extract:",
+  "cli.hooks_cmd.disable_failed": "停用失败: {reason}",
+  "cli.hooks_cmd.disabled_layer3_hint":
+    "Layer 3 仍可手动触发: /stele:scan",
+  "cli.hooks_cmd.status_header": "stele hooks 状态 ({cwd}):",
+  "cli.hooks_cmd.status_session_end_label":
+    "SessionEnd auto-extract (opt-in, agent type, 关闭最多堵塞 60 秒)",
+  "cli.hooks_cmd.status_settings_label":
+    ".claude/settings.json 中含有 stele 条目",
+  "cli.hooks_cmd.status_min_version_label":
+    ".claude/settings.json 已钉 requiredMinimumVersion",
+  "cli.hooks_cmd.legacy_warn_1":
+    "⚠  发现残留的 .claude/hooks/stele-stop.sh。Stop hook 在 0.4.0-snapshot.10",
+  "cli.hooks_cmd.legacy_warn_2":
+    "   已下线 (Layer 1 由 stele-capture skill 中的 agent 自治)。",
+  "cli.hooks_cmd.legacy_warn_3":
+    "   跑一下 `stele hooks install` 把它清掉。",
+  "cli.hooks_cmd.enable_hint":
+    "启用 SessionEnd auto-extract: stele hooks enable session-end-auto-extract",
+  "cli.hooks_cmd.unknown_subcommand":
+    "hooks 没有 {sub} 子命令 —— 试试 install / uninstall / enable <feature> / disable <feature> / status",
+
+  // ---------------------------------------------------------------------------
+  // cli.daemon_cmd.* — `stele daemon <sub>` 包装层输出
+  // ---------------------------------------------------------------------------
+
+  "cli.daemon_cmd.unknown_flag": "daemon 不认识的 flag: {flag}",
+  "cli.daemon_cmd.installed_header":
+    "stele daemon 已安装 ({platform}, multi-tenant):",
+  "cli.daemon_cmd.imported_legacy":
+    "· 从老 daemon 中导入了以下项目:",
+  "cli.daemon_cmd.install_failed": "daemon 安装失败: {reason}",
+  "cli.daemon_cmd.uninstalled_header": "stele daemon 已卸载:",
+  "cli.daemon_cmd.status_header": "stele daemon 状态:",
+  "cli.daemon_cmd.status_registered_projects": "已注册项目数: {count}",
+  "cli.daemon_cmd.unknown_subcommand":
+    "daemon 没有 {sub} 子命令 —— 试试 install / uninstall / status",
 } as const;
 
 export type ZhKey = keyof typeof ZH;
