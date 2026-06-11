@@ -1,11 +1,13 @@
 # 实录 · Stele
 
+**English** · [中文](./README.zh-CN.md)
+
 > *Carve decisions as they're made, traceable ever after.*
 
-> **Status: 0.4.0** — first stable cut of the three-layer auto-capture
-> model. Schema is additive from 0.3.0 (existing DBs open unchanged);
-> the agent surface is stable. Pin a version with
-> `npm install -g stele-mcp@0.4.0`.
+> **Status: 0.4.1** — three-layer auto-capture model plus the
+> `main_language` setting. Schema is additive from 0.3.0 (existing DBs
+> open unchanged); the agent surface is stable. Pin a version with
+> `npm install -g stele-mcp@0.4.1`.
 
 A local decision-provenance store for Claude Code. When a decision
 crystallizes in conversation — what you chose, what you rejected, what
@@ -36,7 +38,7 @@ hooks to register correctly — `stele init` pins this in your project's
 silently misbehaving.
 
 ```bash
-npm install -g stele-mcp@0.4.0
+npm install -g stele-mcp@0.4.1
 ```
 
 This puts two commands on your PATH:
