@@ -412,6 +412,88 @@ export const ZH = {
 
   "cli.top.unknown_command":
     "不认识的命令: {cmd}\n\n{usage}",
+
+  // ---------------------------------------------------------------------------
+  // cli.add.* — `stele add` (从 stdin 读 JSON 来 capture)
+  // ---------------------------------------------------------------------------
+
+  "cli.add.captured": "已 capture {id} —— {title}",
+  "cli.add.applied_edges.one": "应用了 1 条手写的 edge",
+  "cli.add.applied_edges.other": "应用了 {count} 条手写的 edge",
+  "cli.add.tags_applied": "应用了 tag: {names}",
+  "cli.add.tags_pending": "等待确认的 tag: {names}",
+  "cli.add.tags_blocked": "被 block 的 tag: {names}",
+  "cli.add.tag_error": "tag \"{name}\" 出错: {message}",
+  "cli.add.consolidate_proposes.one":
+    "consolidate 提议了 1 条 edge —— 用 `resolve`/`relate` 确认:",
+  "cli.add.consolidate_proposes.other":
+    "consolidate 提议了 {count} 条 edge —— 用 `resolve`/`relate` 确认:",
+
+  // ---------------------------------------------------------------------------
+  // cli.edges.* — `stele resolve|relate|depends-on`
+  // ---------------------------------------------------------------------------
+
+  "cli.edges.resolved": "{to} 现已被 {from} 标记为 RESOLVED",
+  "cli.edges.related": "已连接 {a} —relates→ {b}",
+  "cli.edges.depends_on": "已连接 {a} —depends_on→ {b}",
+
+  // ---------------------------------------------------------------------------
+  // cli.resume.* — `stele resume` (交互式那个,不是 --for-context)
+  // ---------------------------------------------------------------------------
+
+  "cli.resume.wrote_html": "已写入 {path} ({count} 个待办循环)",
+  "cli.resume.header": "什么在等我 —— {count} 个未闭合回路",
+  "cli.resume.check_marker": " ⚠ 该复审",
+  "cli.resume.review_label": "复审: {trigger}",
+
+  // ---------------------------------------------------------------------------
+  // cli.trace.* — `stele trace` + `stele trace-entity`
+  // ---------------------------------------------------------------------------
+
+  "cli.trace.not_found": "找不到 decision: {id}",
+  "cli.trace.status_label": "status:  {status}",
+  "cli.trace.constraint_label": "约束: {constraint}",
+  "cli.trace.affects_label": "affects: {affects}",
+  "cli.trace.graph_label": "graph:",
+  "cli.trace.entity_header.one":
+    "{kind}:{id} —— 1 个相关决策",
+  "cli.trace.entity_header.other":
+    "{kind}:{id} —— {count} 个相关决策",
+
+  // ---------------------------------------------------------------------------
+  // cli.usage.* — 主 help 块
+  // ---------------------------------------------------------------------------
+
+  "cli.usage.full": `用法: stele <cmd>
+  init                          建立 .stele/ + .mcp.json + 注册到 registry + hooks + daemon
+  hooks <install|uninstall|status>     管理 Stop hook + stele-capture skill
+  daemon <install|uninstall|status>    multi-tenant 常驻服务 (launchd / systemd)
+  projects <list|remove <slug>>        查看 / 管理全局项目 registry
+  project <show|set-status>            0.1.0+ —— 当前项目的 DB 记录
+  features <list|open|report|show|set-state>
+                                       0.1.0+ —— Feature (5 种状态)
+  sessions <list|start|end|resume|continue>
+                                       0.1.0+ —— Session 生命周期 + 跳回
+  tags <list|propose|apply|confirm|reject|recolor|rename|archive|restore|proposals>
+                                       0.0.7+ —— 给 feature / decision 打 tag
+  config <list|get|set>                0.0.7+ —— 项目本地偏好 (例如 tag_policy, display_language)
+  serve [--multi] [--port N] [--open]  浏览器 UI (默认 http://127.0.0.1:3939)
+  resume [--html out.html]      "什么在等我" —— 列出待办循环,该复审的排前面
+  trace <id>                    "这是怎么来的" —— 节点 + 它在图中的近邻
+  trace-entity <kind> <id>      触碰过某个实体的所有 decision (file/feature/skill...)
+  list                          按 nodeState 列所有 decision
+  add  < payload.json           从 stdin 读 CapturePayload JSON 来 capture decision
+  resolve <byId> <defId> [note] 把后来的 decision 标记为对老的 deferred/open 的 resolve
+  relate  <a> <b> [note]        连两个 decision (relation=relates)
+  depends-on <from> <to> [note] 连两个 decision (relation=depends_on)
+
+仓库: 每个项目自己的 .stele/decisions.db。\`stele init\` 把这两个东西写好,
+并把项目注册到 ~/.stele/registry.json,这样 daemon 就能在
+http://127.0.0.1:3939/<slug>/ 路由到它。CLI 沿 cwd 向上找 .stele/ 标记;
+用 STELE_DB=/abs/path/decisions.db 显式覆盖。
+
+语言: \`stele config set display_language zh|en\` (项目级),或
+STELE_LANG=zh|en (单次)。不设的话从 \$LANG 自动检测。`,
 } as const;
 
 export type ZhKey = keyof typeof ZH;

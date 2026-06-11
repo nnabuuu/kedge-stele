@@ -1273,17 +1273,18 @@ async function main() {
       store.putDecision(payload.decision);
       for (const e of payload.edges || []) store.addEdge(e);
 
-      console.log(`captured ${payload.decision.id} — ${payload.decision.title}`);
-      if (payload.edges?.length) console.log(`applied ${payload.edges.length} authored edge(s)`);
+      console.log(t("cli.add.captured", { id: payload.decision.id, title: payload.decision.title }));
+      if (payload.edges?.length) console.log(t("cli.add.applied_edges", { count: payload.edges.length }, payload.edges.length));
       if (payload.tags?.length) {
         const tr = applyCaptureTags(store, payload.tags, payload.decision.id);
-        if (tr.applied.length) console.log(`tags applied: ${tr.applied.map((a) => a.name).join(", ")}`);
-        if (tr.pending.length) console.log(`tags pending: ${tr.pending.map((p) => `${p.name}(${p.proposalId})`).join(", ")}`);
-        if (tr.blocked.length) console.log(`tags blocked: ${tr.blocked.map((b) => b.name).join(", ")}`);
-        for (const e of tr.errors) console.log(`tag error "${e.name}": ${e.message}`);
+        if (tr.applied.length) console.log(t("cli.add.tags_applied", { names: tr.applied.map((a) => a.name).join(", ") }));
+        if (tr.pending.length) console.log(t("cli.add.tags_pending", { names: tr.pending.map((p) => `${p.name}(${p.proposalId})`).join(", ") }));
+        if (tr.blocked.length) console.log(t("cli.add.tags_blocked", { names: tr.blocked.map((b) => b.name).join(", ") }));
+        for (const e of tr.errors) console.log(t("cli.add.tag_error", { name: e.name, message: e.message }));
       }
       if (candidates.length) {
-        console.log(`\nconsolidate proposes ${candidates.length} edge(s) — confirm with \`resolve\`/\`relate\`:`);
+        console.log("");
+        console.log(t("cli.add.consolidate_proposes", { count: candidates.length }, candidates.length));
         for (const c of candidates.slice(0, 6))
           console.log(`  · [${(c.confidence * 100) | 0}%] ${c.reason}`);
       }
@@ -1293,17 +1294,17 @@ async function main() {
     // ----- the cross-session stitch: a later decision closes an old loop ------
     case "resolve": {
       store.addEdge({ from: args[0], to: args[1], relation: "resolves", note: args[2] || "manual" });
-      console.log(`${args[1]} now RESOLVED by ${args[0]}`);
+      console.log(t("cli.edges.resolved", { to: args[1], from: args[0] }));
       break;
     }
     case "relate": {
       store.addEdge({ from: args[0], to: args[1], relation: "relates", note: args[2] || "manual" });
-      console.log(`linked ${args[0]} —relates→ ${args[1]}`);
+      console.log(t("cli.edges.related", { a: args[0], b: args[1] }));
       break;
     }
     case "depends-on": {
       store.addEdge({ from: args[0], to: args[1], relation: "depends_on", note: args[2] || "manual" });
-      console.log(`linked ${args[0]} —depends_on→ ${args[1]}`);
+      console.log(t("cli.edges.depends_on", { a: args[0], b: args[1] }));
       break;
     }
 
@@ -1315,7 +1316,7 @@ async function main() {
       if (htmlFlag >= 0) {
         const out = args[htmlFlag + 1] || join(process.cwd(), "resume.html");
         writeFileSync(out, renderResume(items));
-        console.log(`wrote ${out} (${items.length} open loops)`);
+        console.log(t("cli.resume.wrote_html", { path: out, count: items.length }));
       } else if (forContext) {
         // 0.4.0 — SessionStart hook stdout. Declarative prose so Claude
         // Code's prompt-injection defense doesn't flag it as imperative
@@ -1324,11 +1325,13 @@ async function main() {
         const out = formatResumeForContext(items);
         if (out) process.stdout.write(out);
       } else {
-        console.log(`\n什么在等我 — ${items.length} 个未闭合回路\n`);
+        console.log("");
+        console.log(t("cli.resume.header", { count: items.length }));
+        console.log("");
         for (const i of items) {
-          const tag = i.needsCheck ? " ⚠ CHECK" : "";
-          console.log(`  ${i.id}  [${i.bucket}] ${i.ageDays}d${tag}  ${i.title}`);
-          if (i.trigger) console.log(`        复审: ${i.trigger}`);
+          const marker = i.needsCheck ? t("cli.resume.check_marker") : "";
+          console.log(`  ${i.id}  [${i.bucket}] ${i.ageDays}d${marker}  ${i.title}`);
+          if (i.trigger) console.log(`        ${t("cli.resume.review_label", { trigger: i.trigger })}`);
         }
       }
       break;
@@ -1336,15 +1339,16 @@ async function main() {
 
     // ----- projection 2: how did this come to be ------------------------------
     case "trace": {
-      const t = await trace(store, args[0], stubResolver);
-      if (!t) { console.log(`no such decision: ${args[0]}`); break; }
-      console.log(`\n${t.decision.id} — ${t.decision.title}`);
-      console.log(`  status:  ${t.statusLine}`);
-      if (t.decision.detail?.constraint) console.log(`  约束:    ${t.decision.detail.constraint}`);
-      console.log(`  affects: ${t.affects.map((a) => a.label).join(", ")}`);
-      if (t.edges.length) {
-        console.log(`  graph:`);
-        for (const e of t.edges) {
+      const tr = await trace(store, args[0], stubResolver);
+      if (!tr) { console.log(t("cli.trace.not_found", { id: args[0] })); break; }
+      console.log("");
+      console.log(`${tr.decision.id} — ${tr.decision.title}`);
+      console.log(`  ${t("cli.trace.status_label", { status: tr.statusLine })}`);
+      if (tr.decision.detail?.constraint) console.log(`  ${t("cli.trace.constraint_label", { constraint: tr.decision.detail.constraint })}`);
+      console.log(`  ${t("cli.trace.affects_label", { affects: tr.affects.map((a) => a.label).join(", ") })}`);
+      if (tr.edges.length) {
+        console.log(`  ${t("cli.trace.graph_label")}`);
+        for (const e of tr.edges) {
           const arrow = e.direction === "out" ? `—${e.relation}→` : `←${e.relation}—`;
           console.log(`    ${arrow} ${e.otherId} (${e.otherTitle})`);
         }
@@ -1356,8 +1360,10 @@ async function main() {
     case "trace-entity": {
       const ref: EntityRef = { kind: args[0], id: args[1] };
       const traces = await traceEntity(store, ref, stubResolver);
-      console.log(`\n${ref.kind}:${ref.id} — ${traces.length} 个相关决策\n`);
-      for (const t of traces) console.log(`  ${t.decision.id}  ${t.statusLine}\n        ${t.decision.title}`);
+      console.log("");
+      console.log(t("cli.trace.entity_header", { kind: ref.kind, id: ref.id, count: traces.length }, traces.length));
+      console.log("");
+      for (const tr of traces) console.log(`  ${tr.decision.id}  ${tr.statusLine}\n        ${tr.decision.title}`);
       break;
     }
 
@@ -1368,34 +1374,7 @@ async function main() {
     }
 
     default:
-      console.log(`usage: stele <cmd>
-  init                          create .stele/ + .mcp.json + register + hooks + daemon
-  hooks <install|uninstall|status>     manage Stop hook + stele-capture skill
-  daemon <install|uninstall|status>    multi-tenant always-on serve (launchd / systemd)
-  projects <list|remove <slug>>        view/manage the global project registry
-  project <show|set-status>            0.1.0+ — current project's DB row
-  features <list|open>                 0.1.0+ — Feature (between Project and Feature)
-  features <list|open|report|show|set-state>
-                                       0.1.0+ — Feature (5-state)
-  sessions <list|start|end|resume|continue>
-                                       0.1.0+ — Session lifecycle + jumpback
-  tags <list|propose|apply|confirm|reject|recolor|rename|archive|restore|proposals>
-                                       0.0.7+ — tag features / decisions
-  config <list|get|set>                0.0.7+ — local preferences (e.g. tag_policy)
-  serve [--multi] [--port N] [--open]  browser UI (default http://127.0.0.1:3939)
-  resume [--html out.html]      "什么在等我" — open loops, needs-check first
-  trace <id>                    "怎么发生的" — node + its graph neighbourhood
-  trace-entity <kind> <id>      everything touching an entity (file/feature/skill...)
-  list                          all decisions by nodeState
-  add  < payload.json           capture a decision via stdin (CapturePayload JSON)
-  resolve <byId> <defId> [note] mark a deferred/open node resolved by a later decision
-  relate  <a> <b> [note]        link two decisions (relation=relates)
-  depends-on <from> <to> [note] link decisions (relation=depends_on)
-
-Store: per-project at .stele/decisions.db. \`stele init\` writes that and
-registers the project in ~/.stele/registry.json so the daemon can route to it
-at http://127.0.0.1:3939/<slug>/. CLI commands walk up from cwd to find the
-.stele/ marker; override with STELE_DB=/abs/path/decisions.db.`);
+      console.log(t("cli.usage.full"));
   }
 }
 

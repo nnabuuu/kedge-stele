@@ -418,6 +418,88 @@ export const EN = {
 
   "cli.top.unknown_command":
     "unknown command: {cmd}\n\n{usage}",
+
+  // ---------------------------------------------------------------------------
+  // cli.add.* — `stele add` (capture from stdin JSON)
+  // ---------------------------------------------------------------------------
+
+  "cli.add.captured": "captured {id} — {title}",
+  "cli.add.applied_edges.one": "applied 1 authored edge",
+  "cli.add.applied_edges.other": "applied {count} authored edges",
+  "cli.add.tags_applied": "tags applied: {names}",
+  "cli.add.tags_pending": "tags pending: {names}",
+  "cli.add.tags_blocked": "tags blocked: {names}",
+  "cli.add.tag_error": "tag error \"{name}\": {message}",
+  "cli.add.consolidate_proposes.one":
+    "consolidate proposes 1 edge — confirm with `resolve`/`relate`:",
+  "cli.add.consolidate_proposes.other":
+    "consolidate proposes {count} edges — confirm with `resolve`/`relate`:",
+
+  // ---------------------------------------------------------------------------
+  // cli.edges.* — `stele resolve|relate|depends-on`
+  // ---------------------------------------------------------------------------
+
+  "cli.edges.resolved": "{to} now RESOLVED by {from}",
+  "cli.edges.related": "linked {a} —relates→ {b}",
+  "cli.edges.depends_on": "linked {a} —depends_on→ {b}",
+
+  // ---------------------------------------------------------------------------
+  // cli.resume.* — `stele resume` (the non-context interactive form)
+  // ---------------------------------------------------------------------------
+
+  "cli.resume.wrote_html": "wrote {path} ({count} open loops)",
+  "cli.resume.header": "what's waiting on me — {count} un-closed loop(s)",
+  "cli.resume.check_marker": " ⚠ CHECK",
+  "cli.resume.review_label": "revisit: {trigger}",
+
+  // ---------------------------------------------------------------------------
+  // cli.trace.* — `stele trace` + `stele trace-entity`
+  // ---------------------------------------------------------------------------
+
+  "cli.trace.not_found": "no such decision: {id}",
+  "cli.trace.status_label": "status:  {status}",
+  "cli.trace.constraint_label": "constraint: {constraint}",
+  "cli.trace.affects_label": "affects: {affects}",
+  "cli.trace.graph_label": "graph:",
+  "cli.trace.entity_header.one":
+    "{kind}:{id} — 1 related decision",
+  "cli.trace.entity_header.other":
+    "{kind}:{id} — {count} related decisions",
+
+  // ---------------------------------------------------------------------------
+  // cli.usage.* — main help/usage block
+  // ---------------------------------------------------------------------------
+
+  "cli.usage.full": `usage: stele <cmd>
+  init                          create .stele/ + .mcp.json + register + hooks + daemon
+  hooks <install|uninstall|status>     manage Stop hook + stele-capture skill
+  daemon <install|uninstall|status>    multi-tenant always-on serve (launchd / systemd)
+  projects <list|remove <slug>>        view/manage the global project registry
+  project <show|set-status>            0.1.0+ — current project's DB row
+  features <list|open|report|show|set-state>
+                                       0.1.0+ — Feature (5-state)
+  sessions <list|start|end|resume|continue>
+                                       0.1.0+ — Session lifecycle + jumpback
+  tags <list|propose|apply|confirm|reject|recolor|rename|archive|restore|proposals>
+                                       0.0.7+ — tag features / decisions
+  config <list|get|set>                0.0.7+ — local preferences (e.g. tag_policy, display_language)
+  serve [--multi] [--port N] [--open]  browser UI (default http://127.0.0.1:3939)
+  resume [--html out.html]      "what's waiting on me" — open loops, needs-check first
+  trace <id>                    "how did this come to be" — node + its graph neighbourhood
+  trace-entity <kind> <id>      everything touching an entity (file/feature/skill...)
+  list                          all decisions by nodeState
+  add  < payload.json           capture a decision via stdin (CapturePayload JSON)
+  resolve <byId> <defId> [note] mark a deferred/open node resolved by a later decision
+  relate  <a> <b> [note]        link two decisions (relation=relates)
+  depends-on <from> <to> [note] link decisions (relation=depends_on)
+
+Store: per-project at .stele/decisions.db. \`stele init\` writes that and
+registers the project in ~/.stele/registry.json so the daemon can route to it
+at http://127.0.0.1:3939/<slug>/. CLI commands walk up from cwd to find the
+.stele/ marker; override with STELE_DB=/abs/path/decisions.db.
+
+Locale: \`stele config set display_language zh|en\` for per-project, or
+STELE_LANG=zh|en for one-shot. Auto-detects from \$LANG when unset.`,
 } as const;
 
 export type EnKey = keyof typeof EN;
