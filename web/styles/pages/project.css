@@ -119,6 +119,52 @@
   color: var(--t3);
 }
 
+/* Rail tag-filter toolbar (mock .rtools) */
+.rtools { margin: 2px 2px 16px; }
+.rtools-row { display: flex; gap: 8px; align-items: center; margin: 0 2px 9px; }
+.rtools-lbl {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--t2);
+}
+.rtools-clear {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+.rtools-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rtools-extra { margin-top: 6px; }
+.tagchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 3px 9px 3px 8px;
+  border-radius: 99px;
+  color: var(--tc);
+  background: color-mix(in srgb, var(--tc) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--tc) 28%, transparent);
+}
+.tagchip.tog { cursor: pointer; transition: 0.14s; }
+.tagchip.tog:hover { background: color-mix(in srgb, var(--tc) 16%, var(--surface)); }
+.tagchip.tog.on { color: #fff; background: var(--tc); border-color: var(--tc); }
+.tagmore {
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 99px;
+  color: var(--t2);
+  cursor: pointer;
+  transition: 0.14s;
+}
+.tagmore:hover { color: var(--t1); border-color: var(--t2); }
+
 .rg { margin-bottom: 18px; }
 .rg-lbl {
   display: flex;

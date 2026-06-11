@@ -198,21 +198,78 @@ function findFeatureInRail(rail, fid) {
 // Rail
 // -------------------------------------------------------------------
 
-function renderRail(rail, selectedFid, onSelect) {
+// Rail tag-filter state — persists across re-renders (module-level, like the
+// 0.4.0 ?src= filter persists in the URL). activeTagFilter is an OR set: a
+// feature shows if it carries ANY active tag (empty set ⇒ all features).
+let activeTagFilter = [];
+let railShowMore = false;
+
+function railTags(rail) {
+  const m = new Map();
+  for (const f of rail) for (const t of f.tags ?? []) if (!m.has(t.name)) m.set(t.name, t);
+  return [...m.values()];
+}
+
+function renderRail(rail, selectedFid, onSelect, onToggleTag, onClearTags) {
+  const allTags = railTags(rail);
+  const active = activeTagFilter;
+  const filtered = active.length === 0
+    ? rail
+    : rail.filter((f) => (f.tags ?? []).some((t) => active.includes(t.name)));
+
   return h("aside", { class: "rail" },
     h("div", { class: "rail-h" },
       h("h2", {}, "feature"),
       h("div", { class: "rail-h-r" },
-        h("span", {}, `${rail.length} 个`),
+        h("span", {}, `${filtered.length} 个`),
       ),
     ),
-    ...rail.map((f) =>
+    allTags.length > 0 ? renderRtools(allTags, active, onToggleTag, onClearTags) : null,
+    ...filtered.map((f) =>
       renderFeatureRow(f, selectedFid === f.id, onSelect),
     ),
-    rail.length === 0
-      ? h("div", { class: "filt-empty" }, "没有 feature — 试试在这个项目里跑 /stele:feature")
+    filtered.length === 0
+      ? h("div", { class: "filt-empty" },
+          active.length ? "没有匹配这些标签的 feature" : "没有 feature — 试试在这个项目里跑 /stele:feature")
       : null,
   );
+}
+
+function renderRtools(allTags, active, onToggleTag, onClearTags) {
+  const DEFAULT_N = 3;
+  const shown = allTags.slice(0, DEFAULT_N);
+  const extra = allTags.slice(DEFAULT_N);
+  return h("div", { class: "rtools" },
+    h("div", { class: "rtools-row" },
+      h("span", { class: "rtools-lbl" }, "按标签筛选"),
+      active.length
+        ? h("button", { class: "rtools-clear", type: "button", onClick: onClearTags }, "清除")
+        : null,
+    ),
+    h("div", { class: "rtools-chips" },
+      ...shown.map((t) => renderTagChip(t, active.includes(t.name), onToggleTag)),
+      extra.length
+        ? h("button", {
+            class: "tagmore",
+            type: "button",
+            onClick: () => { railShowMore = !railShowMore; onToggleTag(null); },
+          }, railShowMore ? "收起" : `更多 ${extra.length}`)
+        : null,
+    ),
+    railShowMore && extra.length
+      ? h("div", { class: "rtools-chips rtools-extra" },
+          ...extra.map((t) => renderTagChip(t, active.includes(t.name), onToggleTag)))
+      : null,
+  );
+}
+
+function renderTagChip(t, on, onToggleTag) {
+  return h("button", {
+      class: `tagchip tog${on ? " on" : ""}`,
+      type: "button",
+      style: { "--tc": t.color ?? "#9c9a92" },
+      onClick: () => onToggleTag(t.name),
+    }, t.name);
 }
 
 function renderFeatureRow(f, isSelected, onSelect) {
@@ -559,6 +616,21 @@ async function renderShell(root, ctx, projectInfo, rail, selectedFid) {
     renderShell(root, ctx, projectInfo, rail, selectedFid);
   };
 
+  // Rail tag-filter handlers. onToggleTag(null) is a bare re-render (used by
+  // the "更多/收起" expander); a name toggles that tag in the OR set.
+  const onToggleTag = (name) => {
+    if (name != null) {
+      const i = activeTagFilter.indexOf(name);
+      if (i >= 0) activeTagFilter.splice(i, 1);
+      else activeTagFilter.push(name);
+    }
+    renderShell(root, ctx, projectInfo, rail, selectedFid);
+  };
+  const onClearTags = () => {
+    activeTagFilter = [];
+    renderShell(root, ctx, projectInfo, rail, selectedFid);
+  };
+
   // Optional project subtitle (path, status)
   const project = projectInfo?.project;
   if (project) {
@@ -567,7 +639,7 @@ async function renderShell(root, ctx, projectInfo, rail, selectedFid) {
 
   root.append(
     h("div", { class: "body" },
-      renderRail(rail, selectedFid, onSelect),
+      renderRail(rail, selectedFid, onSelect, onToggleTag, onClearTags),
       renderMain(detail, onSourceFilter, findFeatureInRail(rail, selectedFid)),
     ),
   );
