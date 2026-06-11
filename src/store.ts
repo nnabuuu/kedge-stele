@@ -797,16 +797,20 @@ export class Store {
     };
   }
 
-  allTags(status?: TagStatus): Tag[] {
-    const sql = status
-      ? `SELECT id, name, color, kind, origin, status, created_at FROM tags WHERE status = ? ORDER BY name COLLATE NOCASE`
-      : `SELECT id, name, color, kind, origin, status, created_at FROM tags ORDER BY name COLLATE NOCASE`;
+  // Returns each tag with `count` = how many targets it's applied to (the Tags
+  // library's "N 处在用" cell). count is additive; plain Tag[] consumers ignore it.
+  allTags(status?: TagStatus): Array<Tag & { count: number }> {
+    const where = status ? `WHERE t.status = ?` : ``;
+    const sql =
+      `SELECT t.id, t.name, t.color, t.kind, t.origin, t.status, t.created_at,
+         (SELECT COUNT(*) FROM taggings tg WHERE tg.tag_id = t.id) AS count
+       FROM tags t ${where} ORDER BY t.name COLLATE NOCASE`;
     const rows = (status ? this.db.prepare(sql).all(status) : this.db.prepare(sql).all()) as Array<{
-      id: string; name: string; color: string; kind: string; origin: string; status: TagStatus; created_at: string;
+      id: string; name: string; color: string; kind: string; origin: string; status: TagStatus; created_at: string; count: number;
     }>;
     return rows.map((r) => ({
       id: r.id, name: r.name, color: r.color, kind: r.kind,
-      origin: r.origin as Tag["origin"], status: r.status, createdAt: r.created_at,
+      origin: r.origin as Tag["origin"], status: r.status, createdAt: r.created_at, count: r.count,
     }));
   }
 

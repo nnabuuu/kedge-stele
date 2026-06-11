@@ -247,6 +247,7 @@ function renderTagRow(tag, isArchived, onRename, onRecolor, onArchive, onRestore
         onChange: (e) => onRecolor?.(tag, e.target.value),
       }),
     h("span", { class: "trow-name", title: tag.name }, tag.name),
+    h("span", { class: "trow-count" }, h("b", {}, String(tag.count ?? 0)), " 处在用"),
     h("span", { class: "trow-kind" }, tag.kind ?? "scope"),
     h("span", { class: `trow-origin trow-origin-${tag.origin}` },
       tag.origin === "agent" ? "agent" : "you"),

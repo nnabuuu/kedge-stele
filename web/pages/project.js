@@ -156,6 +156,33 @@ function escapeHtml(s) {
   })[ch]);
 }
 
+// Inline SVG glyph for the timeline node (mock <Icon>, design Stele Trace.html).
+// Minimal local copy — the shared icon module is a deferred consolidation.
+const SVG_NS = "http://www.w3.org/2000/svg";
+const GLYPHS = {
+  check: [["polyline", { points: "5 12.5 10 17.5 19 7" }]],
+  spark: [["path", { d: "M12 3v4M12 17v4M3 12h4M17 12h4" }], ["circle", { cx: 12, cy: 12, r: 3 }]],
+};
+function glyph(name, size) {
+  const defs = GLYPHS[name];
+  if (!defs) return null;
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  for (const [tag, attrs] of defs) {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+    svg.append(el);
+  }
+  return svg;
+}
+
 // -------------------------------------------------------------------
 // Selection / URL state — `?f=<featureId>` carries the rail selection.
 // (0.2.x used `?m=` for the milestone id; we keep `?m=` as a one-release
@@ -490,7 +517,11 @@ function renderSessionCard(bucket, sessionNum, isLatest) {
     h("div", { class: "tl-gut" },
       h("div", { class: "tl-date" }, fmtMD(s.startedAt)),
       h("div", { class: "tl-time" }, fmtHM(s.startedAt)),
-      h("div", { class: `tl-dot ${s.outcome?.type ?? "touched"}` }),
+      (() => {
+        const octype = s.outcome?.type ?? "touched";
+        return h("div", { class: `tl-dot ${octype}` },
+          glyph(octype === "resolved" ? "check" : "spark", octype === "resolved" ? 10 : 9));
+      })(),
       h("div", { class: "tl-line" }),
     ),
     h("div", { class: "tl-card" },

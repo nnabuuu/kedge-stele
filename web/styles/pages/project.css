@@ -488,14 +488,20 @@
 .tl-date { font-weight: 600; color: var(--t2); }
 .tl-time { margin-top: 1px; }
 .tl-dot {
-  width: 12px;
-  height: 12px;
+  position: relative;
+  z-index: 1;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  background: var(--oc, var(--t3));
-  border: 2px solid var(--bg);
-  box-shadow: 0 0 0 1px var(--oc, var(--t3));
-  margin: 8px 0 0 auto;
+  background: var(--surface);
+  border: 2px solid var(--oc, var(--t3));
+  color: var(--oc, var(--t3));
+  margin: 6px 0 0 auto;
 }
+.tl-dot.resolved { background: var(--oc); color: #fff; border-color: var(--oc); }
+.tl-dot svg { display: block; }
 .tl-line {
   position: absolute;
   top: 38px;
