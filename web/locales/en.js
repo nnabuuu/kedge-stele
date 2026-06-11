@@ -74,4 +74,31 @@ export const LOCALES_EN = {
   "ui.sources.manual": "manual",
   "ui.sources.agent_live": "live capture",
   "ui.sources.session_extract": "extracted",
+
+  // ---------------------------------------------------------------------------
+  // ui.graph.* — Decision Graph page (/<slug>/graph)
+  // ---------------------------------------------------------------------------
+
+  "ui.graph.aria_label":
+    "Decision graph · {nodes} nodes · {edges} edges",
+  "ui.graph.filter_feature_label": "Feature",
+  "ui.graph.filter_all": "all",
+  "ui.graph.legend_label": "relation",
+  "ui.graph.eyebrow": "Decision graph",
+  "ui.graph.heading": "decision graph",
+  "ui.graph.stat_decisions": "decisions",
+  "ui.graph.stat_edges": "edges",
+  "ui.graph.stat_features": "features",
+  "ui.graph.empty_heading": "this graph is empty",
+  "ui.graph.empty_filtered":
+    "try clearing the filter, or pick a different feature.",
+  "ui.graph.empty_unfiltered_prefix":
+    "nothing has been captured yet — run ",
+  "ui.graph.empty_unfiltered_suffix":
+    " in the project to draft the first one.",
+  "ui.graph.highlight_label": "selected",
+  "ui.graph.highlight_hint": "click again to open the trace",
+  "ui.graph.highlight_clear": "clear",
+  "ui.graph.loading": "loading graph…",
+  "ui.graph.load_failed": "failed to load graph · {reason}",
 };

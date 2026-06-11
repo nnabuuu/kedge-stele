@@ -16,19 +16,27 @@
 
 import { apiGet, ensureCss, slugUrl } from "../api.js";
 import { h, escapeHtml, svg } from "../dom.js";
+import { t } from "../i18n.js";
 
 // -------------------------------------------------------------------
 // Enums (state + edge color)
 // -------------------------------------------------------------------
 
+// 0.5.0: labels migrated to t() at render time so the topbar toggle
+// picks up new locales without a page reload. The cls fields stay
+// static — they're CSS-class names, not user-facing strings.
 const NODE_STATE_META = {
-  decided:    { cls: "decided",    label: "已决"  },
-  deferred:   { cls: "deferred",   label: "推迟"  },
-  resolved:   { cls: "resolved",   label: "已解决" },
-  superseded: { cls: "superseded", label: "已被取代" },
-  open:       { cls: "open",       label: "待决"  },
-  conflicted: { cls: "conflicted", label: "冲突"  },
+  decided:    { cls: "decided"    },
+  deferred:   { cls: "deferred"   },
+  resolved:   { cls: "resolved"   },
+  superseded: { cls: "superseded" },
+  open:       { cls: "open"       },
+  conflicted: { cls: "conflicted" },
 };
+
+function nodeStateLabel(state) {
+  return t(`ui.states.decision.${state}`);
+}
 
 // Edge colors are LITERAL hex (not CSS custom-properties) because:
 //   (a) the v-graph token scope deliberately omits --seal / --mono (per
@@ -40,12 +48,16 @@ const NODE_STATE_META = {
 // CLAUDE.md explicitly notes that DG "uses seal red inline only, not as a
 // token" — these literals match that intent.
 const RELATION_META = {
-  resolves:    { color: "#A23A29", label: "resolves",   dashed: false },  // seal
-  supersedes:  { color: "#5c5b56", label: "supersedes", dashed: false },  // t2
-  reconciles:  { color: "#2f5278", label: "reconciles", dashed: false },  // blue
-  relates:     { color: "#9c9a92", label: "relates",    dashed: true  },  // t3
-  depends_on:  { color: "#3a3185", label: "depends_on", dashed: true  },  // purple
+  resolves:    { color: "#A23A29", dashed: false },  // seal
+  supersedes:  { color: "#5c5b56", dashed: false },  // t2
+  reconciles:  { color: "#2f5278", dashed: false },  // blue
+  relates:     { color: "#9c9a92", dashed: true  },  // t3
+  depends_on:  { color: "#3a3185", dashed: true  },  // purple
 };
+
+function relationLabel(rel) {
+  return t(`ui.relations.${rel}`);
+}
 
 const STATE_RANK = {
   open: 0, deferred: 1, decided: 2, resolved: 3, superseded: 4, conflicted: 0,
@@ -158,7 +170,7 @@ function renderGraphSvg(slice, layout, onNodeClick, highlightedNodeId) {
     height: String(height),
     preserveAspectRatio: "xMidYMid meet",
     role: "img",
-    "aria-label": `Decision graph · ${slice.nodes.length} nodes · ${slice.edges.length} edges`,
+    "aria-label": t("ui.graph.aria_label", { nodes: slice.nodes.length, edges: slice.edges.length }),
   });
 
   // <defs> with arrowhead markers per relation color. Same reason as edges
@@ -279,7 +291,7 @@ function renderGraphSvg(slice, layout, onNodeClick, highlightedNodeId) {
         x: String(COL_WIDTH - 34),
         y: "18",
         "text-anchor": "end",
-      }, stMeta.label));
+      }, nodeStateLabel(n.state)));
       g.append(svg("text", {
         class: "node-title",
         x: "10",
@@ -310,7 +322,7 @@ function truncate(s, n) {
 }
 
 function featureStateLabel(s) {
-  return ({ draft: "草稿", going: "进行中", winding: "收尾", done: "已完成", paused: "搁置" })[s] ?? s;
+  return t(`ui.states.feature.${s}`);
 }
 
 // -------------------------------------------------------------------
@@ -320,11 +332,11 @@ function featureStateLabel(s) {
 function renderFilterBar(slice, filter, onFilter) {
   return h("div", { class: "graph-filters" },
     h("div", { class: "filt-group" },
-      h("span", { class: "filt-lbl" }, "Feature"),
+      h("span", { class: "filt-lbl" }, t("ui.graph.filter_feature_label")),
       h("button", {
           class: `filt-chip${!filter.feature ? " on" : ""}`,
           onClick: () => onFilter({ ...filter, feature: null }),
-        }, "全部"),
+        }, t("ui.graph.filter_all")),
       ...slice.features.map((f) =>
         h("button", {
             class: `filt-chip${filter.feature === f.id ? " on" : ""}`,
@@ -337,8 +349,8 @@ function renderFilterBar(slice, filter, onFilter) {
 
 function renderLegend() {
   return h("div", { class: "graph-legend" },
-    h("span", { class: "leg-h" }, "关系"),
-    ...Object.entries(RELATION_META).map(([_key, meta]) =>
+    h("span", { class: "leg-h" }, t("ui.graph.legend_label")),
+    ...Object.entries(RELATION_META).map(([key, meta]) =>
       h("span", { class: "leg-item" },
         h("span", {
           class: "leg-line",
@@ -349,7 +361,7 @@ function renderLegend() {
               }
             : { background: meta.color },
         }),
-        meta.label),
+        relationLabel(key)),
     ),
   );
 }
@@ -395,21 +407,24 @@ function drawAll(slice, filter) {
   rootEl.append(
     h("div", { class: "graph-head" },
       h("div", { class: "sec-head" },
-        h("div", { class: "eyebrow" }, "Decision graph"),
-        h("h1", {}, "决策图"),
+        h("div", { class: "eyebrow" }, t("ui.graph.eyebrow")),
+        h("h1", {}, t("ui.graph.heading")),
       ),
       h("div", { class: "graph-stats" },
         h("span", {},
           h("span", { class: "n" }, String(slice.nodes.length)),
-          " 决定"),
+          " ",
+          t("ui.graph.stat_decisions")),
         h("span", { class: "sep" }),
         h("span", {},
           h("span", { class: "n" }, String(slice.edges.length)),
-          " 边"),
+          " ",
+          t("ui.graph.stat_edges")),
         h("span", { class: "sep" }),
         h("span", {},
           h("span", { class: "n" }, String(slice.features.length)),
-          " feature"),
+          " ",
+          t("ui.graph.stat_features")),
       ),
     ),
     renderFilterBar(slice, filter, onFilter),
@@ -417,13 +432,13 @@ function drawAll(slice, filter) {
 
   if (slice.nodes.length === 0) {
     rootEl.append(h("section", { class: "placeholder" },
-      h("h1", {}, "这片图是空的"),
+      h("h1", {}, t("ui.graph.empty_heading")),
       h("p", { class: "hint" },
         filter.feature || filter.tag
-          ? "试试清掉过滤器,或选别的 feature。"
-          : "还没有决策在记录 — 在项目里跑 ",
+          ? t("ui.graph.empty_filtered")
+          : t("ui.graph.empty_unfiltered_prefix"),
         h("code", {}, "/stele:feature"),
-        " 起草第一条。"),
+        filter.feature || filter.tag ? "" : t("ui.graph.empty_unfiltered_suffix")),
     ));
     return;
   }
@@ -443,17 +458,17 @@ function renderHighlightHint(slice) {
   const n = slice.nodes.find((x) => x.id === highlightedNodeId);
   if (!n) return null;
   return h("div", { class: "graph-hi" },
-    h("span", { class: "hi-lbl" }, "选中"),
+    h("span", { class: "hi-lbl" }, t("ui.graph.highlight_label")),
     h("span", { class: "hi-id" }, splitDecisionId(n.id).localId),
     h("span", { class: "hi-title" }, n.title),
-    h("span", { class: "hi-hint" }, "再点一次进溯源"),
+    h("span", { class: "hi-hint" }, t("ui.graph.highlight_hint")),
     h("button", {
         class: "btn-mini ghost",
         onClick: () => {
           highlightedNodeId = null;
           loadAndRender(getFilter());
         },
-      }, "清除"),
+      }, t("ui.graph.highlight_clear")),
   );
 }
 
@@ -461,10 +476,10 @@ export async function render(root, _ctx) {
   ensureCss("/assets/styles/pages/graph.css");
   rootEl = root;
   highlightedNodeId = null;
-  root.innerHTML = `<div class="loading">loading graph…</div>`;
+  root.innerHTML = `<div class="loading">${escapeHtml(t("ui.graph.loading"))}</div>`;
   try {
     await loadAndRender(getFilter());
   } catch (err) {
-    root.innerHTML = `<div class="loading">failed to load graph · ${escapeHtml(err.message ?? err)}</div>`;
+    root.innerHTML = `<div class="loading">${escapeHtml(t("ui.graph.load_failed", { reason: String(err.message ?? err) }))}</div>`;
   }
 }

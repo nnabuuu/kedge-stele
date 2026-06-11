@@ -67,4 +67,31 @@ export const LOCALES_ZH = {
   "ui.sources.manual": "手动",
   "ui.sources.agent_live": "实时捕获",
   "ui.sources.session_extract": "事后提取",
+
+  // ---------------------------------------------------------------------------
+  // ui.graph.* — Decision Graph 页面 (/<slug>/graph)
+  // ---------------------------------------------------------------------------
+
+  "ui.graph.aria_label":
+    "决策图 · {nodes} 个节点 · {edges} 条边",
+  "ui.graph.filter_feature_label": "Feature",
+  "ui.graph.filter_all": "全部",
+  "ui.graph.legend_label": "关系",
+  "ui.graph.eyebrow": "Decision graph",
+  "ui.graph.heading": "决策图",
+  "ui.graph.stat_decisions": "决定",
+  "ui.graph.stat_edges": "边",
+  "ui.graph.stat_features": "feature",
+  "ui.graph.empty_heading": "这片图是空的",
+  "ui.graph.empty_filtered":
+    "试试清掉过滤器,或选别的 feature。",
+  "ui.graph.empty_unfiltered_prefix":
+    "还没有决策在记录 —— 在项目里跑 ",
+  "ui.graph.empty_unfiltered_suffix":
+    " 起草第一条。",
+  "ui.graph.highlight_label": "选中",
+  "ui.graph.highlight_hint": "再点一次进溯源",
+  "ui.graph.highlight_clear": "清除",
+  "ui.graph.loading": "加载决策图…",
+  "ui.graph.load_failed": "加载决策图失败 · {reason}",
 };
