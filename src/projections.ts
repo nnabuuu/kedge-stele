@@ -165,6 +165,7 @@ export interface Trace {
   statusLine: string;
   affects: { ref: EntityRef; label: string; href?: string }[];
   edges: TraceEdge[];
+  tags: { name: string; color?: string }[];
 }
 
 function statusLine(store: Store, d: Decision): string {
@@ -228,7 +229,11 @@ export async function trace(
     affects.push({ ref, label: r?.label ?? `${ref.kind}:${ref.id}`, href: r?.href });
   }
 
-  return { decision: d, statusLine: statusLine(store, d), affects, edges };
+  const tags = store
+    .taggingsForTarget("decision", id)
+    .map((t) => ({ name: t.name, color: t.color }));
+
+  return { decision: d, statusLine: statusLine(store, d), affects, edges, tags };
 }
 
 export async function traceEntity(
