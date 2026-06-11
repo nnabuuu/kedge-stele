@@ -24,3 +24,7 @@ doc/
 # Local snapshot scratch
 snapshot/
 .gstack/
+
+# Design assets (mocks, explorations) — the canonical source of truth, kept on
+# disk but not version-controlled in this repo.
+design/

@@ -16,8 +16,8 @@ for contributors running stele from source or making changes.
 
 ```
 src/             core TypeScript source (store, projections, consolidate, render, seed, resolver, paths, types)
-src/cli.ts       CLI subcommands: `stele init`, `serve`, `daemon`, `hooks`, `projects`, `milestones`, `tags`, `config`
-src/mcp.ts       stdio MCP server (per-project; Claude Code is per-session). 17 tools as of 0.0.7.
+src/cli.ts       CLI subcommands: `stele init`, `serve`, `daemon`, `hooks`, `projects`, `features`, `sessions`, `tags`, `config`
+src/mcp.ts       stdio MCP server (per-project; Claude Code is per-session). 22 tools as of 0.5.0.
 src/serve.ts     HTTP server — single-project default + `--multi` tenant dispatch
 src/schemas.ts   Zod schemas shared by mcp.ts and serve.ts
 src/tags.ts      0.0.7+: tag policy engine — single chokepoint for `auto` / `propose` / `locked`
