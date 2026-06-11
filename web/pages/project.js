@@ -247,7 +247,7 @@ function renderFeatureRow(f, isSelected, onSelect) {
 // Main (selected feature)
 // -------------------------------------------------------------------
 
-function renderMain(featureDetail, onSourceFilter) {
+function renderMain(featureDetail, onSourceFilter, railItem) {
   if (!featureDetail) {
     return h("main", { class: "main" },
       h("div", { class: "main-in" },
@@ -311,6 +311,13 @@ function renderMain(featureDetail, onSourceFilter) {
           ? h("p", { class: "ms-summary" },
               h("span", { class: "lead" }, "rolling summary"),
               f.summary)
+          : null,
+        railItem?.tags?.length
+          ? h("div", { class: "ms-tags" },
+              ...railItem.tags.map((t) =>
+                h("span", { class: "ms-tag", style: { "--tc": t.color ?? "#9c9a92" } },
+                  h("span", { class: "td" }),
+                  t.name)))
           : null,
         h("div", { class: "ms-stats" },
           h("span", { class: "ms-stat" },
@@ -479,6 +486,11 @@ function renderDecisionChip(d) {
     },
     h("span", { class: `dchip-g ${d.type}` }, localId || d.id),
     h("span", { class: "dchip-t" }, title),
+    d.tags?.[0]
+      ? h("span", { class: "dchip-tag", style: { "--tc": d.tags[0].color ?? "#9c9a92" } },
+          h("span", { class: "td" }),
+          d.tags[0].name)
+      : null,
     sm ? h("span", { class: `dchip-src ${sm.cls}`, title: `源: ${sm.label}${conf ? `, 置信度${conf}` : ""}` },
       sm.label + conf) : null,
     h("span", { class: `dchip-st ${d.type}` }, dm.label),
@@ -556,7 +568,7 @@ async function renderShell(root, ctx, projectInfo, rail, selectedFid) {
   root.append(
     h("div", { class: "body" },
       renderRail(rail, selectedFid, onSelect),
-      renderMain(detail, onSourceFilter),
+      renderMain(detail, onSourceFilter, findFeatureInRail(rail, selectedFid)),
     ),
   );
 }

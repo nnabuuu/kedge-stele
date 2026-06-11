@@ -203,7 +203,7 @@
   color: var(--t2);
   margin-bottom: 12px;
 }
-.pend-banner.propose { background: var(--amber-bg); color: var(--amber); }
+.pend-banner.propose { background: var(--seal-bg); color: var(--t1); border-color: rgba(162, 58, 41, 0.2); }
 .pend-banner.auto    { background: var(--teal-bg);  color: var(--teal); }
 .pend-banner.locked  { background: var(--red-bg);   color: var(--red); }
 .pend-banner b {

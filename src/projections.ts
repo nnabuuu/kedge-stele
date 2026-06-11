@@ -156,6 +156,8 @@ export interface TraceEdge {
   relation: string;
   otherId: DecisionId;
   otherTitle: string;
+  otherType?: DecisionType;
+  otherState?: string;   // derived nodeState of the other decision (for the badge)
   direction: "out" | "in";
   note?: string;
 }
@@ -208,6 +210,8 @@ export async function trace(
       relation: e.relation,
       otherId: e.to,
       otherTitle: o?.title ?? "?",
+      otherType: o?.type,
+      otherState: o ? nodeState(o) : undefined,
       direction: "out",
       note: e.note,
     });
@@ -218,6 +222,8 @@ export async function trace(
       relation: e.relation,
       otherId: e.from,
       otherTitle: o?.title ?? "?",
+      otherType: o?.type,
+      otherState: o ? nodeState(o) : undefined,
       direction: "in",
       note: e.note,
     });
@@ -302,23 +308,29 @@ export function featureSummary(store: Store): FeatureSummary[] {
   });
 }
 
+type DecisionWithTags = Decision & { tags: { name: string; color?: string }[] };
+
 export interface FeatureDetail {
   feature: Feature;
-  sessions: Array<{ session: Session; decisions: Decision[] }>;
-  unscopedDecisions: Decision[];  // decisions bound to the feature but no session (rare; here for completeness)
+  sessions: Array<{ session: Session; decisions: DecisionWithTags[] }>;
+  unscopedDecisions: DecisionWithTags[];  // decisions bound to the feature but no session (rare; here for completeness)
 }
 
 export function featureDetail(store: Store, id: FeatureId): FeatureDetail | null {
   const m = store.getFeature(id);
   if (!m) return null;
+  const withTags = (d: Decision): DecisionWithTags => ({
+    ...d,
+    tags: store.taggingsForTarget("decision", d.id).map((t) => ({ name: t.name, color: t.color })),
+  });
   const sessions = store.sessionsInFeature(id);
   const buckets = sessions.map((session) => ({
     session,
-    decisions: store.decisionsInSession(session.id),
+    decisions: store.decisionsInSession(session.id).map(withTags),
   }));
   const sessionDecisionIds = new Set<DecisionId>();
   for (const b of buckets) for (const d of b.decisions) sessionDecisionIds.add(d.id);
-  const unscoped = store.decisionsInFeature(id).filter((d) => !sessionDecisionIds.has(d.id));
+  const unscoped = store.decisionsInFeature(id).filter((d) => !sessionDecisionIds.has(d.id)).map(withTags);
   return { feature: m, sessions: buckets, unscopedDecisions: unscoped };
 }
 

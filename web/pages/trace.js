@@ -356,7 +356,15 @@ function renderNeighborBlock(meta, key, edges) {
             "data-route": "",
           },
           h("span", { class: "nb-id" }, splitDecisionId(e.otherId).localId),
+          e.otherType
+            ? h("span", { class: `nb-type t-${e.otherType}` },
+                DEC_TYPE[e.otherType]?.label ?? e.otherType)
+            : null,
           h("span", { class: "nb-title" }, e.otherTitle ?? "?"),
+          e.otherState
+            ? h("span", { class: `nb-state s-${e.otherState}` },
+                NODE_STATE_META[e.otherState]?.label ?? e.otherState)
+            : null,
           e.note ? h("span", { class: "nb-note" }, e.note) : null,
         ),
       ),

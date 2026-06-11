@@ -573,6 +573,39 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* tag chip inside a decision chip (mock .dchip-tag) */
+.dchip-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--t2);
+  white-space: nowrap;
+  flex: none;
+}
+.dchip-tag .td {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tc);
+  flex: none;
+}
+/* feature-header tags (mock .ms-tags) */
+.ms-tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 13px; }
+.ms-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 3px 9px 3px 8px;
+  border-radius: 99px;
+  color: var(--tc);
+  background: color-mix(in srgb, var(--tc) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--tc) 26%, transparent);
+}
+.ms-tag .td { width: 6px; height: 6px; border-radius: 50%; background: var(--tc); flex: none; }
 .dchip-st {
   margin-left: auto;
   font-family: var(--mono);
