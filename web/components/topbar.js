@@ -7,6 +7,7 @@
 // Phases 2+ flesh this out.
 
 import { currentSlug, slugUrl } from "../api.js";
+import { escapeHtml } from "../dom.js";
 
 export function renderTopbar(opts = {}) {
   const slug = currentSlug();
@@ -33,8 +34,4 @@ export function renderTopbar(opts = {}) {
   `;
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (ch) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  })[ch]);
-}
+// escapeHtml now lives in ../dom.js (imported above).

@@ -16,6 +16,7 @@
 
 import { currentSlug, slugUrl, apiBase } from "./api.js";
 import { renderTopbar } from "./components/topbar.js";
+import { escapeHtml } from "./dom.js";
 
 // Reserved first segments that AREN'T project slugs
 const RESERVED_FIRST_SEG = new Set(["", "welcome", "assets", "api"]);
@@ -208,11 +209,7 @@ async function route() {
   }
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (ch) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  })[ch]);
-}
+// escapeHtml now lives in ./dom.js (imported above).
 
 // -------------------------------------------------------------------
 // Boot
