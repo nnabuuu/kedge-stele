@@ -162,17 +162,17 @@ function renderFocalCard(trace) {
   const { mid, localId } = splitDecisionId(d.id);
   const stateKey = statusKeyOf(trace.statusLine);
   const stateMeta = NODE_STATE_META[stateKey] ?? NODE_STATE_META.decided;
-  const typeMeta = DEC_TYPE[d.type] ?? DEC_TYPE.decision;
   const title = d.detail?.title ?? d.title ?? d.id;
+  // The mock colors the id pill by the decision's tag, not its type.
+  const tagColor = trace.tags?.[0]?.color ?? null;
 
   return h("section", { class: "focal" },
     h("div", { class: "focal-top" },
-      h("span", { class: `fid type-${d.type}` }, d.id),
+      h("span", { class: "fid", style: tagColor ? { "--tc": tagColor } : null }, d.id),
       h("span", { class: `state-pill st-${stateMeta.cls}` },
         h("span", { class: "dot" }),
         stateMeta.label,
       ),
-      h("span", { class: `type-pill type-${typeMeta.cls}` }, typeMeta.label),
       ...(trace.tags ?? []).map((t) =>
         h("span", { class: "scope-pill", style: { "--tc": t.color ?? "#9c9a92" } },
           h("span", { class: "scope-dot" }),
@@ -330,6 +330,9 @@ const ARC_STAGE = {
 
 function renderArc(stitch) {
   if (!stitch?.arc?.length) return null;
+  // The arc is the RESOLVED decision's lifecycle — only show it on that
+  // decision's page, not on the resolver's (where it'd be "resolved-by-itself").
+  if (!stitch.focalIsResolved) return null;
   return h("section", { class: "arc-section" },
     h("div", { class: "arc-head" },
       h("span", { class: "arc-eyebrow" }, "状态变化"),
@@ -409,16 +412,11 @@ function renderNeighborBlock(meta, key, edges) {
             "data-route": "",
           },
           h("span", { class: "nb-id" }, splitDecisionId(e.otherId).localId),
-          e.otherType
-            ? h("span", { class: `nb-type t-${e.otherType}` },
-                DEC_TYPE[e.otherType]?.label ?? e.otherType)
-            : null,
           h("span", { class: "nb-title" }, e.otherTitle ?? "?"),
           e.otherState
             ? h("span", { class: `nb-state s-${e.otherState}` },
                 NODE_STATE_META[e.otherState]?.label ?? e.otherState)
             : null,
-          e.note ? h("span", { class: "nb-note" }, e.note) : null,
         ),
       ),
     ),
@@ -429,7 +427,7 @@ function renderAffects(trace) {
   if (!trace.affects?.length) return null;
   return h("section", { class: "affects" },
     h("div", { class: "affects-head" },
-      h("span", { class: "eyebrow" }, "Affects"),
+      h("span", { class: "eyebrow" }, "相关文件"),
       h("span", { class: "affects-sub" }, `· ${trace.affects.length} 个实体`),
     ),
     h("div", { class: "affects-list" },
@@ -490,9 +488,9 @@ export async function render(root, ctx) {
       h("a", { class: "back-link", href: slugUrl("/"), "data-route": "" }, "← 项目"),
     ),
     renderFocalCard(trace),
-    renderWhy(trace),
     renderStitch(stitch),
     renderArc(stitch),
+    renderWhy(trace),
     renderNeighbors(trace),
     renderAffects(trace),
   ));

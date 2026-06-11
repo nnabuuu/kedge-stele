@@ -475,6 +475,9 @@ export interface TraceStitch {
   edgeNote?: string;
   // The resolved decision's lifecycle, oldest step first.
   arc: ArcStage[];
+  // True when the focal decision IS the resolved side — only then does the arc
+  // (which is the resolved decision's lifecycle) belong on this page.
+  focalIsResolved: boolean;
 }
 
 /**
@@ -601,6 +604,7 @@ export function traceStitch(store: Store, decisionId: DecisionId): TraceStitch |
     daysSpanned,
     edgeNote,
     arc,
+    focalIsResolved: decisionId === resolvedId,
   };
 }
 
