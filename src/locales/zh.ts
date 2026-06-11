@@ -35,6 +35,85 @@ export const ZH = {
     "display_language 必须是 'zh' 或 'en'",
   "cli.config.unknown_subcommand":
     "config 没有 {sub} 子命令 —— 试试 list / get / set",
+
+  // ---------------------------------------------------------------------------
+  // cli.daemon.* — install / uninstall / status 备注
+  // ---------------------------------------------------------------------------
+
+  "cli.daemon.dry_run_plist": "dry-run: 打印了 plist,没有写入磁盘",
+  "cli.daemon.dry_run_unit": "dry-run: 打印了 unit,没有写入磁盘",
+  "cli.daemon.legacy_plists_cleaned":
+    "清理了 {count} 个旧的 plist: {names}",
+  "cli.daemon.legacy_units_cleaned":
+    "清理了 {count} 个旧的 unit: {names}",
+  "cli.daemon.legacy_registered":
+    "把 {count} 个之前游离的项目注册进全局 registry",
+  "cli.daemon.port_bound":
+    "端口 {port} 已经被 127.0.0.1 上的其他进程占用 —— 用 --port 指定别的",
+  "cli.daemon.wrote": "已写入 {path}",
+  "cli.daemon.removed": "已删除 {path}",
+  "cli.daemon.not_present": "{path} 不存在",
+  "cli.daemon.launchctl_loaded": "launchctl bootstrap 成功 —— 已加载",
+  "cli.daemon.launchctl_failed": "launchctl bootstrap 失败: {reason}",
+  "cli.daemon.systemctl_enabled": "systemctl --user enable --now 成功",
+  "cli.daemon.systemctl_failed": "systemctl --user enable --now 失败: {reason}",
+  "cli.daemon.linger_note":
+    "提示: user service 只在登录期间运行。想真正常驻就跑一次 " +
+    "`sudo loginctl enable-linger {user}`。",
+  "cli.daemon.platform_unsupported":
+    "{platform} 平台不支持 —— 无事可做",
+  "cli.daemon.status_loaded": "已加载",
+  "cli.daemon.status_not_loaded": "未加载",
+  "cli.daemon.status_path_unsupported": "(平台不支持)",
+  "cli.daemon.status_loaded_note_unsupported": "不支持",
+
+  // ---------------------------------------------------------------------------
+  // cli.hooks.* — `stele hooks install|uninstall|status` 备注
+  // ---------------------------------------------------------------------------
+
+  "cli.hooks.legacy_stop_removed":
+    "已删除残留的 {path} (Stop hook 在 0.4.0-snapshot.10 已下线;Layer 1 由 agent 自治)",
+  "cli.hooks.legacy_stop_absent":
+    "Stop hook 在 0.4.0-snapshot.10 已下线 —— Layer 1 由 stele-capture skill 中的 agent 自治",
+  "cli.hooks.session_start_wrote": "已写入 {path} (可执行)",
+  "cli.hooks.session_end_auto_enabled":
+    "已写入 {path} (SessionEnd auto-extract 已启用 —— 关 session 时最多堵塞 60 秒)",
+  "cli.hooks.session_end_auto_disabled":
+    "SessionEnd auto-extract 未启用 —— 加 --enable-session-end-auto-extract 来开启 (否则 Layer 3 走 /stele:scan)",
+  "cli.hooks.skill_wrote":
+    "已写入 {path}/ ({count} 个文件: SKILL.md + gotchas + references)",
+  "cli.hooks.skill_wrote.one":
+    "已写入 {path}/ (1 个文件: SKILL.md + gotchas + references)",
+  "cli.hooks.skill_wrote.other":
+    "已写入 {path}/ ({count} 个文件: SKILL.md + gotchas + references)",
+  "cli.hooks.removed_path": "已删除 {path}",
+  "cli.hooks.path_absent": "{path} 不存在",
+  "cli.hooks.session_end_uninstalled": "已删除 {paths}",
+  "cli.hooks.session_end_absent":
+    "SessionEnd auto-extract 的相关文件都不存在",
+  "cli.hooks.skill_removed": "已删除 {path}",
+  "cli.hooks.command_left_in_place":
+    "{path} 保留未动 (想删需要手动)",
+  "cli.hooks.legacy_commands_untouched":
+    "uninstall 不会清理 0.2.x 时代的旧命令",
+  "cli.hooks.command_already_exists":
+    "{path} 已存在,保留不动",
+  "cli.hooks.command_wrote": "已写入 {path}",
+  "cli.hooks.settings_updated_entry": "更新了 {event} 条目",
+  "cli.hooks.settings_added_entry": "添加了 {event} 条目",
+  "cli.hooks.settings_disabled_entry":
+    "停用了 {event} 条目 (本次没要求 opt-in)",
+  "cli.hooks.settings_version_pinned_already":
+    "requiredMinimumVersion 已经钉在 {version}",
+  "cli.hooks.settings_version_pinned": "把 requiredMinimumVersion 钉到 {version}",
+  "cli.hooks.settings_no_file": "没有 settings.json —— 没事可做",
+  "cli.hooks.settings_removed": "删除了 {names} 这几个 stele 条目",
+  "cli.hooks.settings_no_entries": "没有任何 stele 条目存在",
+  "cli.hooks.legacy_no_clean": "没有需要清理的旧命令",
+  "cli.hooks.legacy_no_stele":
+    "没有 stele 的旧命令需要清理 (跳过了 {count} 个 user-level 文件{s} —— 没有 stele 指纹)",
+  "cli.hooks.legacy_removed":
+    "删除了 {count} 个旧命令{s} ({detail})",
 } as const;
 
 export type ZhKey = keyof typeof ZH;

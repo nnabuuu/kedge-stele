@@ -20,6 +20,8 @@ import { basename, dirname, join, relative } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
+import { t } from "./i18n.ts";
+
 // 0.4.0-snapshot.10 — the Stop hook is GONE. No per-turn regex
 // pre-filter, no per-turn nag. The live agent self-governs when to
 // capture (see .claude/skills/stele-capture/SKILL.md). SessionStart
@@ -358,7 +360,9 @@ function mergeSettings(projectRoot: string, opts: InstallOptions = {}): { note: 
       }
     }
     if (!replaced) arr.push(m.build());
-    notes.push(replaced ? `updated ${m.event} entry` : `added ${m.event} entry`);
+    notes.push(replaced
+      ? t("cli.hooks.settings_updated_entry", { event: m.event })
+      : t("cli.hooks.settings_added_entry", { event: m.event }));
   }
 
   // Strip our entries for optional events that the caller did NOT
@@ -372,7 +376,7 @@ function mergeSettings(projectRoot: string, opts: InstallOptions = {}): { note: 
     if (filtered.length !== arr.length) {
       if (filtered.length === 0) delete hooks[m.event];
       else hooks[m.event] = filtered;
-      notes.push(`disabled ${m.event} entry (opt-in not requested this round)`);
+      notes.push(t("cli.hooks.settings_disabled_entry", { event: m.event }));
     }
   }
 
@@ -381,10 +385,10 @@ function mergeSettings(projectRoot: string, opts: InstallOptions = {}): { note: 
   // hook (landing in phase 4) from silently no-op'ing on too-old installs.
   let versionNote: string;
   if (settings.requiredMinimumVersion === REQUIRED_MIN_VERSION) {
-    versionNote = `requiredMinimumVersion already pinned at ${REQUIRED_MIN_VERSION}`;
+    versionNote = t("cli.hooks.settings_version_pinned_already", { version: REQUIRED_MIN_VERSION });
   } else {
     settings.requiredMinimumVersion = REQUIRED_MIN_VERSION;
-    versionNote = `pinned requiredMinimumVersion to ${REQUIRED_MIN_VERSION}`;
+    versionNote = t("cli.hooks.settings_version_pinned", { version: REQUIRED_MIN_VERSION });
   }
   notes.push(versionNote);
 
@@ -394,7 +398,7 @@ function mergeSettings(projectRoot: string, opts: InstallOptions = {}): { note: 
 
 function unmergeSettings(projectRoot: string): { note: string } {
   const path = join(projectRoot, SETTINGS_REL);
-  if (!existsSync(path)) return { note: "no settings.json — nothing to do" };
+  if (!existsSync(path)) return { note: t("cli.hooks.settings_no_file") };
   const settings = loadSettings(projectRoot);
   const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
 
@@ -421,7 +425,9 @@ function unmergeSettings(projectRoot: string): { note: string } {
   // need it). They can drop it manually.
 
   saveSettings(projectRoot, settings);
-  return { note: removed.length > 0 ? `removed ${removed.join(", ")} stele entries` : "no stele entries were present" };
+  return { note: removed.length > 0
+    ? t("cli.hooks.settings_removed", { names: removed.join(", ") })
+    : t("cli.hooks.settings_no_entries") };
 }
 
 // Detect whether the settings.json carries any stele hook entry across
@@ -467,11 +473,11 @@ export interface InstallReport {
 function installCommand(projectRoot: string, relPath: string, templateName: string): string {
   const path = join(projectRoot, relPath);
   if (existsSync(path)) {
-    return `${relPath} already exists, left as-is`;
+    return t("cli.hooks.command_already_exists", { path: relPath });
   }
   ensureDir(dirname(path));
   writeFileSync(path, readTemplate(templateName));
-  return `wrote ${relPath}`;
+  return t("cli.hooks.command_wrote", { path: relPath });
 }
 
 /**
@@ -525,15 +531,15 @@ function cleanLegacyCommands(projectRoot: string): string {
   const total = removedProject.length + removedUser.length;
   if (total === 0) {
     if (skippedUser.length > 0) {
-      return `no stele legacy commands to clean (${skippedUser.length} user-level file${skippedUser.length === 1 ? "" : "s"} skipped — no stele fingerprint)`;
+      return t("cli.hooks.legacy_no_stele", { count: skippedUser.length, s: skippedUser.length === 1 ? "" : "s" });
     }
-    return "no legacy commands to clean";
+    return t("cli.hooks.legacy_no_clean");
   }
   const parts: string[] = [];
   if (removedProject.length) parts.push(`project: ${removedProject.join(", ")}`);
   if (removedUser.length) parts.push(`user: ${removedUser.join(", ")}`);
   if (skippedUser.length) parts.push(`skipped ${skippedUser.length} non-stele user-level file${skippedUser.length === 1 ? "" : "s"}`);
-  return `removed ${total} legacy command${total === 1 ? "" : "s"} (${parts.join("; ")})`;
+  return t("cli.hooks.legacy_removed", { count: total, s: total === 1 ? "" : "s", detail: parts.join("; ") });
 }
 
 export function installHooks(
@@ -555,9 +561,9 @@ export function installHooks(
   const legacyStopPath = join(projectRoot, LEGACY_STOP_HOOK_PATH_REL);
   if (existsSync(legacyStopPath)) {
     rmSync(legacyStopPath);
-    report.legacyStopHook = `removed legacy ${LEGACY_STOP_HOOK_PATH_REL} (Stop hook retired in 0.4.0-snapshot.10; agent self-governs Layer 1)`;
+    report.legacyStopHook = t("cli.hooks.legacy_stop_removed", { path: LEGACY_STOP_HOOK_PATH_REL });
   } else {
-    report.legacyStopHook = `Stop hook retired in 0.4.0-snapshot.10 — agent self-governs Layer 1 via the stele-capture skill`;
+    report.legacyStopHook = t("cli.hooks.legacy_stop_absent");
   }
 
   // 1b. SessionStart hook script (0.4.0 — read-side inject of open loops
@@ -566,7 +572,7 @@ export function installHooks(
   ensureDir(dirname(sessionStartPath));
   writeFileSync(sessionStartPath, readTemplate("stele-session-start-hook.sh"));
   chmodSync(sessionStartPath, 0o755);
-  report.sessionStartHook = `wrote ${SESSION_START_HOOK_PATH_REL} (executable)`;
+  report.sessionStartHook = t("cli.hooks.session_start_wrote", { path: SESSION_START_HOOK_PATH_REL });
 
   // 1c. SessionEnd auto-extract (OPT-IN). Writes the agent definition
   //     file (.claude/agents/stele-extract.md) only when enabled — the
@@ -578,15 +584,13 @@ export function installHooks(
   if (opts.sessionEndAutoExtract) {
     ensureDir(dirname(extractPath));
     writeFileSync(extractPath, readTemplate("stele-extract-agent.md"));
-    report.sessionEndAutoExtract =
-      `wrote ${EXTRACT_AGENT_REL} (SessionEnd auto-extract ENABLED — will block session close up to 60s)`;
+    report.sessionEndAutoExtract = t("cli.hooks.session_end_auto_enabled", { path: EXTRACT_AGENT_REL });
   } else {
     // Disabled this round — clean up any previously-installed agent
     // file so the system stays consistent with the settings.json
     // (which mergeSettings strips below).
     if (existsSync(extractPath)) rmSync(extractPath);
-    report.sessionEndAutoExtract =
-      `SessionEnd auto-extract not enabled — pass --enable-session-end-auto-extract to opt in (Layer 3 lives in /stele:scan otherwise)`;
+    report.sessionEndAutoExtract = t("cli.hooks.session_end_auto_disabled");
   }
 
   // 2. Skill — the stele-capture skill is a folder (SKILL.md + gotchas.md +
@@ -598,7 +602,7 @@ export function installHooks(
   if (existsSync(skillDir)) rmSync(skillDir, { recursive: true });
   ensureDir(skillDir);
   const skillFileCount = copyTemplateDir("stele-capture-skill", skillDir);
-  report.skill = `wrote ${SKILL_DIR_REL}/ (${skillFileCount} file${skillFileCount === 1 ? "" : "s"}: SKILL.md + gotchas + references)`;
+  report.skill = t("cli.hooks.skill_wrote", { path: SKILL_DIR_REL, count: skillFileCount }, skillFileCount);
 
   // 3. Slash commands — only write if missing (don't clobber user edits).
   //    0.3.0 added /stele:feature; 0.4.0 added /stele:scan.
@@ -630,17 +634,17 @@ export function uninstallHooks(projectRoot: string): InstallReport {
   const legacyStopPath = join(projectRoot, LEGACY_STOP_HOOK_PATH_REL);
   if (existsSync(legacyStopPath)) {
     rmSync(legacyStopPath);
-    report.legacyStopHook = `removed legacy ${LEGACY_STOP_HOOK_PATH_REL}`;
+    report.legacyStopHook = t("cli.hooks.removed_path", { path: LEGACY_STOP_HOOK_PATH_REL });
   } else {
-    report.legacyStopHook = `${LEGACY_STOP_HOOK_PATH_REL} not present`;
+    report.legacyStopHook = t("cli.hooks.path_absent", { path: LEGACY_STOP_HOOK_PATH_REL });
   }
 
   const sessionStartPath = join(projectRoot, SESSION_START_HOOK_PATH_REL);
   if (existsSync(sessionStartPath)) {
     rmSync(sessionStartPath);
-    report.sessionStartHook = `removed ${SESSION_START_HOOK_PATH_REL}`;
+    report.sessionStartHook = t("cli.hooks.removed_path", { path: SESSION_START_HOOK_PATH_REL });
   } else {
-    report.sessionStartHook = `${SESSION_START_HOOK_PATH_REL} not present`;
+    report.sessionStartHook = t("cli.hooks.path_absent", { path: SESSION_START_HOOK_PATH_REL });
   }
 
   // SessionEnd opt-in artifacts: agent file + (legacy) snapshot.8
@@ -651,21 +655,21 @@ export function uninstallHooks(projectRoot: string): InstallReport {
   if (existsSync(extractPath)) { rmSync(extractPath); cleaned.push(EXTRACT_AGENT_REL); }
   if (existsSync(legacyWrapperPath)) { rmSync(legacyWrapperPath); cleaned.push(".claude/hooks/stele-session-end.sh (legacy)"); }
   report.sessionEndAutoExtract = cleaned.length > 0
-    ? `removed ${cleaned.join(" + ")}`
-    : `SessionEnd auto-extract artifacts not present`;
+    ? t("cli.hooks.session_end_uninstalled", { paths: cleaned.join(" + ") })
+    : t("cli.hooks.session_end_absent");
 
   const skillDir = join(projectRoot, SKILL_DIR_REL);
   if (existsSync(skillDir)) {
     rmSync(skillDir, { recursive: true });
-    report.skill = `removed ${SKILL_DIR_REL}`;
+    report.skill = t("cli.hooks.skill_removed", { path: SKILL_DIR_REL });
   } else {
-    report.skill = `${SKILL_DIR_REL} not present`;
+    report.skill = t("cli.hooks.path_absent", { path: SKILL_DIR_REL });
   }
 
   // Never delete the slash commands on uninstall — users may have customized.
-  report.steleFeature = `${STELE_FEATURE_COMMAND_REL} left in place (manual delete if you want)`;
-  report.steleScan    = `${STELE_SCAN_COMMAND_REL} left in place (manual delete if you want)`;
-  report.legacyCommandsCleaned = "uninstall doesn't touch legacy 0.2.x commands";
+  report.steleFeature = t("cli.hooks.command_left_in_place", { path: STELE_FEATURE_COMMAND_REL });
+  report.steleScan    = t("cli.hooks.command_left_in_place", { path: STELE_SCAN_COMMAND_REL });
+  report.legacyCommandsCleaned = t("cli.hooks.legacy_commands_untouched");
 
   const s = unmergeSettings(projectRoot);
   report.settings = s.note;

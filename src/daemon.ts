@@ -23,6 +23,7 @@ import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createServer as netCreateServer } from "node:net";
 import { register as registerProject } from "./registry.ts";
+import { t } from "./i18n.ts";
 
 // -----------------------------------------------------------------------------
 // Identity + paths
@@ -298,7 +299,7 @@ export async function installDaemon(opts: {
         port,
         loaded: false,
         legacy: { removed: [], registered: [] },
-        notes: ["dry-run: plist printed, not written"],
+        notes: [t("cli.daemon.dry_run_plist")],
       };
     }
 
@@ -306,24 +307,22 @@ export async function installDaemon(opts: {
     // ones holding 3939. After bootout, give launchd a moment to release.
     const legacy = sweepLegacyMacOS();
     if (legacy.removed.length > 0) {
-      notes.push(`cleaned up ${legacy.removed.length} legacy plist(s): ${legacy.removed.join(", ")}`);
+      notes.push(t("cli.daemon.legacy_plists_cleaned", { count: legacy.removed.length, names: legacy.removed.join(", ") }));
       // brief wait so the freed port is observable on the next check
       await new Promise((r) => setTimeout(r, 250));
     }
     if (legacy.registered.length > 0)
-      notes.push(`registered ${legacy.registered.length} previously-orphaned project(s) into the global registry`);
+      notes.push(t("cli.daemon.legacy_registered", { count: legacy.registered.length }));
 
     // Now the port check — after legacy cleanup
     const free = await portFree(port);
     if (!free) {
-      throw new Error(
-        `port ${port} is already bound on 127.0.0.1 — pass a different --port`,
-      );
+      throw new Error(t("cli.daemon.port_bound", { port }));
     }
 
     ensureDir(dirname(plistPath));
     writeFileSync(plistPath, content);
-    notes.push(`wrote ${plistPath}`);
+    notes.push(t("cli.daemon.wrote", { path: plistPath }));
 
     const uid = process.getuid?.() ?? 0;
     const target = `gui/${uid}`;
@@ -331,8 +330,8 @@ export async function installDaemon(opts: {
     spawnSync("launchctl", ["bootout", `${target}/${MAC_LABEL}`], { stdio: "ignore" });
     const r = spawnSync("launchctl", ["bootstrap", target, plistPath], { encoding: "utf8" });
     const loaded = r.status === 0;
-    if (loaded) notes.push("launchctl bootstrap succeeded — loaded");
-    else notes.push(`launchctl bootstrap failed: ${r.stderr.trim() || `exit ${r.status}`}`);
+    if (loaded) notes.push(t("cli.daemon.launchctl_loaded"));
+    else notes.push(t("cli.daemon.launchctl_failed", { reason: r.stderr.trim() || `exit ${r.status}` }));
 
     return {
       platform: "darwin",
@@ -358,28 +357,26 @@ export async function installDaemon(opts: {
       port,
       loaded: false,
       legacy: { removed: [], registered: [] },
-      notes: ["dry-run: unit printed, not written"],
+      notes: [t("cli.daemon.dry_run_unit")],
     };
   }
 
   const legacy = sweepLegacyLinux();
   if (legacy.removed.length > 0) {
-    notes.push(`cleaned up ${legacy.removed.length} legacy unit(s): ${legacy.removed.join(", ")}`);
+    notes.push(t("cli.daemon.legacy_units_cleaned", { count: legacy.removed.length, names: legacy.removed.join(", ") }));
     await new Promise((r) => setTimeout(r, 250));
   }
   if (legacy.registered.length > 0)
-    notes.push(`registered ${legacy.registered.length} previously-orphaned project(s) into the global registry`);
+    notes.push(t("cli.daemon.legacy_registered", { count: legacy.registered.length }));
 
   const free = await portFree(port);
   if (!free) {
-    throw new Error(
-      `port ${port} is already bound on 127.0.0.1 — pass a different --port`,
-    );
+    throw new Error(t("cli.daemon.port_bound", { port }));
   }
 
   ensureDir(dirname(unitPath));
   writeFileSync(unitPath, content);
-  notes.push(`wrote ${unitPath}`);
+  notes.push(t("cli.daemon.wrote", { path: unitPath }));
 
   spawnSync("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" });
   const r = spawnSync(
@@ -388,13 +385,10 @@ export async function installDaemon(opts: {
     { encoding: "utf8" },
   );
   const loaded = r.status === 0;
-  if (loaded) notes.push("systemctl --user enable --now succeeded");
-  else notes.push(`systemctl --user enable --now failed: ${r.stderr.trim() || `exit ${r.status}`}`);
+  if (loaded) notes.push(t("cli.daemon.systemctl_enabled"));
+  else notes.push(t("cli.daemon.systemctl_failed", { reason: r.stderr.trim() || `exit ${r.status}` }));
 
-  notes.push(
-    `Note: services run only while you're logged in. For true always-on, ` +
-      `consider \`sudo loginctl enable-linger ${process.env.USER || "$USER"}\`.`,
-  );
+  notes.push(t("cli.daemon.linger_note", { user: process.env.USER || "$USER" }));
 
   return { platform: "linux", unitPath, invocation: invocationStr, port, loaded, legacy, notes };
 }
@@ -408,9 +402,9 @@ export function uninstallDaemon(): { notes: string[] } {
     spawnSync("launchctl", ["bootout", `gui/${uid}/${MAC_LABEL}`], { stdio: "ignore" });
     if (existsSync(plistPath)) {
       rmSync(plistPath);
-      notes.push(`removed ${plistPath}`);
+      notes.push(t("cli.daemon.removed", { path: plistPath }));
     } else {
-      notes.push(`${plistPath} not present`);
+      notes.push(t("cli.daemon.not_present", { path: plistPath }));
     }
   } else if (process.platform === "linux") {
     const unitPath = linuxUnitPath();
@@ -419,13 +413,13 @@ export function uninstallDaemon(): { notes: string[] } {
     });
     if (existsSync(unitPath)) {
       rmSync(unitPath);
-      notes.push(`removed ${unitPath}`);
+      notes.push(t("cli.daemon.removed", { path: unitPath }));
     } else {
-      notes.push(`${unitPath} not present`);
+      notes.push(t("cli.daemon.not_present", { path: unitPath }));
     }
     spawnSync("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" });
   } else {
-    notes.push(`${process.platform} unsupported — nothing to do`);
+    notes.push(t("cli.daemon.platform_unsupported", { platform: process.platform }));
   }
 
   return { notes };
@@ -450,7 +444,7 @@ export function daemonStatus(): StatusResult {
       unitPresent,
       unitPath: plistPath,
       loaded,
-      loadedNote: loaded ? r.stdout.split("\n")[0] || "loaded" : "not loaded",
+      loadedNote: loaded ? r.stdout.split("\n")[0] || t("cli.daemon.status_loaded") : t("cli.daemon.status_not_loaded"),
     };
   }
   if (process.platform === "linux") {
@@ -473,8 +467,8 @@ export function daemonStatus(): StatusResult {
   return {
     platform: process.platform,
     unitPresent: false,
-    unitPath: "(unsupported platform)",
+    unitPath: t("cli.daemon.status_path_unsupported"),
     loaded: false,
-    loadedNote: "unsupported",
+    loadedNote: t("cli.daemon.status_loaded_note_unsupported"),
   };
 }

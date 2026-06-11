@@ -35,6 +35,85 @@ export const EN = {
     "display_language must be 'zh' or 'en'",
   "cli.config.unknown_subcommand":
     "unknown config subcommand: {sub} — try list / get / set",
+
+  // ---------------------------------------------------------------------------
+  // cli.daemon.* — install / uninstall / status notes
+  // ---------------------------------------------------------------------------
+
+  "cli.daemon.dry_run_plist": "dry-run: plist printed, not written",
+  "cli.daemon.dry_run_unit": "dry-run: unit printed, not written",
+  "cli.daemon.legacy_plists_cleaned":
+    "cleaned up {count} legacy plist(s): {names}",
+  "cli.daemon.legacy_units_cleaned":
+    "cleaned up {count} legacy unit(s): {names}",
+  "cli.daemon.legacy_registered":
+    "registered {count} previously-orphaned project(s) into the global registry",
+  "cli.daemon.port_bound":
+    "port {port} is already bound on 127.0.0.1 — pass a different --port",
+  "cli.daemon.wrote": "wrote {path}",
+  "cli.daemon.removed": "removed {path}",
+  "cli.daemon.not_present": "{path} not present",
+  "cli.daemon.launchctl_loaded": "launchctl bootstrap succeeded — loaded",
+  "cli.daemon.launchctl_failed": "launchctl bootstrap failed: {reason}",
+  "cli.daemon.systemctl_enabled": "systemctl --user enable --now succeeded",
+  "cli.daemon.systemctl_failed": "systemctl --user enable --now failed: {reason}",
+  "cli.daemon.linger_note":
+    "Note: services run only while you're logged in. For true always-on, " +
+    "consider `sudo loginctl enable-linger {user}`.",
+  "cli.daemon.platform_unsupported":
+    "{platform} unsupported — nothing to do",
+  "cli.daemon.status_loaded": "loaded",
+  "cli.daemon.status_not_loaded": "not loaded",
+  "cli.daemon.status_path_unsupported": "(unsupported platform)",
+  "cli.daemon.status_loaded_note_unsupported": "unsupported",
+
+  // ---------------------------------------------------------------------------
+  // cli.hooks.* — `stele hooks install|uninstall|status` notes
+  // ---------------------------------------------------------------------------
+
+  "cli.hooks.legacy_stop_removed":
+    "removed legacy {path} (Stop hook retired in 0.4.0-snapshot.10; agent self-governs Layer 1)",
+  "cli.hooks.legacy_stop_absent":
+    "Stop hook retired in 0.4.0-snapshot.10 — agent self-governs Layer 1 via the stele-capture skill",
+  "cli.hooks.session_start_wrote": "wrote {path} (executable)",
+  "cli.hooks.session_end_auto_enabled":
+    "wrote {path} (SessionEnd auto-extract ENABLED — will block session close up to 60s)",
+  "cli.hooks.session_end_auto_disabled":
+    "SessionEnd auto-extract not enabled — pass --enable-session-end-auto-extract to opt in (Layer 3 lives in /stele:scan otherwise)",
+  "cli.hooks.skill_wrote":
+    "wrote {path}/ ({count} files: SKILL.md + gotchas + references)",
+  "cli.hooks.skill_wrote.one":
+    "wrote {path}/ (1 file: SKILL.md + gotchas + references)",
+  "cli.hooks.skill_wrote.other":
+    "wrote {path}/ ({count} files: SKILL.md + gotchas + references)",
+  "cli.hooks.removed_path": "removed {path}",
+  "cli.hooks.path_absent": "{path} not present",
+  "cli.hooks.session_end_uninstalled": "removed {paths}",
+  "cli.hooks.session_end_absent":
+    "SessionEnd auto-extract artifacts not present",
+  "cli.hooks.skill_removed": "removed {path}",
+  "cli.hooks.command_left_in_place":
+    "{path} left in place (manual delete if you want)",
+  "cli.hooks.legacy_commands_untouched":
+    "uninstall doesn't touch legacy 0.2.x commands",
+  "cli.hooks.command_already_exists":
+    "{path} already exists, left as-is",
+  "cli.hooks.command_wrote": "wrote {path}",
+  "cli.hooks.settings_updated_entry": "updated {event} entry",
+  "cli.hooks.settings_added_entry": "added {event} entry",
+  "cli.hooks.settings_disabled_entry":
+    "disabled {event} entry (opt-in not requested this round)",
+  "cli.hooks.settings_version_pinned_already":
+    "requiredMinimumVersion already pinned at {version}",
+  "cli.hooks.settings_version_pinned": "pinned requiredMinimumVersion to {version}",
+  "cli.hooks.settings_no_file": "no settings.json — nothing to do",
+  "cli.hooks.settings_removed": "removed {names} stele entries",
+  "cli.hooks.settings_no_entries": "no stele entries were present",
+  "cli.hooks.legacy_no_clean": "no legacy commands to clean",
+  "cli.hooks.legacy_no_stele":
+    "no stele legacy commands to clean ({count} user-level file{s} skipped — no stele fingerprint)",
+  "cli.hooks.legacy_removed":
+    "removed {count} legacy command{s} ({detail})",
 } as const;
 
 export type EnKey = keyof typeof EN;
