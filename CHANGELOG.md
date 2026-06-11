@@ -16,6 +16,17 @@ npm install -g stele-mcp@snapshot
 
 — nothing yet —
 
+## [0.4.2] · 2026-06-11
+
+**Ship the Chinese README in the npm tarball.** 0.4.1 added
+`README.zh-CN.md` to the repo with the bilingual language-switch
+link, but the new file wasn't listed in `package.json#files`, so
+`npm install -g stele-mcp` users were missing it. Adds the entry.
+
+No code changes. Repo behaviour unchanged. This is purely so users
+who only ever see the installed package (not the GitHub repo) get
+both translations.
+
 ## [0.4.1] · 2026-06-11
 
 **`main_language` — pin captures to a chosen language.** Per-project
