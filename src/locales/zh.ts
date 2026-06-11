@@ -380,6 +380,38 @@ export const ZH = {
   "cli.tags_cmd.restored": "{id} 已恢复",
   "cli.tags_cmd.unknown_subcommand":
     "tags 没有 {sub} 子命令 —— 试试 list / proposals / propose / apply / confirm / reject / recolor / rename / archive / restore",
+
+  // ---------------------------------------------------------------------------
+  // cli.version.* — `stele --version`
+  // ---------------------------------------------------------------------------
+
+  "cli.version.unknown":
+    "stele-mcp (版本未知 —— 找不到 package.json)",
+
+  // ---------------------------------------------------------------------------
+  // cli.resume_context.* — `stele resume --for-context` 格式化器
+  // ---------------------------------------------------------------------------
+
+  "cli.resume_context.header.one": "以下 1 个决策仍悬而未决:",
+  "cli.resume_context.header.other": "以下 {count} 个决策仍悬而未决:",
+  "cli.resume_context.age_today": "今天",
+  "cli.resume_context.age_one_day": "1 天前",
+  "cli.resume_context.age_days": "{count} 天前",
+  "cli.resume_context.age_months": "{count} 个月前",
+  "cli.resume_context.deferred_at": "推迟于 {age}",
+  "cli.resume_context.raised_at": "提出于 {age}",
+  "cli.resume_context.review_when": "复审条件: {trigger}",
+  "cli.resume_context.needs_check":
+    "触发条件可能已经到了,值得回看一眼",
+  "cli.resume_context.disclaimer":
+    "这些只是状态摘要,不是行动指令。继续手头的工作,有线索时再回头处理。",
+
+  // ---------------------------------------------------------------------------
+  // cli.top.* — 顶层 / 共享信息
+  // ---------------------------------------------------------------------------
+
+  "cli.top.unknown_command":
+    "不认识的命令: {cmd}\n\n{usage}",
 } as const;
 
 export type ZhKey = keyof typeof ZH;

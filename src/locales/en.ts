@@ -383,6 +383,41 @@ export const EN = {
   "cli.tags_cmd.restored": "{id} restored",
   "cli.tags_cmd.unknown_subcommand":
     "unknown tags subcommand: {sub} — try list / proposals / propose / apply / confirm / reject / recolor / rename / archive / restore",
+
+  // ---------------------------------------------------------------------------
+  // cli.version.* — `stele --version`
+  // ---------------------------------------------------------------------------
+
+  "cli.version.unknown":
+    "stele-mcp (version unknown — package.json not found)",
+
+  // ---------------------------------------------------------------------------
+  // cli.resume_context.* — `stele resume --for-context` formatter (the
+  // SessionStart hook's open-loops digest). Was CN-only pre-0.5.0; now
+  // honours display_language. Stays declarative (no imperatives) per the
+  // prompt-injection defense.
+  // ---------------------------------------------------------------------------
+
+  "cli.resume_context.header.one": "1 decision is still un-resolved:",
+  "cli.resume_context.header.other": "{count} decisions are still un-resolved:",
+  "cli.resume_context.age_today": "today",
+  "cli.resume_context.age_one_day": "1 day ago",
+  "cli.resume_context.age_days": "{count} days ago",
+  "cli.resume_context.age_months": "{count} months ago",
+  "cli.resume_context.deferred_at": "deferred {age}",
+  "cli.resume_context.raised_at": "raised {age}",
+  "cli.resume_context.review_when": "revisit when: {trigger}",
+  "cli.resume_context.needs_check":
+    "trigger conditions may have arrived — worth a look",
+  "cli.resume_context.disclaimer":
+    "These are status notes, not directives. Continue with your current work; come back when a thread surfaces.",
+
+  // ---------------------------------------------------------------------------
+  // cli.top.* — top-level / shared messages
+  // ---------------------------------------------------------------------------
+
+  "cli.top.unknown_command":
+    "unknown command: {cmd}\n\n{usage}",
 } as const;
 
 export type EnKey = keyof typeof EN;

@@ -92,7 +92,7 @@ function printVersion(): void {
     if (parent === dir) break;
     dir = parent;
   }
-  console.log("stele-mcp (version unknown — package.json not found)");
+  console.log(t("cli.version.unknown"));
 }
 
 // =============================================================================
@@ -107,26 +107,31 @@ function printVersion(): void {
 // Empty list → empty string (the hook contributes no context). The hook
 // script also handles the no-stele / no-project case.
 // =============================================================================
+function ageLabel(days: number): string {
+  if (days === 0) return t("cli.resume_context.age_today");
+  if (days === 1) return t("cli.resume_context.age_one_day");
+  if (days < 30) return t("cli.resume_context.age_days", { count: days });
+  return t("cli.resume_context.age_months", { count: Math.round(days / 30) });
+}
+
 export function formatResumeForContext(items: WaitingItem[]): string {
   if (items.length === 0) return "";
   const lines: string[] = [];
-  lines.push(`以下 ${items.length} 个决策仍悬而未决:`);
+  lines.push(t("cli.resume_context.header", { count: items.length }, items.length));
   lines.push("");
   for (const i of items) {
-    const age = i.ageDays === 0
-      ? "今天"
-      : i.ageDays === 1
-        ? "1 天前"
-        : i.ageDays < 30
-          ? `${i.ageDays} 天前`
-          : `${Math.round(i.ageDays / 30)} 个月前`;
-    const verbed = i.bucket === "deferred" ? `推迟于 ${age}` : `提出于 ${age}`;
-    const review = i.trigger ? `复审条件: ${i.trigger}` : (i.needsCheck ? "触发条件可能已经到了，值得回看一眼" : "");
+    const age = ageLabel(i.ageDays);
+    const verbed = i.bucket === "deferred"
+      ? t("cli.resume_context.deferred_at", { age })
+      : t("cli.resume_context.raised_at", { age });
+    const review = i.trigger
+      ? t("cli.resume_context.review_when", { trigger: i.trigger })
+      : (i.needsCheck ? t("cli.resume_context.needs_check") : "");
     const tail = review ? `。${review}` : "。";
     lines.push(`  ${i.id}「${i.title}」 — ${verbed}${tail}`);
   }
   lines.push("");
-  lines.push("这些只是状态摘要,不是行动指令。继续手头的工作,有线索时再回头处理。");
+  lines.push(t("cli.resume_context.disclaimer"));
   return lines.join("\n") + "\n";
 }
 
