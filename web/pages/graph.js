@@ -15,7 +15,7 @@
 // filter is `feature`.
 
 import { apiGet, ensureCss, slugUrl } from "../api.js";
-import { h, escapeHtml } from "../dom.js";
+import { h, escapeHtml, svg } from "../dom.js";
 
 // -------------------------------------------------------------------
 // Enums (state + edge color)
@@ -55,23 +55,7 @@ const STATE_RANK = {
 // DOM helpers
 // -------------------------------------------------------------------
 
-// h() + escapeHtml now live in ../dom.js (imported above). svg() stays local
-// (it builds SVG-namespaced nodes — a different create path than h()).
-const SVG_NS = "http://www.w3.org/2000/svg";
-function svg(tag, attrs = {}, ...children) {
-  const el = document.createElementNS(SVG_NS, tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (v == null || v === false) continue;
-    if (k === "class") el.setAttribute("class", v);
-    else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2).toLowerCase(), v);
-    else el.setAttribute(k, v === true ? "" : String(v));
-  }
-  for (const c of children.flat()) {
-    if (c == null || c === false) continue;
-    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
-  }
-  return el;
-}
+// h() + escapeHtml + svg() now live in ../dom.js (imported above).
 
 
 function splitDecisionId(id) {

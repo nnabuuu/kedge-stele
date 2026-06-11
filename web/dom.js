@@ -31,6 +31,27 @@ export function h(tag, attrs = {}, ...children) {
   return el;
 }
 
+export const SVG_NS = "http://www.w3.org/2000/svg";
+
+// SVG hyperscript — like h() but for SVG-namespaced elements (the Decision
+// Graph's nodes, the icon library). No style-object branch: SVG styling is via
+// attributes (incl. a plain `style` string), so everything goes through
+// setAttribute.
+export function svg(tag, attrs = {}, ...children) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.setAttribute("class", v);
+    else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2).toLowerCase(), v);
+    else el.setAttribute(k, v === true ? "" : String(v));
+  }
+  for (const c of children.flat()) {
+    if (c == null || c === false) continue;
+    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+
 // Escape a string for safe interpolation into an HTML template literal (used by
 // the topbar + app.js loading/error states that build markup as strings).
 export function escapeHtml(s) {

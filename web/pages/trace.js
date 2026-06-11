@@ -12,6 +12,7 @@
 import { apiGet, ensureCss, slugUrl } from "../api.js";
 import { renderResumeLauncher } from "../components/resume-launcher.js";
 import { h, escapeHtml } from "../dom.js";
+import { icon } from "../icons.js";
 
 // -------------------------------------------------------------------
 // Enums
@@ -77,40 +78,7 @@ function fmtAgo(iso) {
 
 // h() + escapeHtml now live in ../dom.js (imported above).
 
-// Inline SVG icons — paths transcribed from the mock's <Icon> component
-// (design/Stele Trace.html:452-474). SVG needs createElementNS, so this is
-// separate from h(). Stroke inherits currentColor (the eyebrow's accent).
-const SVG_NS = "http://www.w3.org/2000/svg";
-const ICON_PATHS = {
-  chevron: [["polyline", { points: "9 6 15 12 9 18" }]],
-  flag: [["line", { x1: 5, y1: 21, x2: 5, y2: 4 }], ["path", { d: "M5 4h12l-2.5 4 2.5 4H5" }]],
-  doc: [["path", { d: "M6 3h8l4 4v14H6z" }], ["polyline", { points: "13 3 13 8 18 8" }]],
-  spark: [["path", { d: "M12 3v4M12 17v4M3 12h4M17 12h4" }], ["circle", { cx: 12, cy: 12, r: 3 }]],
-  branch: [["circle", { cx: 6, cy: 6, r: 2.4 }], ["circle", { cx: 6, cy: 18, r: 2.4 }],
-           ["circle", { cx: 18, cy: 8, r: 2.4 }], ["path", { d: "M6 8.5v7M8.4 6.6c5 .4 7.6 .4 7.6 4.4v3" }]],
-  link: [["path", { d: "M9 15l6-6" }], ["path", { d: "M11 6l1-1a4 4 0 0 1 6 6l-1 1" }],
-         ["path", { d: "M13 18l-1 1a4 4 0 0 1-6-6l1-1" }]],
-};
-function icon(name, size = 13) {
-  const defs = ICON_PATHS[name];
-  if (!defs) return null;
-  const svg = document.createElementNS(SVG_NS, "svg");
-  svg.setAttribute("width", String(size));
-  svg.setAttribute("height", String(size));
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("fill", "none");
-  svg.setAttribute("stroke", "currentColor");
-  svg.setAttribute("stroke-width", "1.8");
-  svg.setAttribute("stroke-linecap", "round");
-  svg.setAttribute("stroke-linejoin", "round");
-  svg.classList.add("ic");
-  for (const [tag, attrs] of defs) {
-    const el = document.createElementNS(SVG_NS, tag);
-    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
-    svg.append(el);
-  }
-  return svg;
-}
+// icon() lives in ../icons.js (imported above).
 
 // -------------------------------------------------------------------
 // Helpers
