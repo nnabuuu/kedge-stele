@@ -16,6 +16,110 @@ npm install -g stele-mcp@snapshot
 
 — nothing yet —
 
+## [0.5.0] · 2026-06-11
+
+**Bilingual stele — both CLI and Web UI now speak zh / en, with a
+runtime toggle.** Stele's own user-facing surfaces (everything that's
+NOT the agent writing into the graph — that's `main_language`,
+shipped in 0.4.1) now pick a language per session. Auto-detect from
+the user's environment is the default; `stele config set
+display_language zh|en` pins a project; URL `?lang=` and the topbar
+toggle override interactively.
+
+### Surface inventory
+
+| Surface | Strings | Lands in |
+|---|---|---|
+| CLI (init, hooks, daemon, features, sessions, tags, config, resume, trace, …) | ~220 | `src/locales/{en,zh,index}.ts` via `t()` in `src/i18n.ts` |
+| Web UI page modules (graph, tags, projects, project, trace) | ~370 | `web/locales/{en,zh}.js` via `t()` in `web/i18n.js` |
+| Web UI shell + components (topbar with toggle, resume-launcher) | ~25 | same files |
+| `landing.html` | ~10 | inline `<script>` (no module deps; key/value dict + `data-i18n` swap) |
+| `.stele/README.md` | — | stays English (one-time write into the user's project, owned by the user after) |
+
+### Resolution order
+
+**CLI** (`resolveCliLocale` in `src/i18n.ts`):
+1. cwd's `display_language` config (if in a `.stele/` project)
+2. `$STELE_LANG` (case-insensitive `zh|en`)
+3. `$LC_ALL` / `$LANG` startsWith `zh` → `zh`
+4. `en`
+
+**Web UI** (`resolveLocale` in `web/i18n.js`):
+1. `?lang=zh|en` query param (URLs can pin a language)
+2. project's `display_language` from `/api/config`
+3. `localStorage.getItem("stele:lang")`
+4. `navigator.language` startsWith `zh` → `zh`, else `en`
+
+### Toggle UX (Web UI)
+
+Segmented `中文 | EN` control in the topbar, present on every page.
+Click writes localStorage, POSTs to `/api/config/display_language`
+(best-effort), sets `<html lang>`, and re-renders the current page
+in place — no full reload. The 0.4.x project view used to be CN-only;
+EN users now get a usable view immediately on first visit.
+
+### Server-side
+
+- `POST /<slug>/api/config/display_language` enforces `value ∈ {zh, en}`
+  with a 400 + `display_language must be 'zh' or 'en'` body. Same
+  strict guard the CLI applies at `stele config set` time.
+
+### Machinery worth naming
+
+- **Parity invariant** (`src/i18n.test.ts`): asserts en/zh share the
+  exact same key set. Adding a `t("cli.foo.bar")` call without
+  filling in both locale tables fails the test. This is what
+  prevents half-migrated strings from sneaking through.
+- **Plural picker** via `.one` / `.other` key suffix; Chinese
+  collapses to one form, English uses the inflection.
+- **`{placeholder}` interpolation.** Tiny custom function, no ICU.
+  Same shape on both CLI and Web UI.
+- **No runtime dep.** ~150 lines of hand-rolled helper on each side.
+  The zero-deps stance held.
+- **Static enum tables in page modules** (`STATUS_META`,
+  `RELATION_META`, `NODE_STATE_CHIP`, …) split: structural fields
+  (cls / color / dashed) stay static; labels come from `t()` at
+  render time via small helpers. The toggle re-render picks up the
+  new locale without a page reload.
+
+### Deliberate omissions
+
+- Aligned-column labels in CLI status output (`unit:`, `port:`,
+  `code:`, `path:`, `started:`, etc.) stay English in both locales —
+  `padEnd()`-driven layout breaks if labels differ in width, and these
+  are technical field names. Same convention the SessionStart hook
+  follows for `tag policy:`.
+- Copy-paste command echoes (`cd ... && claude --resume ...`) stay
+  verbatim — commands the user runs, not prose.
+- Brand mark stays bilingual (`实录 · Stele`) everywhere — both halves
+  are always present.
+- `.stele/README.md` content stays English — one-time write into the
+  user's project, owned by them after.
+- No third language. The machinery supports it (add a locale file +
+  list it in `SUPPORTED_LOCALES`), but we don't gold-plate without a
+  real ask.
+
+### Tests + verification
+
+247/247 tests pass. `npx tsc --noEmit` clean. Asset smoke: every
+`/assets/pages/<page>.js` returns 200 with the toggle present;
+`/welcome` (landing.html) honors `?lang=` and the inline toggle.
+End-to-end CLI smoke confirmed `STELE_LANG=zh` and `STELE_LANG=en`
+swap `stele init`, `hooks status`, `features list`, `help` output
+between languages with all technical terms preserved.
+
+### Migration
+
+- Existing 0.4.x DBs open unchanged; the new `display_language`
+  config key simply doesn't exist until you set it (or until the
+  toggle POSTs on first click).
+- Re-run `stele hooks install` if you want any other 0.5.0 hook
+  changes — but there aren't any in this release. CLI version bump
+  is all you need: `npm install -g stele-mcp@0.5.0`.
+- Auto-detect catches most users: zh environment users get CN by
+  default; everyone else gets EN. Explicit override is one
+  `stele config set display_language zh|en` away.
+
 ## [0.5.0-snapshot.2] · 2026-06-11
 
 **Web UI bilingual (zh / en) — second half of the 0.5.0 i18n rollout.**

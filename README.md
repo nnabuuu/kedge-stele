@@ -4,10 +4,11 @@
 
 > *Carve decisions as they're made, traceable ever after.*
 
-> **Status: 0.4.1** — three-layer auto-capture model plus the
-> `main_language` setting. Schema is additive from 0.3.0 (existing DBs
-> open unchanged); the agent surface is stable. Pin a version with
-> `npm install -g stele-mcp@0.4.1`.
+> **Status: 0.5.0** — bilingual CLI + Web UI (zh / en, with a topbar
+> toggle and auto-detect from your environment) on top of the 0.4.x
+> three-layer auto-capture. Schema is additive from 0.3.0 (existing
+> DBs open unchanged); the agent surface is stable. Pin a version with
+> `npm install -g stele-mcp@0.5.0`.
 
 A local decision-provenance store for Claude Code. When a decision
 crystallizes in conversation — what you chose, what you rejected, what
@@ -38,7 +39,7 @@ hooks to register correctly — `stele init` pins this in your project's
 silently misbehaving.
 
 ```bash
-npm install -g stele-mcp@0.4.1
+npm install -g stele-mcp@0.5.0
 ```
 
 This puts two commands on your PATH:
@@ -358,6 +359,40 @@ To clear:
 
 ```bash
 stele config set main_language ""
+```
+
+## Display language
+
+Stele's own user-facing surfaces — CLI output and the browser UI —
+speak both Chinese and English. The default auto-detects from your
+environment (`$LANG` for CLI; `navigator.language` for the browser);
+to pin a project, set:
+
+```bash
+stele config set display_language zh   # or `en`
+```
+
+Override at runtime:
+
+- **CLI**: `STELE_LANG=zh stele hooks status` for a one-shot.
+- **Web UI**: append `?lang=zh` to any URL, or click the segmented
+  `中文 | EN` toggle in the topbar. The toggle persists to
+  localStorage AND to the project's config so other browsers see it
+  too on next visit.
+
+This is intentionally distinct from `main_language` (above):
+
+| | `main_language` | `display_language` |
+|---|---|---|
+| What it controls | what the **agent writes** into the graph | what **stele itself shows you** |
+| Type | free-text | strict enum `zh | en` |
+| Affects | `title`, `context`, `detail.*`, summaries | CLI output, UI labels |
+| Default when unset | conversation's language | auto-detect from env / browser, else `en` |
+
+To clear:
+
+```bash
+stele config set display_language ""
 ```
 
 ## Backup

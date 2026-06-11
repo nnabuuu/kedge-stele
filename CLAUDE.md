@@ -201,6 +201,44 @@ The retired 0.2-era commands are not aliased; re-running `stele init` on an upgr
 - Don't shell out to `claude -p` for Layer 3. Hook type `agent` spawns its own Claude on the user's existing plan with allow-list scoping; `claude -p` would bill twice and lose the allow-list guarantee.
 - Don't add a `source` value beyond the three (`manual` / `agent-live` / `session-extract`). They map cleanly to the three layers; adding a fourth muddies the SPA filter and the dedup contract.
 
+### Localization (the 0.5.0 bilingual surface)
+
+0.5.0 added a second config key — `display_language ∈ {zh, en}` — that controls the language of stele's **own** user-facing surfaces (CLI output, web UI labels). This is intentionally distinct from `main_language` (above), which is free-text and governs only what the agent **writes into the graph**. The two settings exist to address two different problems:
+
+| | `main_language` (0.4.1) | `display_language` (0.5.0) |
+|---|---|---|
+| Type | free-text | strict enum `zh | en` (rejected server-side at `POST /api/config/display_language` and CLI `stele config set`) |
+| Audience | the agent that writes Decisions | stele's own CLI + Web UI |
+| Affects | `Decision.title`, `detail.context`, `detail.options[].rationale`, `Feature.summary`, etc. | `stele init` output, `stele hooks status`, the resume digest, the SPA's labels |
+| How injected | SessionStart hook section that the agent reads as context | CLI: read at process start; Web UI: read on `loadLocale()` boot |
+| Default when unset | agent uses the conversation's language | auto-detect from env (CLI: `$LANG`/`$STELE_LANG`) or browser (`navigator.language`); fall back to `en` |
+
+**CLI resolution order** (`resolveCliLocale` in `src/i18n.ts`): 1. project's `display_language` config (if cwd is in a `.stele/` project) → 2. `$STELE_LANG` env (case-insensitive `zh|en`) → 3. `$LC_ALL`/`$LANG` startsWith `zh` → 4. `en`.
+
+**Web UI resolution order** (`resolveLocale` in `web/i18n.js`): 1. `?lang=zh|en` query param (so shareable URLs can pin a language) → 2. the project's `display_language` from `/api/config` → 3. `localStorage.getItem("stele:lang")` → 4. `navigator.language.startsWith("zh") ? "zh" : "en"`.
+
+**Locale file layout.** Flat-key tables, no nested objects:
+- `src/i18n.ts` + `src/locales/{en,zh,index}.ts` — CLI surface (~220 strings). The `EN`/`ZH` exports are paired; the `i18n.test.ts` parity invariant fails CI if keys diverge.
+- `web/i18n.js` + `web/locales/{en,zh}.js` — SPA surface (~410 strings). Same key shape as CLI, paired tables, but no test guard (parity is enforced visually — the SPA throws a console warning on missing keys but doesn't fail).
+
+**`t()` function shape.** Same on both sides:
+
+```ts
+t("cli.init.created_stele_dir")                       // bare lookup
+t("cli.captured", { id: "F-01/D-04", title: "..." })   // {placeholder} interpolation
+t("cli.sessions", { count }, count)                    // plural picker: .one / .other
+```
+
+Missing keys throw in `NODE_ENV=test` (caught by tests), stderr+fallback otherwise. The plural picker uses the `count` argument to append `.one` or `.other` to the key; Chinese collapses both to a single string in `zh.{ts,js}`, English uses the inflection.
+
+**Toggle behavior (Web UI).** The `中文 | EN` segmented control in the topbar (`web/components/topbar.js` + `.lang-toggle` styles in `web/styles/shell.css`) delegates clicks via `bindLangToggle()` in `web/app.js`. On click: write `localStorage["stele:lang"]`, `POST /api/config/display_language` (best-effort; the landing isn't slug-scoped and skips this), set `<html lang>`, and call `route()` to re-render the current page with the new locale. No full reload.
+
+**Trade-offs and conventions worth knowing.**
+- **Aligned-column labels stay English** in both locales (e.g. `unit:`, `port:`, `code:`, `path:`, `started:` in `stele daemon status` / `stele features show`). The `padEnd()`-driven layout breaks if labels differ in width, and these are technical field names — same convention the SessionStart hook follows for `tag policy:`.
+- **Copy-paste command echoes stay verbatim.** `cd ... && claude --resume <id>` and similar are commands the user runs, not prose. Don't translate them.
+- **The brand mark is bilingual everywhere.** `实录 · Stele` in the topbar, landing hero, eyebrows — both halves are always present. Don't pick one to drop.
+- **Static enum tables in page modules became runtime getters.** `STATUS_META`, `RELATION_META`, `NODE_STATE_CHIP`, etc. used to be `{ key: { label, cls } }` objects with the label baked in at module load. They're now split: structural fields (`cls`, `color`, `dashed`) stay static, labels come from `t()` at render time via small helpers (`nodeStateLabel`, `relMeta`, etc.) so the topbar toggle re-renders pick up the new locale without a page reload.
+
 ## Conventions specific to this repo
 
 - **Source imports use `.ts` extensions** (`import { Store } from "./store.ts"`) — required for `--experimental-strip-types` in the dev loop; `tsconfig` `rewriteRelativeImportExtensions` rewrites them to `.js` when `tsc` emits `dist/`. The dev loop runs `src/` directly with no build; the installed CLI/MCP/daemon run a `tsc`-built `dist/` (see § Build & run model). So a `src/` edit is live for `npm test` / `npm run _node` immediately, but needs `npm run build` to reach an installed bin or the daemon.
