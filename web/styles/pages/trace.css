@@ -149,6 +149,44 @@
 }
 .where-sep { opacity: 0.5; margin: 0 4px; }
 
+/* Section-eyebrow icons (mock <Icon> before each section header) */
+.ic { flex: none; }
+.why-eyebrow,
+.arc-eyebrow,
+.stitch-h .eyebrow,
+.affects-head .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* focal-where: clickable flag-pill link to the feature + sans trigger note */
+.mlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 4px 11px 4px 9px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--t2);
+  text-decoration: none;
+}
+.mlink:hover { border-color: var(--border-strong); color: var(--t1); }
+.mlink b { color: var(--t1); font-weight: 700; }
+.where-trigger { font-family: var(--sans); font-size: 11.5px; color: var(--t3); }
+
+/* why <details> collapse chevron */
+.why summary .chev {
+  margin-left: auto;
+  display: inline-flex;
+  color: var(--t3);
+  transition: transform 0.2s var(--ease, ease);
+}
+.why[open] summary .chev { transform: rotate(90deg); }
+
 /* ============================================================
  * Stitch band — cross-session resolves arc
  * ============================================================ */

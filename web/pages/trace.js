@@ -109,6 +109,41 @@ function escapeHtml(s) {
   })[ch]);
 }
 
+// Inline SVG icons — paths transcribed from the mock's <Icon> component
+// (design/Stele Trace.html:452-474). SVG needs createElementNS, so this is
+// separate from h(). Stroke inherits currentColor (the eyebrow's accent).
+const SVG_NS = "http://www.w3.org/2000/svg";
+const ICON_PATHS = {
+  chevron: [["polyline", { points: "9 6 15 12 9 18" }]],
+  flag: [["line", { x1: 5, y1: 21, x2: 5, y2: 4 }], ["path", { d: "M5 4h12l-2.5 4 2.5 4H5" }]],
+  doc: [["path", { d: "M6 3h8l4 4v14H6z" }], ["polyline", { points: "13 3 13 8 18 8" }]],
+  spark: [["path", { d: "M12 3v4M12 17v4M3 12h4M17 12h4" }], ["circle", { cx: 12, cy: 12, r: 3 }]],
+  branch: [["circle", { cx: 6, cy: 6, r: 2.4 }], ["circle", { cx: 6, cy: 18, r: 2.4 }],
+           ["circle", { cx: 18, cy: 8, r: 2.4 }], ["path", { d: "M6 8.5v7M8.4 6.6c5 .4 7.6 .4 7.6 4.4v3" }]],
+  link: [["path", { d: "M9 15l6-6" }], ["path", { d: "M11 6l1-1a4 4 0 0 1 6 6l-1 1" }],
+         ["path", { d: "M13 18l-1 1a4 4 0 0 1-6-6l1-1" }]],
+};
+function icon(name, size = 13) {
+  const defs = ICON_PATHS[name];
+  if (!defs) return null;
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("width", String(size));
+  svg.setAttribute("height", String(size));
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.classList.add("ic");
+  for (const [tag, attrs] of defs) {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+    svg.append(el);
+  }
+  return svg;
+}
+
 // -------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------
@@ -182,12 +217,12 @@ function renderFocalCard(trace) {
     h("p", { class: "focal-status" }, trace.statusLine),
     d.detail?.note ? h("p", { class: "focal-note" }, d.detail.note) : null,
     h("div", { class: "focal-where" },
-      h("span", { class: "where-loc" },
+      h("a", { class: "where-loc mlink", href: slugUrl("/"), "data-route": "" },
+        icon("flag", 11),
         h("b", {}, mid),
         " · ",
         h("span", {}, localId)),
-      d.detail?.trigger ? h("span", {},
-        h("span", { class: "where-sep" }, "·"),
+      d.detail?.trigger ? h("span", { class: "where-trigger" },
         " 触发: ",
         h("span", {}, d.detail.trigger)) : null,
     ),
@@ -260,11 +295,13 @@ function renderWhy(trace) {
 
   return h("section", { class: "why-section" },
     h("div", { class: "why-head" },
-      h("span", { class: "why-eyebrow" }, "为什么这么定"),
+      h("span", { class: "why-eyebrow" }, icon("spark"), "为什么这么定"),
     ),
     h("p", { class: "why-sub" }, "不只是结论,还有当时权衡过哪几个方案、选了哪个、拒了哪个。"),
     h("details", { class: "why", open: true },
-      h("summary", {}, "取舍全文 · 触发 / 方案 / 理由 / 锁进锁出"),
+      h("summary", {},
+        "取舍全文 · 触发 / 方案 / 理由 / 锁进锁出",
+        h("span", { class: "chev" }, icon("chevron", 14))),
       ...rows,
     ),
   );
@@ -278,7 +315,7 @@ function renderStitch(stitch) {
 
   return h("section", { class: "stitch" },
     h("div", { class: "stitch-h" },
-      h("span", { class: "eyebrow" }, "跨对话缝合"),
+      h("span", { class: "eyebrow" }, icon("link"), "跨对话缝合"),
       h("span", { class: "stitch-sub" },
         "在另一次对话里被接上的那条边"),
     ),
@@ -335,7 +372,7 @@ function renderArc(stitch) {
   if (!stitch.focalIsResolved) return null;
   return h("section", { class: "arc-section" },
     h("div", { class: "arc-head" },
-      h("span", { class: "arc-eyebrow" }, "状态变化"),
+      h("span", { class: "arc-eyebrow" }, icon("branch"), "状态变化"),
       h("span", { class: "arc-sub" }, "按时间排开,每一步都来自一次对话"),
     ),
     h("div", { class: "arc" },
@@ -427,7 +464,7 @@ function renderAffects(trace) {
   if (!trace.affects?.length) return null;
   return h("section", { class: "affects" },
     h("div", { class: "affects-head" },
-      h("span", { class: "eyebrow" }, "相关文件"),
+      h("span", { class: "eyebrow" }, icon("doc"), "相关文件"),
       h("span", { class: "affects-sub" }, `· ${trace.affects.length} 个实体`),
     ),
     h("div", { class: "affects-list" },
