@@ -512,10 +512,10 @@ function projectsCommand(args: string[]): void {
   if (sub === undefined || sub === "list") {
     const projects = allProjects();
     if (projects.length === 0) {
-      console.log(`no projects registered. Run \`stele init\` in a project root.`);
+      console.log(t("cli.projects.none_registered"));
       return;
     }
-    console.log(`${projects.length} registered project(s):`);
+    console.log(t("cli.projects.registered_count", { count: projects.length }));
     const w = Math.max(...projects.map((p) => p.slug.length));
     for (const p of projects) {
       console.log(`  ${p.slug.padEnd(w)}  ${p.path}`);
@@ -523,17 +523,17 @@ function projectsCommand(args: string[]): void {
   } else if (sub === "remove") {
     const target = args[1];
     if (!target) {
-      console.error(`stele projects remove <slug-or-path>`);
+      console.error(t("cli.projects.remove_usage"));
       process.exit(1);
     }
     const removed = unregisterProject(target);
-    if (removed) console.log(`removed ${target} from registry`);
+    if (removed) console.log(t("cli.projects.removed", { target }));
     else {
-      console.error(`no project matched "${target}"`);
+      console.error(t("cli.projects.not_found", { target }));
       process.exit(1);
     }
   } else {
-    console.error(`unknown projects subcommand: ${sub} — try list / remove`);
+    console.error(t("cli.projects.unknown_subcommand", { sub: sub ?? "" }));
     process.exit(1);
   }
 }
@@ -548,14 +548,14 @@ async function serveCommand(args: string[]): Promise<void> {
     if (a === "--port") {
       const n = Number(args[++i]);
       if (!Number.isInteger(n) || n < 1 || n > 65535) {
-        console.error(`invalid --port value: ${args[i]}`);
+        console.error(t("cli.init.invalid_port", { value: args[i] }));
         process.exit(1);
       }
       port = n;
     } else if (a === "--host") {
       host = args[++i];
       if (!host) {
-        console.error(`--host requires a value`);
+        console.error(t("cli.serve.host_requires_value"));
         process.exit(1);
       }
     } else if (a === "--open") {
@@ -563,7 +563,7 @@ async function serveCommand(args: string[]): Promise<void> {
     } else if (a === "--multi") {
       multi = true;
     } else {
-      console.error(`unknown serve flag: ${a}`);
+      console.error(t("cli.serve.unknown_flag", { flag: a }));
       process.exit(1);
     }
   }
@@ -592,7 +592,7 @@ async function serveCommand(args: string[]): Promise<void> {
 
 function parseFeatureState(v: string | undefined): FeatureState {
   if (v === "draft" || v === "going" || v === "winding" || v === "done" || v === "paused") return v;
-  console.error(`invalid state: ${v} (expected draft|going|winding|done|paused)`);
+  console.error(t("cli.features.invalid_state", { value: v ?? "" }));
   process.exit(1);
 }
 
@@ -858,7 +858,7 @@ function projectCommand(store: Store, args: string[]): void {
   if (sub === "show") {
     const project = store.theProject();
     if (!project) {
-      console.error(`no project row — run \`stele init\``);
+      console.error(t("cli.project.none"));
       process.exit(1);
     }
     const r = projectRollup(store, project.id);
@@ -867,7 +867,7 @@ function projectCommand(store: Store, args: string[]): void {
     console.log(`  path:    ${project.path}`);
     console.log(`  created: ${project.createdAt}`);
     if (r) {
-      console.log(`  ${r.featureCount} feature(s) · ${r.decisionCount} decision(s) · ${r.openLoops} open loop(s) (${r.dueLoops} due)`);
+      console.log(`  ${t("cli.project.rollup", { features: r.featureCount, decisions: r.decisionCount, open: r.openLoops, due: r.dueLoops })}`);
       const states = Object.entries(r.featuresByState).filter(([, n]) => n > 0).map(([s, n]) => `${s}=${n}`).join(", ");
       if (states) console.log(`  states: ${states}`);
     }
@@ -877,7 +877,7 @@ function projectCommand(store: Store, args: string[]): void {
   if (sub === "set-status") {
     const project = store.theProject();
     if (!project) {
-      console.error(`no project row — run \`stele init\``);
+      console.error(t("cli.project.none"));
       process.exit(1);
     }
     const next = parseProjectStatus(args[1]);
@@ -887,7 +887,7 @@ function projectCommand(store: Store, args: string[]): void {
     return;
   }
 
-  console.error(`unknown project subcommand: ${sub} — try show / set-status`);
+  console.error(t("cli.project.unknown_subcommand", { sub }));
   process.exit(1);
 }
 
@@ -897,18 +897,18 @@ function projectCommand(store: Store, args: string[]): void {
 
 function parseTarget(spec: string | undefined): { kind: TaggingTargetKind; id: string } {
   if (!spec) {
-    console.error(`expected target in form <kind>:<id> — e.g. decision:D-42 or feature:M-03`);
+    console.error(t("cli.tags.target_required"));
     process.exit(1);
   }
   const idx = spec.indexOf(":");
   if (idx <= 0) {
-    console.error(`bad target "${spec}" — expected <kind>:<id>`);
+    console.error(t("cli.tags.target_bad_format", { spec }));
     process.exit(1);
   }
   const kind = spec.slice(0, idx);
   const id = spec.slice(idx + 1);
   if (kind !== "decision" && kind !== "feature") {
-    console.error(`target kind must be 'decision' or 'feature', got "${kind}"`);
+    console.error(t("cli.tags.target_bad_kind", { kind }));
     process.exit(1);
   }
   return { kind, id };

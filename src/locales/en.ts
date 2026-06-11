@@ -220,6 +220,56 @@ export const EN = {
   "cli.daemon_cmd.status_registered_projects": "registered projects: {count}",
   "cli.daemon_cmd.unknown_subcommand":
     "unknown daemon subcommand: {sub} — try install / uninstall / status",
+
+  // ---------------------------------------------------------------------------
+  // cli.projects.* — `stele projects <list|remove>`
+  // ---------------------------------------------------------------------------
+
+  "cli.projects.none_registered":
+    "no projects registered. Run `stele init` in a project root.",
+  "cli.projects.registered_count": "{count} registered project(s):",
+  "cli.projects.remove_usage": "stele projects remove <slug-or-path>",
+  "cli.projects.removed": "removed {target} from registry",
+  "cli.projects.not_found": "no project matched \"{target}\"",
+  "cli.projects.unknown_subcommand":
+    "unknown projects subcommand: {sub} — try list / remove",
+
+  // ---------------------------------------------------------------------------
+  // cli.serve.* — `stele serve`
+  // ---------------------------------------------------------------------------
+
+  "cli.serve.host_requires_value": "--host requires a value",
+  "cli.serve.unknown_flag": "unknown serve flag: {flag}",
+
+  // ---------------------------------------------------------------------------
+  // cli.project.* — `stele project <show|set-status>`
+  // ---------------------------------------------------------------------------
+
+  "cli.project.none": "no project row — run `stele init`",
+  "cli.project.rollup":
+    "{features} feature(s) · {decisions} decision(s) · {open} open loop(s) ({due} due)",
+  "cli.project.unknown_subcommand":
+    "unknown project subcommand: {sub} — try show / set-status",
+
+  // ---------------------------------------------------------------------------
+  // cli.features.* — `stele features <list|open|show|set-state|report>`
+  // (the parser strings; the subcommand strings live in cli.features_cmd.*)
+  // ---------------------------------------------------------------------------
+
+  "cli.features.invalid_state":
+    "invalid state: {value} (expected draft|going|winding|done|paused)",
+
+  // ---------------------------------------------------------------------------
+  // cli.tags.* — `stele tags ...` parser strings (subcommand strings in
+  // cli.tags_cmd.*)
+  // ---------------------------------------------------------------------------
+
+  "cli.tags.target_required":
+    "expected target in form <kind>:<id> — e.g. decision:D-42 or feature:M-03",
+  "cli.tags.target_bad_format":
+    "bad target \"{spec}\" — expected <kind>:<id>",
+  "cli.tags.target_bad_kind":
+    "target kind must be 'decision' or 'feature', got \"{kind}\"",
 } as const;
 
 export type EnKey = keyof typeof EN;

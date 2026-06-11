@@ -219,6 +219,54 @@ export const ZH = {
   "cli.daemon_cmd.status_registered_projects": "已注册项目数: {count}",
   "cli.daemon_cmd.unknown_subcommand":
     "daemon 没有 {sub} 子命令 —— 试试 install / uninstall / status",
+
+  // ---------------------------------------------------------------------------
+  // cli.projects.* — `stele projects <list|remove>`
+  // ---------------------------------------------------------------------------
+
+  "cli.projects.none_registered":
+    "没有注册的项目。在项目根目录跑 `stele init`。",
+  "cli.projects.registered_count": "已注册 {count} 个项目:",
+  "cli.projects.remove_usage": "stele projects remove <slug-or-path>",
+  "cli.projects.removed": "已从 registry 删除 {target}",
+  "cli.projects.not_found": "找不到匹配 \"{target}\" 的项目",
+  "cli.projects.unknown_subcommand":
+    "projects 没有 {sub} 子命令 —— 试试 list / remove",
+
+  // ---------------------------------------------------------------------------
+  // cli.serve.* — `stele serve`
+  // ---------------------------------------------------------------------------
+
+  "cli.serve.host_requires_value": "--host 必须带一个值",
+  "cli.serve.unknown_flag": "serve 不认识的 flag: {flag}",
+
+  // ---------------------------------------------------------------------------
+  // cli.project.* — `stele project <show|set-status>`
+  // ---------------------------------------------------------------------------
+
+  "cli.project.none": "没有 project 记录 —— 跑一下 `stele init`",
+  "cli.project.rollup":
+    "{features} 个 feature · {decisions} 个 decision · {open} 个待办循环 (其中 {due} 个该复审)",
+  "cli.project.unknown_subcommand":
+    "project 没有 {sub} 子命令 —— 试试 show / set-status",
+
+  // ---------------------------------------------------------------------------
+  // cli.features.* — `stele features ...` 解析器
+  // ---------------------------------------------------------------------------
+
+  "cli.features.invalid_state":
+    "state 值无效: {value} (应该是 draft|going|winding|done|paused 之一)",
+
+  // ---------------------------------------------------------------------------
+  // cli.tags.* — `stele tags ...` 解析器
+  // ---------------------------------------------------------------------------
+
+  "cli.tags.target_required":
+    "target 必须是 <kind>:<id> 格式 —— 比如 decision:D-42 或 feature:M-03",
+  "cli.tags.target_bad_format":
+    "target 格式错误 \"{spec}\" —— 应该是 <kind>:<id>",
+  "cli.tags.target_bad_kind":
+    "target kind 必须是 'decision' 或 'feature',传的是 \"{kind}\"",
 } as const;
 
 export type ZhKey = keyof typeof ZH;
