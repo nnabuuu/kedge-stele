@@ -21,6 +21,8 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { existsSync, statSync } from "node:fs";
 
+import { t } from "./i18n.ts";
+
 function findSteleRoot(start: string, home: string): string | null {
   let dir = resolve(start);
   while (true) {
@@ -41,11 +43,7 @@ function findSteleRoot(start: string, home: string): string | null {
 
 export class SteleNotInitializedError extends Error {
   constructor(cwd: string) {
-    super(
-      `no stele store found in ${cwd} or any ancestor (up to $HOME).\n` +
-        `run \`stele init\` in your project root to create one, ` +
-        `or set STELE_DB to point at an existing decisions.db.`,
-    );
+    super(t("cli.errors.no_stele_store", { cwd }));
     this.name = "SteleNotInitializedError";
   }
 }

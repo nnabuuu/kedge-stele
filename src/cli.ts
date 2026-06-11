@@ -25,6 +25,13 @@ import { startServerForeground } from "./serve.ts";
 import { installHooks, uninstallHooks, hooksStatus } from "./hooks.ts";
 import { installDaemon, uninstallDaemon, daemonStatus } from "./daemon.ts";
 import {
+  t,
+  setDefaultLocale,
+  localeFromEnv,
+  isLocale,
+  SUPPORTED_LOCALES,
+} from "./i18n.ts";
+import {
   allProjects,
   register as registerProject,
   unregister as unregisterProject,
@@ -1130,12 +1137,13 @@ function tagsCommand(store: Store, args: string[]): void {
 
 function configCommand(store: Store, args: string[]): void {
   const sub = args[0];
+  const dflt = t("cli.config.default_suffix");
   if (sub === undefined || sub === "list") {
     const all = store.allConfig();
     const keys = Object.keys(all).sort();
     // Surface defaults inline so the user sees what's actually in effect.
-    console.log(`  tag_policy         = ${all.tag_policy ?? getTagPolicy(store) + " (default)"}`);
-    console.log(`  tag_require_reason = ${all.tag_require_reason ?? (getTagRequireReason(store) ? "true" : "false") + " (default)"}`);
+    console.log(`  tag_policy         = ${all.tag_policy ?? getTagPolicy(store) + dflt}`);
+    console.log(`  tag_require_reason = ${all.tag_require_reason ?? (getTagRequireReason(store) ? "true" : "false") + dflt}`);
     for (const k of keys) {
       if (k === "tag_policy" || k === "tag_require_reason") continue;
       console.log(`  ${k.padEnd(18)} = ${all[k]}`);
@@ -1145,15 +1153,14 @@ function configCommand(store: Store, args: string[]): void {
   if (sub === "get") {
     const key = args[1];
     if (!key) {
-      console.error(`stele config get <key>`);
+      console.error(t("cli.config.get_usage"));
       process.exit(1);
     }
     const v = store.getConfig(key);
     if (v === null) {
-      // Surface inferred defaults for the two known keys
-      if (key === "tag_policy") console.log(`${key} = ${getTagPolicy(store)} (default)`);
-      else if (key === "tag_require_reason") console.log(`${key} = ${getTagRequireReason(store)} (default)`);
-      else console.log(`${key} = (unset)`);
+      if (key === "tag_policy") console.log(`${key} = ${getTagPolicy(store)}${dflt}`);
+      else if (key === "tag_require_reason") console.log(`${key} = ${getTagRequireReason(store)}${dflt}`);
+      else console.log(`${key} = ${t("cli.config.unset_marker")}`);
     } else {
       console.log(`${key} = ${v}`);
     }
@@ -1163,26 +1170,39 @@ function configCommand(store: Store, args: string[]): void {
     const key = args[1];
     const value = args[2];
     if (!key || value === undefined) {
-      console.error(`stele config set <key> <value>`);
+      console.error(t("cli.config.set_usage"));
       process.exit(1);
     }
     if (key === "tag_policy" && !["auto", "propose", "locked"].includes(value)) {
-      console.error(`tag_policy must be one of: auto, propose, locked`);
+      console.error(t("cli.config.tag_policy_invalid"));
       process.exit(1);
     }
     if (key === "tag_require_reason" && !["true", "false"].includes(value)) {
-      console.error(`tag_require_reason must be 'true' or 'false'`);
+      console.error(t("cli.config.tag_require_reason_invalid"));
+      process.exit(1);
+    }
+    // 0.5.0 — `display_language` is a strict enum. Unlike `main_language`
+    // (free-text, agent-facing) this one is consumed by code branches in
+    // both the CLI and the SPA, so it must be one of SUPPORTED_LOCALES.
+    if (key === "display_language" && !SUPPORTED_LOCALES.includes(value as never)) {
+      console.error(t("cli.config.display_language_invalid"));
       process.exit(1);
     }
     store.setConfig(key, value);
     console.log(`${key} = ${value}`);
     return;
   }
-  console.error(`unknown config subcommand: ${sub} — try list / get / set`);
+  console.error(t("cli.config.unknown_subcommand", { sub: sub ?? "" }));
   process.exit(1);
 }
 
 async function main() {
+  // Locale resolution — step 1: env-only default. This covers --version,
+  // init, hooks, daemon, projects, serve (storeless commands that print
+  // before any store is opened). When a per-project store opens later
+  // we refine from `display_language` if it's set.
+  setDefaultLocale(localeFromEnv() ?? "en");
+
   const [cmd, ...args] = process.argv.slice(2);
 
   // 0.4.0 — `stele --version` / `-v` / `version` prints the package version.
@@ -1211,6 +1231,11 @@ async function main() {
     }
     throw e;
   }
+
+  // Locale resolution — step 2: refine from the per-project store. If
+  // `display_language` is set on this project, it overrides the env default.
+  const storeLocale = store.getConfig("display_language");
+  if (isLocale(storeLocale)) setDefaultLocale(storeLocale);
 
   // 0.3.0 — features / tags / config / sessions / project are per-project
   // (need the store) but have nested subcommands so they don't fit the flat

@@ -20,6 +20,8 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
+import { t } from "./i18n.ts";
+
 // -----------------------------------------------------------------------------
 // Types
 // -----------------------------------------------------------------------------
@@ -122,7 +124,7 @@ function uniquifySlug(base: string, taken: Set<string>): string {
     const candidate = `${base}-${i}`;
     if (!taken.has(candidate)) return candidate;
   }
-  throw new Error("could not generate unique slug — registry too full?");
+  throw new Error(t("cli.errors.slug_generation_failed"));
 }
 
 // -----------------------------------------------------------------------------
