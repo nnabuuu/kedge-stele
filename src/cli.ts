@@ -607,7 +607,7 @@ function featuresCommand(store: Store, args: string[]): void {
       if (a === "--json") json = true;
       else if (a === "--state") state = parseFeatureState(args[++i]);
       else {
-        console.error(`unknown flag: ${a}`);
+        console.error(t("cli.features_cmd.unknown_flag", { flag: a }));
         process.exit(1);
       }
     }
@@ -618,13 +618,16 @@ function featuresCommand(store: Store, args: string[]): void {
       return;
     }
     if (filtered.length === 0) {
-      console.log("no features");
+      console.log(t("cli.features_cmd.no_features"));
       return;
     }
     for (const m of filtered) {
-      const lo = m.openLoops > 0 ? ` · ${m.openLoops} open loop${m.openLoops === 1 ? "" : "s"}` : "";
+      const lo = m.openLoops > 0
+        ? t("cli.features_cmd.open_loop_suffix", { count: m.openLoops }, m.openLoops)
+        : "";
+      const sessionLabel = t("cli.features_cmd.session_label", { count: m.sessionCount }, m.sessionCount);
       console.log(
-        `  ${m.feature.id}  [${m.feature.state.padEnd(7)}]  ${m.feature.name}  (${m.sessionCount} session${m.sessionCount === 1 ? "" : "s"}${lo})`,
+        `  ${m.feature.id}  [${m.feature.state.padEnd(7)}]  ${m.feature.name}  (${sessionLabel}${lo})`,
       );
     }
     return;
@@ -633,7 +636,7 @@ function featuresCommand(store: Store, args: string[]): void {
   if (sub === "open") {
     const name = args[1];
     if (!name) {
-      console.error(`stele features open <name> [--about "..."]`);
+      console.error(t("cli.features_cmd.open_usage"));
       process.exit(1);
     }
     let about: string | undefined;
@@ -641,13 +644,13 @@ function featuresCommand(store: Store, args: string[]): void {
       const a = args[i];
       if (a === "--about") about = args[++i];
       else {
-        console.error(`unknown flag: ${a}`);
+        console.error(t("cli.features_cmd.unknown_flag", { flag: a }));
         process.exit(1);
       }
     }
     const project = store.theProject();
     if (!project) {
-      console.error(`no project — run \`stele init\``);
+      console.error(t("cli.features_cmd.no_project"));
       process.exit(1);
     }
     const id = store.nextFeatureId();
@@ -656,7 +659,7 @@ function featuresCommand(store: Store, args: string[]): void {
       startedAt: new Date().toISOString(),
     };
     store.putFeature(m);
-    console.log(`opened ${id} "${name}" (state=draft)`);
+    console.log(t("cli.features_cmd.opened", { id, name }));
     return;
   }
 
@@ -664,11 +667,11 @@ function featuresCommand(store: Store, args: string[]): void {
     const id = args[1];
     const state = parseFeatureState(args[2]);
     if (!id) {
-      console.error(`stele features set-state <id> <draft|going|winding|done|paused>`);
+      console.error(t("cli.features_cmd.set_state_usage"));
       process.exit(1);
     }
     if (!store.getFeature(id)) {
-      console.error(`no such feature: ${id}`);
+      console.error(t("cli.features_cmd.not_found", { id }));
       process.exit(1);
     }
     store.setFeatureState(id, state);
@@ -679,12 +682,12 @@ function featuresCommand(store: Store, args: string[]): void {
   if (sub === "report") {
     const id = args[1];
     if (!id) {
-      console.error(`stele features report <id>`);
+      console.error(t("cli.features_cmd.report_usage"));
       process.exit(1);
     }
     const m = store.getFeature(id);
     if (!m) {
-      console.error(`no such feature: ${id}`);
+      console.error(t("cli.features_cmd.not_found", { id }));
       process.exit(1);
     }
     const openLoops = store
@@ -693,25 +696,25 @@ function featuresCommand(store: Store, args: string[]): void {
         const ns = nodeState(d);
         return ns === "open" || ns === "deferred";
       });
-    console.log(`feature-report draft for ${id} "${m.name}":`);
+    console.log(t("cli.features_cmd.report_header", { id, name: m.name }));
     console.log(`  state: ${m.state}`);
-    console.log(`  open loops: ${openLoops.length}`);
+    console.log(`  ${t("cli.features_cmd.report_open_loops", { count: openLoops.length })}`);
     for (const d of openLoops) console.log(`    ${d.id}  [${d.type}]  ${d.title}`);
     console.log(``);
-    console.log(`Next: agent drafts {summary, resumeEdge, pauseReason},`);
-    console.log(`      user confirms via \`stele sessions end <session-id> ...\`.`);
+    console.log(t("cli.features_cmd.report_next_1"));
+    console.log(t("cli.features_cmd.report_next_2"));
     return;
   }
 
   if (sub === "show") {
     const id = args[1];
     if (!id) {
-      console.error(`stele features show <id>`);
+      console.error(t("cli.features_cmd.show_usage"));
       process.exit(1);
     }
     const detail = featureDetail(store, id);
     if (!detail) {
-      console.error(`no such feature: ${id}`);
+      console.error(t("cli.features_cmd.not_found", { id }));
       process.exit(1);
     }
     console.log(`${detail.feature.id}  ${detail.feature.name}  [${detail.feature.state}]`);
@@ -720,7 +723,8 @@ function featuresCommand(store: Store, args: string[]): void {
     if (detail.feature.completedAt) console.log(`  completed: ${detail.feature.completedAt}`);
     console.log();
     for (const { session, decisions } of detail.sessions) {
-      console.log(`  ${session.id}  (${session.source}${session.sourceSessionId ? `, ${session.sourceSessionId.slice(0, 8)}` : ""})  ${decisions.length} decision${decisions.length === 1 ? "" : "s"}`);
+      const decisionLabel = t("cli.features_cmd.decision_label", { count: decisions.length }, decisions.length);
+      console.log(`  ${session.id}  (${session.source}${session.sourceSessionId ? `, ${session.sourceSessionId.slice(0, 8)}` : ""})  ${decisionLabel}`);
       for (const d of decisions) {
         console.log(`    ${d.id.padEnd(20)} ${nodeState(d).padEnd(11)} ${d.title}`);
       }
@@ -728,7 +732,7 @@ function featuresCommand(store: Store, args: string[]): void {
     return;
   }
 
-  console.error(`unknown features subcommand: ${sub} — try list / open / report / show / set-state`);
+  console.error(t("cli.features_cmd.unknown_subcommand", { sub: sub ?? "" }));
   process.exit(1);
 }
 

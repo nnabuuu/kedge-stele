@@ -270,6 +270,37 @@ export const EN = {
     "bad target \"{spec}\" — expected <kind>:<id>",
   "cli.tags.target_bad_kind":
     "target kind must be 'decision' or 'feature', got \"{kind}\"",
+
+  // ---------------------------------------------------------------------------
+  // cli.features_cmd.* — `stele features <list|open|show|set-state|report>`
+  // ---------------------------------------------------------------------------
+
+  "cli.features_cmd.unknown_flag": "unknown flag: {flag}",
+  "cli.features_cmd.no_features": "no features",
+  "cli.features_cmd.session_label.one": "1 session",
+  "cli.features_cmd.session_label.other": "{count} sessions",
+  "cli.features_cmd.open_loop_suffix.one": " · 1 open loop",
+  "cli.features_cmd.open_loop_suffix.other": " · {count} open loops",
+  "cli.features_cmd.open_usage":
+    "stele features open <name> [--about \"...\"]",
+  "cli.features_cmd.no_project": "no project — run `stele init`",
+  "cli.features_cmd.opened": "opened {id} \"{name}\" (state=draft)",
+  "cli.features_cmd.set_state_usage":
+    "stele features set-state <id> <draft|going|winding|done|paused>",
+  "cli.features_cmd.not_found": "no such feature: {id}",
+  "cli.features_cmd.report_usage": "stele features report <id>",
+  "cli.features_cmd.report_header":
+    "feature-report draft for {id} \"{name}\":",
+  "cli.features_cmd.report_open_loops": "open loops: {count}",
+  "cli.features_cmd.report_next_1":
+    "Next: agent drafts {summary, resumeEdge, pauseReason},",
+  "cli.features_cmd.report_next_2":
+    "      user confirms via `stele sessions end <session-id> ...`.",
+  "cli.features_cmd.show_usage": "stele features show <id>",
+  "cli.features_cmd.decision_label.one": "1 decision",
+  "cli.features_cmd.decision_label.other": "{count} decisions",
+  "cli.features_cmd.unknown_subcommand":
+    "unknown features subcommand: {sub} — try list / open / report / show / set-state",
 } as const;
 
 export type EnKey = keyof typeof EN;

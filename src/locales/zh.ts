@@ -267,6 +267,37 @@ export const ZH = {
     "target 格式错误 \"{spec}\" —— 应该是 <kind>:<id>",
   "cli.tags.target_bad_kind":
     "target kind 必须是 'decision' 或 'feature',传的是 \"{kind}\"",
+
+  // ---------------------------------------------------------------------------
+  // cli.features_cmd.* — `stele features <list|open|show|set-state|report>`
+  // ---------------------------------------------------------------------------
+
+  "cli.features_cmd.unknown_flag": "不认识的 flag: {flag}",
+  "cli.features_cmd.no_features": "没有 feature",
+  "cli.features_cmd.session_label.one": "1 个 session",
+  "cli.features_cmd.session_label.other": "{count} 个 session",
+  "cli.features_cmd.open_loop_suffix.one": " · 1 个待办循环",
+  "cli.features_cmd.open_loop_suffix.other": " · {count} 个待办循环",
+  "cli.features_cmd.open_usage":
+    "stele features open <name> [--about \"...\"]",
+  "cli.features_cmd.no_project": "没有 project —— 跑一下 `stele init`",
+  "cli.features_cmd.opened": "已打开 {id} \"{name}\" (state=draft)",
+  "cli.features_cmd.set_state_usage":
+    "stele features set-state <id> <draft|going|winding|done|paused>",
+  "cli.features_cmd.not_found": "找不到 feature: {id}",
+  "cli.features_cmd.report_usage": "stele features report <id>",
+  "cli.features_cmd.report_header":
+    "{id} \"{name}\" 的 feature-report 草稿:",
+  "cli.features_cmd.report_open_loops": "待办循环: {count}",
+  "cli.features_cmd.report_next_1":
+    "接下来: agent 起草 {summary, resumeEdge, pauseReason},",
+  "cli.features_cmd.report_next_2":
+    "        用户用 `stele sessions end <session-id> ...` 确认。",
+  "cli.features_cmd.show_usage": "stele features show <id>",
+  "cli.features_cmd.decision_label.one": "1 个 decision",
+  "cli.features_cmd.decision_label.other": "{count} 个 decision",
+  "cli.features_cmd.unknown_subcommand":
+    "features 没有 {sub} 子命令 —— 试试 list / open / report / show / set-state",
 } as const;
 
 export type ZhKey = keyof typeof ZH;
