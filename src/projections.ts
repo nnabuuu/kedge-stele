@@ -446,6 +446,18 @@ export interface TraceStitchDecision {
   sessionId?: SessionId;
 }
 
+// One step of the resolved decision's life: raised → (deferred) → resolved.
+// The frontend maps `stage` to a label/color/dot per the mock's STAGE table.
+export interface ArcStage {
+  stage: "raised" | "deferred" | "open" | "decided" | "resolved";
+  at: string;            // ISO timestamp of this step
+  featureName?: string;
+  note?: string;
+  resolver?: DecisionId; // set on the resolved step — which decision closed it
+  key?: boolean;         // the load-bearing step (the resolution), highlighted
+  ccid?: string;         // cc session id of the session this step happened in
+}
+
 export interface TraceStitch {
   // The resolving decision (the one that closed the loop) — typically the
   // newer of the pair.
@@ -461,6 +473,8 @@ export interface TraceStitch {
   daysSpanned?: number;
   // The `resolves` edge note, if recorded.
   edgeNote?: string;
+  // The resolved decision's lifecycle, oldest step first.
+  arc: ArcStage[];
 }
 
 /**
@@ -552,6 +566,33 @@ export function traceStitch(store: Store, decisionId: DecisionId): TraceStitch |
     sessionId: d.sessionId,
   });
 
+  // Build the resolved decision's lifecycle: raised → (deferred) → resolved.
+  const arc: ArcStage[] = [];
+  arc.push({
+    stage: "raised",
+    at: resolvedDec.raisedBy?.at ?? resolvedDec.createdAt,
+    featureName: store.getFeature(resolvedDec.featureId)?.name,
+    note: resolvedDec.detail?.trigger ?? resolvedDec.title,
+    ccid: resolvedSession?.sourceSessionId,
+  });
+  if (resolvedDec.type === "deferred") {
+    arc.push({
+      stage: "deferred",
+      at: resolvedDec.raisedBy?.at ?? resolvedDec.createdAt,
+      note: resolvedDec.revisit?.cond ?? "推迟,待复审",
+      ccid: resolvedSession?.sourceSessionId,
+    });
+  }
+  arc.push({
+    stage: "resolved",
+    at: resolverDec.raisedBy?.at ?? resolverDec.createdAt,
+    featureName: store.getFeature(resolverDec.featureId)?.name,
+    note: resolverDec.title,
+    resolver: resolverDec.id,
+    key: true,
+    ccid: resolverSession?.sourceSessionId,
+  });
+
   return {
     resolver: decRef(resolverDec),
     resolved: decRef(resolvedDec),
@@ -559,6 +600,7 @@ export function traceStitch(store: Store, decisionId: DecisionId): TraceStitch |
     laterSession: enrich(later),
     daysSpanned,
     edgeNote,
+    arc,
   };
 }
 

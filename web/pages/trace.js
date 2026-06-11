@@ -318,6 +318,59 @@ function renderStitch(stitch) {
   );
 }
 
+// Life Arc — the resolved decision's lifecycle (mock STAGE table, design
+// Stele Trace.html lines 121-159). Each stage carries its own accent (--ac).
+const ARC_STAGE = {
+  raised:   { label: "提出",     ac: "var(--teal)",   dot: "solid" },
+  decided:  { label: "定下",     ac: "var(--teal)",   dot: "solid" },
+  deferred: { label: "推迟",     ac: "var(--amber)",  dot: "dashed" },
+  open:     { label: "悬而未决", ac: "var(--purple)", dot: "hollow" },
+  resolved: { label: "解决",     ac: "var(--green)",  dot: "fill" },
+};
+
+function renderArc(stitch) {
+  if (!stitch?.arc?.length) return null;
+  return h("section", { class: "arc-section" },
+    h("div", { class: "arc-head" },
+      h("span", { class: "arc-eyebrow" }, "状态变化"),
+      h("span", { class: "arc-sub" }, "按时间排开,每一步都来自一次对话"),
+    ),
+    h("div", { class: "arc" },
+      ...stitch.arc.map((st) => renderArcStage(st)),
+    ),
+  );
+}
+
+function renderArcStage(st) {
+  const meta = ARC_STAGE[st.stage] ?? ARC_STAGE.raised;
+  return h("div", {
+      class: `arc-stage stage-${st.stage}${meta.dot === "dashed" ? " dashed" : ""}`,
+      style: { "--ac": meta.ac },
+    },
+    h("div", { class: "arc-gut" },
+      h("div", { class: `arc-dot ${meta.dot}` }, st.stage === "resolved" ? "✓" : null),
+      h("div", { class: "arc-line" }),
+    ),
+    h("div", { class: "arc-body" },
+      h("div", { class: "arc-shead" },
+        h("span", { class: "arc-stagelabel" }, meta.label),
+        h("span", { class: "arc-date" }, fmtAgo(st.at)),
+      ),
+      h("div", { class: `arc-card${st.key ? " key" : ""}` },
+        st.featureName ? h("div", { class: "arc-where" }, st.featureName) : null,
+        st.note ? h("div", { class: "arc-note" }, st.note) : null,
+        st.resolver
+          ? h("div", { class: "arc-resolver" }, "由 ", h("code", {}, st.resolver), " 解决")
+          : null,
+        st.ccid
+          ? h("div", { class: "arc-foot" },
+              h("span", { class: "arc-ccid" }, `cc · ${st.ccid.slice(0, 8)}…`))
+          : null,
+      ),
+    ),
+  );
+}
+
 function renderNeighbors(trace) {
   const groups = groupEdges(trace.edges);
   const blocks = [];
@@ -439,6 +492,7 @@ export async function render(root, ctx) {
     renderFocalCard(trace),
     renderWhy(trace),
     renderStitch(stitch),
+    renderArc(stitch),
     renderNeighbors(trace),
     renderAffects(trace),
   ));

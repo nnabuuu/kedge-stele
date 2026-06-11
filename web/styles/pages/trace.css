@@ -560,6 +560,100 @@
 .lock-v { font-size: 12px; color: var(--t2); line-height: 1.5; }
 
 /* ============================================================
+ * Life Arc — resolved decision's lifecycle (mock .arc, lines 121-159)
+ * ============================================================ */
+.arc-section { display: flex; flex-direction: column; gap: 6px; }
+.arc-head { display: flex; align-items: baseline; gap: 10px; }
+.arc-eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--teal);
+}
+.arc-sub { font-size: 12.5px; color: var(--t3); margin-bottom: 8px; }
+
+.arc { display: flex; flex-direction: column; --seg: var(--border-strong); }
+.arc-stage { display: flex; gap: 16px; }
+.arc-gut { flex: none; width: 22px; display: flex; flex-direction: column; align-items: center; }
+.arc-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2.5px solid var(--ac);
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+  flex: none;
+  font-size: 11px;
+  color: #fff;
+}
+.arc-dot.solid  { background: var(--ac); }
+.arc-dot.fill   { background: var(--ac); }
+.arc-dot.dashed { border-style: dashed; }
+.arc-dot.hollow { background: var(--surface); }
+.arc-line {
+  flex: 1;
+  width: 2px;
+  background: var(--seg);
+  margin: 5px 0 -2px;
+  min-height: 18px;
+}
+.arc-stage.dashed .arc-line {
+  background: linear-gradient(var(--seg) 55%, transparent 0);
+  background-size: 2px 8px;
+}
+.arc-stage:last-child .arc-line { display: none; }
+
+.arc-body { flex: 1; min-width: 0; padding-bottom: 22px; }
+.arc-stage:last-child .arc-body { padding-bottom: 0; }
+.arc-shead { display: flex; align-items: center; gap: 9px; margin-bottom: 9px; padding-top: 1px; }
+.arc-stagelabel {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--ac);
+  background: color-mix(in srgb, var(--ac) 12%, var(--surface));
+  padding: 3px 9px;
+  border-radius: 99px;
+}
+.arc-date { font-family: var(--mono); font-size: 10px; color: var(--t3); }
+
+.arc-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl, 12px);
+  padding: 14px 16px;
+  border-left: 2.5px solid var(--ac);
+}
+.arc-card.key {
+  border-color: rgba(162, 58, 41, 0.3);
+  border-left-color: var(--seal);
+  box-shadow: 0 0 0 2px var(--seal-bg);
+}
+.arc-where { display: flex; gap: 6px; font-size: 10.5px; font-weight: 600; color: var(--t2); margin-bottom: 8px; }
+.arc-note { font-size: 12px; color: var(--t1); line-height: 1.55; }
+.arc-resolver {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--seal);
+}
+.arc-resolver code {
+  font-family: var(--mono);
+  font-size: 10px;
+  background: var(--seal-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.arc-foot { display: flex; gap: 8px; margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--border); }
+.arc-ccid { font-family: var(--mono); font-size: 9px; color: var(--t3); }
+
+/* ============================================================
  * Responsive
  * ============================================================ */
 @media (max-width: 720px) {
