@@ -43,12 +43,6 @@ const OUTCOME = {
   touched:  { label: "补充", cssVar: "--warm" },
 };
 
-const DEC_TYPE = {
-  decision: { label: "已决",  cls: "decided" },
-  deferred: { label: "推迟",  cls: "deferred" },
-  open:     { label: "待决",  cls: "open" },
-};
-
 // The decision chip colors/labels by derived nodeState, not raw type — a
 // resolved deferred (the central provenance act) must read 已解决/green, not
 // 推迟/amber. cls matches the .dchip-g.<cls> / .dchip-st.<cls> CSS.
@@ -577,6 +571,13 @@ function renderDecisionChip(d) {
 export async function render(root, ctx) {
   ensureCss("/assets/styles/pages/project.css");
   root.innerHTML = `<div class="loading">loading project…</div>`;
+  // Reset the module-level rail filter on each (re)entry — the page module is
+  // cached and cross-project nav is pushState + re-render (no reload), so a
+  // stale activeTagFilter would otherwise carry project A's tags into B and
+  // blank/mis-filter B's rail.
+  activeTagFilter = [];
+  railShowMore = false;
+  detailCache.clear();
 
   let rail, projectInfo;
   try {
@@ -604,18 +605,26 @@ export async function render(root, ctx) {
   await renderShell(root, ctx, projectInfo, rail, selected);
 }
 
-async function renderShell(root, ctx, projectInfo, rail, selectedFid) {
-  root.innerHTML = "";
+// Feature detail cached per feature for the current page visit (cleared in
+// render()) so pure rail-filter / source-filter re-renders don't blank the
+// page and round-trip the API. renderGen guards against a slow fetch from a
+// superseded render winning a race.
+let detailCache = new Map();
+let renderGen = 0;
 
-  // Fetch feature detail
-  let detail = null;
-  if (selectedFid) {
+async function renderShell(root, ctx, projectInfo, rail, selectedFid) {
+  const gen = ++renderGen;
+
+  let detail = selectedFid ? (detailCache.get(selectedFid) ?? null) : null;
+  if (selectedFid && !detail) {
     try {
       detail = await apiGet(`/features/${encodeURIComponent(selectedFid)}`);
+      detailCache.set(selectedFid, detail);
     } catch (err) {
       // Treat as no selection; rail still renders
       console.error(`[stele] feature fetch failed:`, err);
     }
+    if (gen !== renderGen) return; // a newer render superseded this one
   }
 
   const onSelect = (fid) => {
@@ -647,18 +656,17 @@ async function renderShell(root, ctx, projectInfo, rail, selectedFid) {
     renderShell(root, ctx, projectInfo, rail, selectedFid);
   };
 
-  // Optional project subtitle (path, status)
+  // Build then swap atomically — no blank-during-await, no double-append race.
+  const frag = document.createDocumentFragment();
   const project = projectInfo?.project;
-  if (project) {
-    root.append(renderProjectSubhead(project));
-  }
-
-  root.append(
+  if (project) frag.append(renderProjectSubhead(project));
+  frag.append(
     h("div", { class: "body" },
       renderRail(rail, selectedFid, onSelect, onToggleTag, onClearTags),
       renderMain(detail, onSourceFilter, findFeatureInRail(rail, selectedFid)),
     ),
   );
+  root.replaceChildren(frag);
 }
 
 function renderProjectSubhead(project) {

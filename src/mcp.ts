@@ -39,6 +39,7 @@ import {
 } from "./projections.ts";
 import { renderResume } from "./render.ts";
 import { stubResolver } from "./resolver.ts";
+import { resumeCommand, isResumableSessionId } from "./resume.ts";
 import { resolveDbPath, SteleNotInitializedError } from "./paths.ts";
 import {
   CaptureFeatureModeSchema,
@@ -140,19 +141,16 @@ function fmtEntityTraces(ref: EntityRef, traces: Awaited<ReturnType<typeof trace
   return lines.join("\n");
 }
 
-// Shell-quote for cwd interpolation in resume_command.
-function shQuote(s: string): string {
-  return /^[A-Za-z0-9_\-./]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
-}
-
 function buildResumeCommand(session: Session): ResumeCommandResult {
   const layoutAlive = session.provenance?.layoutAlive ?? false;
   const cwd = session.provenance?.cwd ?? process.cwd();
-  const ccSid = session.sourceSessionId ?? "<no-session-id>";
+  const ccSid = session.sourceSessionId ?? "";
   return {
     mode: layoutAlive ? "jump" : "rebuild",
-    command: `cd ${shQuote(cwd)} && claude --resume ${ccSid}`,
-    copyable: true,
+    // shell-quote cwd + id (untrusted via /stele:scan transcripts); a non-cc
+    // id isn't a real resumable session, so don't advertise it as runnable.
+    command: resumeCommand(cwd, ccSid),
+    copyable: isResumableSessionId(ccSid),
     lastSession: {
       id: session.id,
       endedAt: session.endedAt,

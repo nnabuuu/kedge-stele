@@ -16,12 +16,6 @@ import { renderResumeLauncher } from "../components/resume-launcher.js";
 // Enums
 // -------------------------------------------------------------------
 
-const DEC_TYPE = {
-  decision: { label: "已决",  cls: "decided" },
-  deferred: { label: "推迟",  cls: "deferred" },
-  open:     { label: "待决",  cls: "open" },
-};
-
 // nodeState string returned by statusLine — also used for state pill color
 const NODE_STATE_META = {
   decided:    { label: "已决",      cls: "decided" },
@@ -217,7 +211,7 @@ function renderFocalCard(trace) {
     h("p", { class: "focal-status" }, trace.statusLine),
     d.detail?.note ? h("p", { class: "focal-note" }, d.detail.note) : null,
     h("div", { class: "focal-where" },
-      h("a", { class: "where-loc mlink", href: slugUrl("/"), "data-route": "" },
+      h("a", { class: "where-loc mlink", href: slugUrl(`/?f=${encodeURIComponent(mid)}`), "data-route": "" },
         icon("flag", 11),
         h("b", {}, mid),
         " · ",

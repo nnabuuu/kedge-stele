@@ -147,7 +147,6 @@
   font-weight: 700;
   color: var(--t2);
 }
-.where-sep { opacity: 0.5; margin: 0 4px; }
 
 /* Section-eyebrow icons (mock <Icon> before each section header) */
 .ic { flex: none; }
@@ -410,32 +409,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.nb-type {
-  flex: none;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 2px 7px;
-  border-radius: 99px;
-}
-.nb-type.t-decision { background: var(--teal-bg);   color: var(--teal); }
-.nb-type.t-deferred { background: var(--amber-bg);  color: var(--amber); }
-.nb-type.t-open     { background: var(--purple-bg); color: var(--purple); }
 .nb-state {
   flex: none;
   font-size: 9.5px;
   font-weight: 600;
   color: var(--t3);
 }
+.nb-state.s-decided    { color: var(--teal); }
+.nb-state.s-deferred   { color: var(--amber); }
+.nb-state.s-open       { color: var(--purple); }
 .nb-state.s-resolved   { color: var(--green); }
 .nb-state.s-superseded { color: var(--t3); }
-.nb-note {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--t3);
-  font-style: italic;
-}
 
 /* ============================================================
  * Affects

@@ -397,7 +397,9 @@ export type ResumeMode = "jump" | "rebuild";
 export interface ResumeCommandResult {
   mode: ResumeMode;
   command: string;
-  copyable: true;
+  // false when the id isn't a real resumable cc session (e.g. a /stele:scan
+  // composite "<uuid>#F-01") — the command is shown but not advertised as runnable.
+  copyable: boolean;
   lastSession?: {
     id: SessionId;
     endedAt?: string;

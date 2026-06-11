@@ -37,6 +37,7 @@ import {
   traceStitch,
 } from "./projections.ts";
 import { stubResolver } from "./resolver.ts";
+import { resumeCommand, isResumableSessionId } from "./resume.ts";
 import {
   CaptureTagRequestSchema,
   CapturePayloadSchema,
@@ -622,8 +623,10 @@ async function dispatchApi(
       const ccSid = s.sourceSessionId ?? "";
       return json(res, 200, {
         mode: layoutAlive ? "jump" : "rebuild",
-        command: `cd ${cwd} && claude --resume ${ccSid}`,
-        copyable: true,
+        // shell-quote cwd + id (untrusted via /stele:scan); a non-cc id isn't
+        // a real resumable session, so don't advertise it as runnable.
+        command: resumeCommand(cwd, ccSid),
+        copyable: isResumableSessionId(ccSid),
         lastSession: { id: s.id, endedAt: s.endedAt, outcome: s.outcome, pauseReason: s.pauseReason },
       });
     }

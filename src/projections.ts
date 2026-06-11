@@ -156,8 +156,7 @@ export interface TraceEdge {
   relation: string;
   otherId: DecisionId;
   otherTitle: string;
-  otherType?: DecisionType;
-  otherState?: string;   // derived nodeState of the other decision (for the badge)
+  otherState?: string;   // derived nodeState of the other decision (for the state pill)
   direction: "out" | "in";
   note?: string;
 }
@@ -210,7 +209,6 @@ export async function trace(
       relation: e.relation,
       otherId: e.to,
       otherTitle: o?.title ?? "?",
-      otherType: o?.type,
       otherState: o ? nodeState(o) : undefined,
       direction: "out",
       note: e.note,
@@ -222,7 +220,6 @@ export async function trace(
       relation: e.relation,
       otherId: e.from,
       otherTitle: o?.title ?? "?",
-      otherType: o?.type,
       otherState: o ? nodeState(o) : undefined,
       direction: "in",
       note: e.note,
