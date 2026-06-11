@@ -3,6 +3,8 @@
  * Token scope: v-trace (in-app Base + --blue).
  * ---------------------------------------------------------------------- */
 
+.tag-page { max-width: 880px; margin: 0 auto; }
+
 .tag-page-head {
   display: flex;
   align-items: flex-end;
@@ -54,13 +56,14 @@
   flex-wrap: wrap;
 }
 .sec-h .eyebrow {
-  font-family: var(--mono);
-  font-size: 11px;
+  font-family: var(--sans);
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--seal);
+  color: var(--t3);
 }
+.sec-h .eyebrow.is-seal { color: var(--seal); }
 .sec-h .cnt {
   font-family: var(--mono);
   font-size: 10.5px;
@@ -122,15 +125,14 @@
   gap: 10px;
 }
 .pmode-t .badge {
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 9.5px;
   font-weight: 700;
-  letter-spacing: 0.1em;
-  background: var(--blue-bg);
-  color: var(--blue);
-  padding: 2px 6px;
-  border-radius: 3px;
-  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  background: var(--teal-bg);
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 99px;
 }
 .pmode-d {
   font-size: 12.5px;
@@ -205,7 +207,7 @@
 }
 .pend-banner.propose { background: var(--seal-bg); color: var(--t1); border-color: rgba(162, 58, 41, 0.2); }
 .pend-banner.auto    { background: var(--teal-bg);  color: var(--teal); }
-.pend-banner.locked  { background: var(--red-bg);   color: var(--red); }
+.pend-banner.locked  { background: var(--amber-bg); color: var(--amber); }
 .pend-banner b {
   font-family: var(--sans);
   font-weight: 700;
@@ -332,8 +334,8 @@
   border-radius: 3px;
   text-align: center;
 }
-.trow-origin-agent { background: var(--blue-bg); color: var(--blue); }
-.trow-origin-user  { background: var(--surface2); color: var(--t2); }
+.trow-origin-agent { background: var(--purple-bg); color: var(--purple); }
+.trow-origin-you   { background: var(--teal-bg);   color: var(--teal); }
 
 .trow-acts {
   display: flex;

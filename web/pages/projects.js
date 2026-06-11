@@ -157,7 +157,7 @@ function renderResumeStrip(hero, heroF, heroOc) {
       h("div", { class: "resume-actions" },
         last?.id ? renderResumeLauncher({ sessionId: last.id, slug: hero.slug }) : null,
         h("a", {
-          class: "resume-go",
+          class: "resume-2nd",
           href: `/${encodeURIComponent(hero.slug)}/`,
           "data-route": "",
         }, "进入项目 →"),

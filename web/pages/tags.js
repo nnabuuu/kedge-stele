@@ -182,7 +182,7 @@ function renderPending(pending, policy, onConfirm, onReject) {
 function renderPendingRow(p, onConfirm, onReject) {
   return h("div", { class: "pend-row" },
     h("div", { class: "pend-l" },
-      h("span", { class: "pend-swatch", style: { background: p.color ?? "#9c9a92" } }),
+      h("span", { class: "pend-swatch", style: { background: p.suggestedColor ?? "#9c9a92" } }),
       h("div", { class: "pend-meta" },
         h("div", { class: "pend-name" }, p.name),
         p.reason
@@ -420,14 +420,18 @@ function rerender() {
   // renderPending / renderArchived return null when their lists are empty;
   // Element.append() stringifies null → a literal "null" text node, so filter
   // them out before appending.
+  // Wrap in a max-width column (mock .canvas: 880px centered) — the shell
+  // otherwise stretches the rows to the full 1140px content width.
   rootEl.append(
-    ...[
-      renderHeader(state.active.length, state.pending.length, state.archived.length),
-      renderPolicy(state, onPolicyChange, onRequireReasonChange),
-      renderPending(state.pending, state.policy, onConfirm, onReject),
-      renderLibrary(state.active, onRename, onRecolor, onArchive),
-      renderArchived(state.archived, onRestore),
-    ].filter(Boolean),
+    h("div", { class: "tag-page" },
+      ...[
+        renderHeader(state.active.length, state.pending.length, state.archived.length),
+        renderPolicy(state, onPolicyChange, onRequireReasonChange),
+        renderPending(state.pending, state.policy, onConfirm, onReject),
+        renderLibrary(state.active, onRename, onRecolor, onArchive),
+        renderArchived(state.archived, onRestore),
+      ].filter(Boolean),
+    ),
   );
 }
 

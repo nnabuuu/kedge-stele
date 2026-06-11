@@ -49,6 +49,22 @@ const DEC_TYPE = {
   open:     { label: "待决",  cls: "open" },
 };
 
+// The decision chip colors/labels by derived nodeState, not raw type — a
+// resolved deferred (the central provenance act) must read 已解决/green, not
+// 推迟/amber. cls matches the .dchip-g.<cls> / .dchip-st.<cls> CSS.
+const NODE_STATE_CHIP = {
+  decision:   { label: "已决",     cls: "decision" },
+  deferred:   { label: "推迟",     cls: "deferred" },
+  open:       { label: "悬而未决", cls: "open" },
+  resolved:   { label: "已解决",   cls: "resolved" },
+  superseded: { label: "已取代",   cls: "superseded" },
+};
+function nodeStateOf(d) {
+  if (d.supersededBy) return "superseded";
+  if (d.status === "resolved") return "resolved";
+  return d.type; // "decision" | "deferred" | "open"
+}
+
 // 0.4.0 — capture provenance pill (rendered in the decision chip footer).
 // "manual" gets no pill — the absence IS the marker for human-authored.
 const SOURCE_META = {
@@ -520,7 +536,7 @@ function renderDecisionsSection(decisions) {
 }
 
 function renderDecisionChip(d) {
-  const dm = DEC_TYPE[d.type] ?? DEC_TYPE.decision;
+  const ns = NODE_STATE_CHIP[nodeStateOf(d)] ?? NODE_STATE_CHIP.decision;
   const title = d.detail?.title ?? d.title ?? d.id;
   // Decision id is "<featureId>/<localId>"; Trace route is /<slug>/d/<f>/<id>
   const parts = d.id.split("/");
@@ -541,7 +557,7 @@ function renderDecisionChip(d) {
       "data-route": "",
       onClick: (e) => e.stopPropagation(),
     },
-    h("span", { class: `dchip-g ${d.type}` }, localId || d.id),
+    h("span", { class: `dchip-g ${ns.cls}` }, localId || d.id),
     h("span", { class: "dchip-t" }, title),
     d.tags?.[0]
       ? h("span", { class: "dchip-tag", style: { "--tc": d.tags[0].color ?? "#9c9a92" } },
@@ -550,7 +566,7 @@ function renderDecisionChip(d) {
       : null,
     sm ? h("span", { class: `dchip-src ${sm.cls}`, title: `源: ${sm.label}${conf ? `, 置信度${conf}` : ""}` },
       sm.label + conf) : null,
-    h("span", { class: `dchip-st ${d.type}` }, dm.label),
+    h("span", { class: `dchip-st ${ns.cls}` }, ns.label),
   );
 }
 

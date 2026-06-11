@@ -111,26 +111,24 @@
   margin-top: 19px;
   flex-wrap: wrap;
 }
-.resume-go {
+/* The seal-red launcher is the resume-launcher component (.resume-btn);
+   "进入项目" is the outline secondary action (mock .resume-2nd). */
+.resume-2nd {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   height: 38px;
   padding: 0 17px;
   border-radius: var(--r-md, 8px);
-  background: var(--accent);
-  color: #fff;
-  font-family: var(--mono);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--t2);
+  font-family: var(--sans);
   font-size: 12.5px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  transition: filter 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+  transition: color 0.16s ease, border-color 0.16s ease;
 }
-.resume-go:hover {
-  filter: brightness(1.08);
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md, 0 8px 30px rgba(28,28,26,.12));
-}
+.resume-2nd:hover { color: var(--t1); border-color: var(--t1); }
 
 /* ============================================================
  * Shelf head — title + sort controls
@@ -211,9 +209,10 @@
   transform: translateY(-1px);
 }
 .pcard.recent {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent) inset, var(--shadow-sm, 0 2px 18px rgba(28,28,26,.06));
+  border-color: rgba(162, 58, 41, 0.32);
+  box-shadow: 0 0 0 3px var(--seal-bg), var(--shadow-sm, 0 2px 18px rgba(28,28,26,.06));
 }
+.pcard.recent:hover { border-color: var(--seal); }
 .pcard.dormant { background: var(--surface2); }
 .pcard.archived { background: var(--surface3); }
 
@@ -267,8 +266,8 @@
   background: currentColor;
 }
 .pc-status.active   { background: var(--teal-bg);   color: var(--teal); }
-.pc-status.winding  { background: var(--amber-bg);  color: var(--amber); }
-.pc-status.dormant  { background: var(--surface2);  color: var(--t2); }
+.pc-status.winding  { background: var(--green-bg);  color: var(--green); }
+.pc-status.dormant  { background: var(--amber-bg);  color: var(--amber); }
 .pc-status.archived { background: var(--surface3);  color: var(--t3); }
 
 .pc-name {
@@ -433,20 +432,21 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 11px;
   color: var(--t2);
 }
 .pc-stat b {
-  font-family: var(--sans);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   font-size: 13px;
   font-weight: 700;
   color: var(--t1);
 }
 .pc-stat.muted { color: var(--t3); }
 .pc-stat.muted b { color: var(--t2); }
-.pc-stat.due { color: var(--amber); }
-.pc-stat.due b { color: var(--amber); }
+.pc-stat.due { color: var(--seal); }
+.pc-stat.due b { color: var(--seal); }
 .pc-go {
   margin-left: auto;
   font-family: var(--mono);
