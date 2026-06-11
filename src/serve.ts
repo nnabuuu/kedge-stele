@@ -501,6 +501,10 @@ async function handlePostConfigSet(
   if (key === "tag_require_reason" && !["true", "false"].includes(body.value)) {
     return badRequest(res, `tag_require_reason must be 'true' or 'false'`);
   }
+  // 0.5.0 — strict enum for display_language (CLI + Web UI both branch on it)
+  if (key === "display_language" && !["zh", "en"].includes(body.value)) {
+    return badRequest(res, `display_language must be 'zh' or 'en'`);
+  }
   store.setConfig(key, body.value);
   json(res, 200, { ok: true, key, value: body.value });
 }

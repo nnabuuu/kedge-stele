@@ -17,6 +17,7 @@
 import { currentSlug, slugUrl, apiBase } from "./api.js";
 import { renderTopbar } from "./components/topbar.js";
 import { escapeHtml } from "./dom.js";
+import { loadLocale, setLocale, t } from "./i18n.js";
 
 // Reserved first segments that AREN'T project slugs
 const RESERVED_FIRST_SEG = new Set(["", "welcome", "assets", "api"]);
@@ -153,7 +154,7 @@ function updateTopbarForContext(ctx) {
   const slug = ctx.slug;
   const crumbs = slug
     ? [
-        { href: "/", label: "Projects" },
+        { href: "/", label: t("ui.topbar.projects_link") },
         { href: `/${slug}/`, label: slug },
       ]
     : [];
@@ -164,6 +165,21 @@ function updateTopbarForContext(ctx) {
   } else {
     document.body.insertAdjacentHTML("afterbegin", newTopbar);
   }
+}
+
+// Toggle handler bound by topbar click delegation. Lives here (not in
+// the topbar itself) so the route() reference is in scope without an
+// import cycle.
+function bindLangToggle() {
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-lang]");
+    if (!btn) return;
+    e.preventDefault();
+    const target = btn.getAttribute("data-lang");
+    setLocale(target, { onChange: route }).catch((err) =>
+      console.error("[stele] setLocale failed:", err),
+    );
+  });
 }
 
 // -------------------------------------------------------------------
@@ -199,13 +215,13 @@ async function route() {
   setScope(scope);
   const root = ensureShell();
   updateTopbarForContext({ slug });
-  root.innerHTML = `<div class="loading">loading…</div>`;
+  root.innerHTML = `<div class="loading">${escapeHtml(t("ui.common.loading"))}</div>`;
   try {
     const mod = await loadPageModule(page);
     await mod.render(root, { slug, params, apiBase: apiBase() });
   } catch (err) {
     console.error(`[stele] page "${page}" failed:`, err);
-    root.innerHTML = `<div class="loading">page "${page}" failed to load · ${escapeHtml(String(err.message ?? err))}</div>`;
+    root.innerHTML = `<div class="loading">${escapeHtml(t("ui.common.page_failed", { page, reason: String(err.message ?? err) }))}</div>`;
   }
 }
 
@@ -221,7 +237,14 @@ if (document.readyState === "loading") {
   boot();
 }
 
-function boot() {
+async function boot() {
+  // Locale BEFORE anything renders — pages call t() at render-time.
+  try {
+    await loadLocale();
+  } catch (err) {
+    console.error("[stele] loadLocale() failed (defaulting to en):", err);
+  }
+  bindLangToggle();
   interceptNav();
   route().catch((err) => console.error("[stele] initial route() failed:", err));
 }

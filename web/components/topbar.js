@@ -4,10 +4,27 @@
 // (Projects, Project, Trace, etc.) compose this component to add
 // breadcrumbs, project switcher, search, and resume launcher.
 //
-// Phases 2+ flesh this out.
+// 0.5.0 — added the language toggle (中文 | EN) on the right. Clicks
+// are handled by delegation in app.js's bindLangToggle() so this
+// component stays presentation-only.
 
 import { currentSlug, slugUrl } from "../api.js";
 import { escapeHtml } from "../dom.js";
+import { getLocale, t } from "../i18n.js";
+
+function renderLangToggle() {
+  const cur = getLocale();
+  const label = (locale, text) => {
+    const active = cur === locale ? " active" : "";
+    return `<button type="button" class="lang-toggle-btn${active}" data-lang="${locale}" aria-pressed="${cur === locale}">${escapeHtml(text)}</button>`;
+  };
+  return `
+    <div class="lang-toggle" role="group" aria-label="${escapeHtml(t("ui.topbar.lang_toggle_label"))}">
+      ${label("zh", "中文")}
+      ${label("en", "EN")}
+    </div>
+  `;
+}
 
 export function renderTopbar(opts = {}) {
   const slug = currentSlug();
@@ -28,7 +45,7 @@ export function renderTopbar(opts = {}) {
         </a>
         ${crumbHtml}
         <span class="grow"></span>
-        <div class="topbar-actions">${actions}</div>
+        <div class="topbar-actions">${actions}${renderLangToggle()}</div>
       </div>
     </header>
   `;
