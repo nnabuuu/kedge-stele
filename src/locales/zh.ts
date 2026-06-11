@@ -331,6 +331,55 @@ export const ZH = {
 
   "cli.project_status.invalid":
     "status 值无效: {value} (应该是 active|winding|dormant|archived 之一)",
+
+  // ---------------------------------------------------------------------------
+  // cli.tags_cmd.* — `stele tags <list|propose|apply|...>`
+  // ---------------------------------------------------------------------------
+
+  "cli.tags_cmd.unknown_flag": "不认识的 flag: {flag}",
+  "cli.tags_cmd.no_tags_active": "没有活跃的 tag",
+  "cli.tags_cmd.no_tags_archived": "没有归档的 tag",
+  "cli.tags_cmd.no_tags_all": "没有 tag",
+  "cli.tags_cmd.target_count.one": "1 个 target",
+  "cli.tags_cmd.target_count.other": "{count} 个 target",
+  "cli.tags_cmd.no_proposals_filtered": "没有 {outcome} 状态的提案",
+  "cli.tags_cmd.no_proposals_all": "没有提案",
+  "cli.tags_cmd.proposal_reason": "理由: {reason}",
+  "cli.tags_cmd.propose_usage":
+    "stele tags propose <name> [--reason \"...\"] [--color #RRGGBB] [--target kind:id ...]",
+  "cli.tags_cmd.propose_target_required":
+    "至少需要一个 --target",
+  "cli.tags_cmd.propose_applied":
+    "复用已有 tag {id} ({name})",
+  "cli.tags_cmd.propose_pending":
+    "已提案 {id} ({name}) —— 用 `stele tags confirm {id}` 确认",
+  "cli.tags_cmd.propose_blocked":
+    "被 tag_policy=locked 阻止 —— 已记 {id}",
+  "cli.tags_cmd.error": "出错: {reason}",
+  "cli.tags_cmd.apply_usage": "stele tags apply <tagId> <kind:id>",
+  "cli.tags_cmd.not_found": "找不到 tag: {id}",
+  "cli.tags_cmd.archived_must_restore":
+    "tag {id} 已归档,需要先 restore",
+  "cli.tags_cmd.confirm_usage":
+    "stele tags confirm <proposalId> [--rename name] [--color #RRGGBB]",
+  "cli.tags_cmd.confirmed.one":
+    "已确认 {id} ({name});新挂了 1 条 tagging",
+  "cli.tags_cmd.confirmed.other":
+    "已确认 {id} ({name});新挂了 {count} 条 tagging",
+  "cli.tags_cmd.reject_usage": "stele tags reject <proposalId>",
+  "cli.tags_cmd.proposal_not_found": "找不到提案: {id}",
+  "cli.tags_cmd.rejected": "已拒绝 {id}",
+  "cli.tags_cmd.recolor_usage": "stele tags recolor <tagId> <#RRGGBB>",
+  "cli.tags_cmd.rename_usage": "stele tags rename <tagId> <newname>",
+  "cli.tags_cmd.rename_collision":
+    "名字 \"{name}\" 已经被 {id} 占用",
+  "cli.tags_cmd.renamed": "{id} 已改名 → {name}",
+  "cli.tags_cmd.archive_usage": "stele tags archive <tagId>",
+  "cli.tags_cmd.archived": "{id} 已归档",
+  "cli.tags_cmd.restore_usage": "stele tags restore <tagId>",
+  "cli.tags_cmd.restored": "{id} 已恢复",
+  "cli.tags_cmd.unknown_subcommand":
+    "tags 没有 {sub} 子命令 —— 试试 list / proposals / propose / apply / confirm / reject / recolor / rename / archive / restore",
 } as const;
 
 export type ZhKey = keyof typeof ZH;

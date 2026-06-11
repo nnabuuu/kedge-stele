@@ -334,6 +334,55 @@ export const EN = {
 
   "cli.project_status.invalid":
     "invalid status: {value} (expected active|winding|dormant|archived)",
+
+  // ---------------------------------------------------------------------------
+  // cli.tags_cmd.* — `stele tags <list|propose|apply|...>`
+  // ---------------------------------------------------------------------------
+
+  "cli.tags_cmd.unknown_flag": "unknown flag: {flag}",
+  "cli.tags_cmd.no_tags_active": "no active tags",
+  "cli.tags_cmd.no_tags_archived": "no archived tags",
+  "cli.tags_cmd.no_tags_all": "no tags",
+  "cli.tags_cmd.target_count.one": "1 target",
+  "cli.tags_cmd.target_count.other": "{count} targets",
+  "cli.tags_cmd.no_proposals_filtered": "no {outcome} proposals",
+  "cli.tags_cmd.no_proposals_all": "no proposals",
+  "cli.tags_cmd.proposal_reason": "reason: {reason}",
+  "cli.tags_cmd.propose_usage":
+    "stele tags propose <name> [--reason \"...\"] [--color #RRGGBB] [--target kind:id ...]",
+  "cli.tags_cmd.propose_target_required":
+    "at least one --target is required",
+  "cli.tags_cmd.propose_applied":
+    "applied existing {id} ({name})",
+  "cli.tags_cmd.propose_pending":
+    "proposed {id} ({name}) — confirm with: stele tags confirm {id}",
+  "cli.tags_cmd.propose_blocked":
+    "blocked by tag_policy=locked — logged {id}",
+  "cli.tags_cmd.error": "error: {reason}",
+  "cli.tags_cmd.apply_usage": "stele tags apply <tagId> <kind:id>",
+  "cli.tags_cmd.not_found": "no such tag: {id}",
+  "cli.tags_cmd.archived_must_restore":
+    "tag {id} is archived; restore it first",
+  "cli.tags_cmd.confirm_usage":
+    "stele tags confirm <proposalId> [--rename name] [--color #RRGGBB]",
+  "cli.tags_cmd.confirmed.one":
+    "confirmed {id} ({name}); 1 new tagging applied",
+  "cli.tags_cmd.confirmed.other":
+    "confirmed {id} ({name}); {count} new taggings applied",
+  "cli.tags_cmd.reject_usage": "stele tags reject <proposalId>",
+  "cli.tags_cmd.proposal_not_found": "no such proposal: {id}",
+  "cli.tags_cmd.rejected": "rejected {id}",
+  "cli.tags_cmd.recolor_usage": "stele tags recolor <tagId> <#RRGGBB>",
+  "cli.tags_cmd.rename_usage": "stele tags rename <tagId> <newname>",
+  "cli.tags_cmd.rename_collision":
+    "name \"{name}\" already taken by {id}",
+  "cli.tags_cmd.renamed": "{id} renamed → {name}",
+  "cli.tags_cmd.archive_usage": "stele tags archive <tagId>",
+  "cli.tags_cmd.archived": "{id} archived",
+  "cli.tags_cmd.restore_usage": "stele tags restore <tagId>",
+  "cli.tags_cmd.restored": "{id} restored",
+  "cli.tags_cmd.unknown_subcommand":
+    "unknown tags subcommand: {sub} — try list / proposals / propose / apply / confirm / reject / recolor / rename / archive / restore",
 } as const;
 
 export type EnKey = keyof typeof EN;

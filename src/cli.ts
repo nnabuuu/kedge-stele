@@ -930,24 +930,28 @@ function tagsCommand(store: Store, args: string[]): void {
       else if (args[i] === "--active") status = "active";
       else if (args[i] === "--json") json = true;
       else {
-        console.error(`unknown flag: ${args[i]}`);
+        console.error(t("cli.tags_cmd.unknown_flag", { flag: args[i] }));
         process.exit(1);
       }
     }
     const list = status === "all" ? store.allTags() : store.allTags(status);
     if (json) {
-      const enriched = list.map((t) => ({ ...t, targetCount: store.targetsForTag(t.id).length }));
+      const enriched = list.map((tag) => ({ ...tag, targetCount: store.targetsForTag(tag.id).length }));
       process.stdout.write(JSON.stringify(enriched, null, 2) + "\n");
       return;
     }
     if (list.length === 0) {
-      console.log(`no ${status === "all" ? "" : status + " "}tags`);
+      const noKey = status === "active" ? "cli.tags_cmd.no_tags_active"
+        : status === "archived" ? "cli.tags_cmd.no_tags_archived"
+        : "cli.tags_cmd.no_tags_all";
+      console.log(t(noKey));
       return;
     }
-    for (const t of list) {
-      const targets = store.targetsForTag(t.id);
+    for (const tag of list) {
+      const targets = store.targetsForTag(tag.id);
+      const targetLabel = t("cli.tags_cmd.target_count", { count: targets.length }, targets.length);
       console.log(
-        `  ${t.id.padEnd(14)} ${t.color}  ${t.status.padEnd(8)} ${t.origin.padEnd(5)}  ${t.name}  (${targets.length} target${targets.length === 1 ? "" : "s"})`,
+        `  ${tag.id.padEnd(14)} ${tag.color}  ${tag.status.padEnd(8)} ${tag.origin.padEnd(5)}  ${tag.name}  (${targetLabel})`,
       );
     }
     return;
@@ -961,18 +965,21 @@ function tagsCommand(store: Store, args: string[]): void {
       else if (args[i] === "--blocked") outcome = "blocked";
       else if (args[i] === "--adopted") outcome = "auto_adopted";
       else {
-        console.error(`unknown flag: ${args[i]}`);
+        console.error(t("cli.tags_cmd.unknown_flag", { flag: args[i] }));
         process.exit(1);
       }
     }
     const list = store.allTagProposals(outcome);
     if (list.length === 0) {
-      console.log(`no ${outcome ?? ""} proposals`);
+      console.log(outcome
+        ? t("cli.tags_cmd.no_proposals_filtered", { outcome })
+        : t("cli.tags_cmd.no_proposals_all"));
       return;
     }
     for (const p of list) {
-      console.log(`  ${p.id.padEnd(12)} [${p.outcome.padEnd(12)}] ${p.name}  → ${p.targets.length} target(s)`);
-      if (p.reason) console.log(`        reason: ${p.reason}`);
+      const targetLabel = t("cli.tags_cmd.target_count", { count: p.targets.length }, p.targets.length);
+      console.log(`  ${p.id.padEnd(12)} [${p.outcome.padEnd(12)}] ${p.name}  → ${targetLabel}`);
+      if (p.reason) console.log(`        ${t("cli.tags_cmd.proposal_reason", { reason: p.reason })}`);
     }
     return;
   }
@@ -980,7 +987,7 @@ function tagsCommand(store: Store, args: string[]): void {
   if (sub === "propose") {
     const name = args[1];
     if (!name) {
-      console.error(`stele tags propose <name> [--reason "..."] [--color #RRGGBB] [--target kind:id ...]`);
+      console.error(t("cli.tags_cmd.propose_usage"));
       process.exit(1);
     }
     let reason: string | undefined;
@@ -992,21 +999,21 @@ function tagsCommand(store: Store, args: string[]): void {
       else if (a === "--color") suggestedColor = args[++i];
       else if (a === "--target") targets.push(parseTarget(args[++i]));
       else {
-        console.error(`unknown flag: ${a}`);
+        console.error(t("cli.tags_cmd.unknown_flag", { flag: a }));
         process.exit(1);
       }
     }
     if (targets.length === 0) {
-      console.error(`at least one --target is required`);
+      console.error(t("cli.tags_cmd.propose_target_required"));
       process.exit(1);
     }
     try {
       const r = ensureTag(store, name, { reason, suggestedColor, targets });
-      if (r.kind === "active") console.log(`applied existing ${r.tag.id} (${r.tag.name})`);
-      else if (r.kind === "pending") console.log(`proposed ${r.proposal.id} (${r.proposal.name}) — confirm with: stele tags confirm ${r.proposal.id}`);
-      else console.log(`blocked by tag_policy=locked — logged ${r.proposal.id}`);
+      if (r.kind === "active") console.log(t("cli.tags_cmd.propose_applied", { id: r.tag.id, name: r.tag.name }));
+      else if (r.kind === "pending") console.log(t("cli.tags_cmd.propose_pending", { id: r.proposal.id, name: r.proposal.name }));
+      else console.log(t("cli.tags_cmd.propose_blocked", { id: r.proposal.id }));
     } catch (e) {
-      console.error(`error: ${(e as Error).message}`);
+      console.error(t("cli.tags_cmd.error", { reason: (e as Error).message }));
       process.exit(1);
     }
     return;
@@ -1016,16 +1023,16 @@ function tagsCommand(store: Store, args: string[]): void {
     const tagId = args[1];
     const targetSpec = args[2];
     if (!tagId || !targetSpec) {
-      console.error(`stele tags apply <tagId> <kind:id>`);
+      console.error(t("cli.tags_cmd.apply_usage"));
       process.exit(1);
     }
     const tag = store.getTag(tagId);
     if (!tag) {
-      console.error(`no such tag: ${tagId}`);
+      console.error(t("cli.tags_cmd.not_found", { id: tagId }));
       process.exit(1);
     }
     if (tag.status !== "active") {
-      console.error(`tag ${tagId} is archived; restore it first`);
+      console.error(t("cli.tags_cmd.archived_must_restore", { id: tagId }));
       process.exit(1);
     }
     const target = parseTarget(targetSpec);
@@ -1037,7 +1044,7 @@ function tagsCommand(store: Store, args: string[]): void {
   if (sub === "confirm") {
     const proposalId = args[1];
     if (!proposalId) {
-      console.error(`stele tags confirm <proposalId> [--rename name] [--color #RRGGBB]`);
+      console.error(t("cli.tags_cmd.confirm_usage"));
       process.exit(1);
     }
     let rename: string | undefined;
@@ -1046,15 +1053,15 @@ function tagsCommand(store: Store, args: string[]): void {
       if (args[i] === "--rename") rename = args[++i];
       else if (args[i] === "--color") color = args[++i];
       else {
-        console.error(`unknown flag: ${args[i]}`);
+        console.error(t("cli.tags_cmd.unknown_flag", { flag: args[i] }));
         process.exit(1);
       }
     }
     try {
       const r = confirmProposal(store, proposalId, { rename, color });
-      console.log(`confirmed ${r.tag.id} (${r.tag.name}); ${r.taggingsAdded} new tagging(s) applied`);
+      console.log(t("cli.tags_cmd.confirmed", { id: r.tag.id, name: r.tag.name, count: r.taggingsAdded }, r.taggingsAdded));
     } catch (e) {
-      console.error(`error: ${(e as Error).message}`);
+      console.error(t("cli.tags_cmd.error", { reason: (e as Error).message }));
       process.exit(1);
     }
     return;
@@ -1063,15 +1070,15 @@ function tagsCommand(store: Store, args: string[]): void {
   if (sub === "reject") {
     const proposalId = args[1];
     if (!proposalId) {
-      console.error(`stele tags reject <proposalId>`);
+      console.error(t("cli.tags_cmd.reject_usage"));
       process.exit(1);
     }
     const ok = rejectProposal(store, proposalId);
     if (!ok) {
-      console.error(`no such proposal: ${proposalId}`);
+      console.error(t("cli.tags_cmd.proposal_not_found", { id: proposalId }));
       process.exit(1);
     }
-    console.log(`rejected ${proposalId}`);
+    console.log(t("cli.tags_cmd.rejected", { id: proposalId }));
     return;
   }
 
@@ -1079,11 +1086,11 @@ function tagsCommand(store: Store, args: string[]): void {
     const tagId = args[1];
     const color = args[2];
     if (!tagId || !color || !/^#[0-9a-fA-F]{6}$/.test(color)) {
-      console.error(`stele tags recolor <tagId> <#RRGGBB>`);
+      console.error(t("cli.tags_cmd.recolor_usage"));
       process.exit(1);
     }
     if (!store.getTag(tagId)) {
-      console.error(`no such tag: ${tagId}`);
+      console.error(t("cli.tags_cmd.not_found", { id: tagId }));
       process.exit(1);
     }
     store.recolorTag(tagId, color);
@@ -1095,47 +1102,47 @@ function tagsCommand(store: Store, args: string[]): void {
     const tagId = args[1];
     const name = args[2];
     if (!tagId || !name) {
-      console.error(`stele tags rename <tagId> <newname>`);
+      console.error(t("cli.tags_cmd.rename_usage"));
       process.exit(1);
     }
     const existing = store.getTag(tagId);
     if (!existing) {
-      console.error(`no such tag: ${tagId}`);
+      console.error(t("cli.tags_cmd.not_found", { id: tagId }));
       process.exit(1);
     }
     const collision = store.findTagByName(name);
     if (collision && collision.id !== tagId) {
-      console.error(`name "${name}" already taken by ${collision.id}`);
+      console.error(t("cli.tags_cmd.rename_collision", { name, id: collision.id }));
       process.exit(1);
     }
     store.renameTag(tagId, name);
-    console.log(`${tagId} renamed → ${name}`);
+    console.log(t("cli.tags_cmd.renamed", { id: tagId, name }));
     return;
   }
 
   if (sub === "archive") {
     const tagId = args[1];
     if (!tagId || !store.getTag(tagId)) {
-      console.error(`stele tags archive <tagId>`);
+      console.error(t("cli.tags_cmd.archive_usage"));
       process.exit(1);
     }
     store.archiveTag(tagId);
-    console.log(`${tagId} archived`);
+    console.log(t("cli.tags_cmd.archived", { id: tagId }));
     return;
   }
 
   if (sub === "restore") {
     const tagId = args[1];
     if (!tagId || !store.getTag(tagId)) {
-      console.error(`stele tags restore <tagId>`);
+      console.error(t("cli.tags_cmd.restore_usage"));
       process.exit(1);
     }
     store.restoreTag(tagId);
-    console.log(`${tagId} restored`);
+    console.log(t("cli.tags_cmd.restored", { id: tagId }));
     return;
   }
 
-  console.error(`unknown tags subcommand: ${sub} — try list / proposals / propose / apply / confirm / reject / recolor / rename / archive / restore`);
+  console.error(t("cli.tags_cmd.unknown_subcommand", { sub: sub ?? "" }));
   process.exit(1);
 }
 
