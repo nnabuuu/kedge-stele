@@ -748,7 +748,7 @@ function sessionsCommand(store: Store, args: string[]): void {
     if (featureFlag >= 0) {
       const mid = args[featureFlag + 1];
       if (!mid) {
-        console.error(`--feature requires a value`);
+        console.error(t("cli.sessions.feature_requires_value"));
         process.exit(1);
       }
       const sessions = store.sessionsInFeature(mid);
@@ -760,10 +760,10 @@ function sessionsCommand(store: Store, args: string[]): void {
     // Fallback: list latest session per feature via latestSession()
     const latest = store.latestSession();
     if (!latest) {
-      console.log("no sessions yet");
+      console.log(t("cli.sessions.none_yet"));
       return;
     }
-    console.log(`latest session: ${latest.id} on feature ${latest.featureId}`);
+    console.log(t("cli.sessions.latest_line", { id: latest.id, feature: latest.featureId }));
     if (latest.outcome) console.log(`  outcome: ${latest.outcome.type}  ${latest.outcome.summary ?? ""}`);
     if (latest.pauseReason) console.log(`  paused:  ${latest.pauseReason.kind}  ${latest.pauseReason.note ?? ""}`);
     return;
@@ -773,7 +773,7 @@ function sessionsCommand(store: Store, args: string[]): void {
     // Stdin JSON for the full body
     const raw = readStdin();
     if (!raw) {
-      console.error(`stele sessions start expects JSON on stdin: { featureId, sourceSession, provenance? }`);
+      console.error(t("cli.sessions.start_usage"));
       process.exit(1);
     }
     const body = JSON.parse(raw) as {
@@ -782,36 +782,36 @@ function sessionsCommand(store: Store, args: string[]): void {
       provenance?: SessionProvenance;
     };
     const s = recordSessionStart(store, body.featureId, body.sourceSession, body.provenance);
-    console.log(`opened session ${s.id} on feature ${s.featureId}`);
+    console.log(t("cli.sessions.opened", { id: s.id, feature: s.featureId }));
     return;
   }
 
   if (sub === "end") {
     const sid = args[1];
     if (!sid) {
-      console.error(`stele sessions end <session-id> < outcome+pause-reason JSON on stdin`);
+      console.error(t("cli.sessions.end_usage_id"));
       process.exit(1);
     }
     const raw = readStdin();
     if (!raw) {
-      console.error(`stele sessions end expects JSON on stdin: { outcome, pauseReason? }`);
+      console.error(t("cli.sessions.end_usage_body"));
       process.exit(1);
     }
     const body = JSON.parse(raw) as { outcome: SessionOutcome; pauseReason?: PauseReason };
     const s = recordSessionEnd(store, sid, body.outcome, body.pauseReason);
-    console.log(`closed session ${s.id}  outcome=${s.outcome?.type}${s.pauseReason ? `  pause=${s.pauseReason.kind}` : ""}`);
+    console.log(t("cli.sessions.closed", { id: s.id, outcome: s.outcome?.type ?? "", pause: s.pauseReason ? `  pause=${s.pauseReason.kind}` : "" }));
     return;
   }
 
   if (sub === "resume") {
     const sid = args[1];
     if (!sid) {
-      console.error(`stele sessions resume <session-id>`);
+      console.error(t("cli.sessions.resume_usage"));
       process.exit(1);
     }
     const s = store.getSession(sid);
     if (!s) {
-      console.error(`no such session: ${sid}`);
+      console.error(t("cli.sessions.not_found", { id: sid }));
       process.exit(1);
     }
     const layoutAlive = s.provenance?.layoutAlive ?? false;
@@ -826,10 +826,10 @@ function sessionsCommand(store: Store, args: string[]): void {
   if (sub === "continue") {
     const r = continueLast(store);
     if (!r) {
-      console.log("no sessions yet");
+      console.log(t("cli.sessions.none_yet"));
       return;
     }
-    console.log(`Last session: ${r.session.id} on feature ${r.feature.id} "${r.feature.name}"`);
+    console.log(t("cli.sessions.continue_last", { id: r.session.id, feature: r.feature.id, name: r.feature.name }));
     if (r.lastOutcome) console.log(`  outcome: ${r.lastOutcome.type}  ${r.lastOutcome.summary ?? ""}`);
     if (r.lastPauseReason) console.log(`  paused:  ${r.lastPauseReason.kind}  ${r.lastPauseReason.note ?? ""}`);
     const layoutAlive = r.session.provenance?.layoutAlive ?? false;
@@ -837,12 +837,12 @@ function sessionsCommand(store: Store, args: string[]): void {
     const ccSid = r.session.sourceSessionId ?? "<no-session-id>";
     const mode = layoutAlive ? "jump" : "rebuild";
     console.log(``);
-    console.log(`Resume (mode=${mode}):`);
+    console.log(t("cli.sessions.resume_header", { mode }));
     console.log(`  cd ${cwd} && claude --resume ${ccSid}`);
     return;
   }
 
-  console.error(`unknown sessions subcommand: ${sub} — try list / start / end / resume / continue`);
+  console.error(t("cli.sessions.unknown_subcommand", { sub: sub ?? "" }));
   process.exit(1);
 }
 
@@ -852,7 +852,7 @@ function sessionsCommand(store: Store, args: string[]): void {
 
 function parseProjectStatus(v: string | undefined): ProjectStatus {
   if (v === "active" || v === "winding" || v === "dormant" || v === "archived") return v;
-  console.error(`invalid status: ${v} (expected active|winding|dormant|archived)`);
+  console.error(t("cli.project_status.invalid", { value: v ?? "" }));
   process.exit(1);
 }
 

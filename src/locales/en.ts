@@ -301,6 +301,39 @@ export const EN = {
   "cli.features_cmd.decision_label.other": "{count} decisions",
   "cli.features_cmd.unknown_subcommand":
     "unknown features subcommand: {sub} — try list / open / report / show / set-state",
+
+  // ---------------------------------------------------------------------------
+  // cli.sessions.* — `stele sessions <list|start|end|resume|continue>`
+  // ---------------------------------------------------------------------------
+
+  "cli.sessions.feature_requires_value": "--feature requires a value",
+  "cli.sessions.none_yet": "no sessions yet",
+  "cli.sessions.latest_line":
+    "latest session: {id} on feature {feature}",
+  "cli.sessions.start_usage":
+    "stele sessions start expects JSON on stdin: { featureId, sourceSession, provenance? }",
+  "cli.sessions.opened":
+    "opened session {id} on feature {feature}",
+  "cli.sessions.end_usage_id":
+    "stele sessions end <session-id> < outcome+pause-reason JSON on stdin",
+  "cli.sessions.end_usage_body":
+    "stele sessions end expects JSON on stdin: { outcome, pauseReason? }",
+  "cli.sessions.closed":
+    "closed session {id}  outcome={outcome}{pause}",
+  "cli.sessions.resume_usage": "stele sessions resume <session-id>",
+  "cli.sessions.not_found": "no such session: {id}",
+  "cli.sessions.continue_last":
+    "Last session: {id} on feature {feature} \"{name}\"",
+  "cli.sessions.resume_header": "Resume (mode={mode}):",
+  "cli.sessions.unknown_subcommand":
+    "unknown sessions subcommand: {sub} — try list / start / end / resume / continue",
+
+  // ---------------------------------------------------------------------------
+  // cli.project_status.* — parseProjectStatus
+  // ---------------------------------------------------------------------------
+
+  "cli.project_status.invalid":
+    "invalid status: {value} (expected active|winding|dormant|archived)",
 } as const;
 
 export type EnKey = keyof typeof EN;

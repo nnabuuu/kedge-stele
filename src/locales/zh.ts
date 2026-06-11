@@ -298,6 +298,39 @@ export const ZH = {
   "cli.features_cmd.decision_label.other": "{count} 个 decision",
   "cli.features_cmd.unknown_subcommand":
     "features 没有 {sub} 子命令 —— 试试 list / open / report / show / set-state",
+
+  // ---------------------------------------------------------------------------
+  // cli.sessions.* — `stele sessions <list|start|end|resume|continue>`
+  // ---------------------------------------------------------------------------
+
+  "cli.sessions.feature_requires_value": "--feature 必须带一个值",
+  "cli.sessions.none_yet": "还没有 session",
+  "cli.sessions.latest_line":
+    "最近一个 session: {id} (feature {feature})",
+  "cli.sessions.start_usage":
+    "stele sessions start 需要从 stdin 读 JSON: { featureId, sourceSession, provenance? }",
+  "cli.sessions.opened":
+    "已打开 session {id} (feature {feature})",
+  "cli.sessions.end_usage_id":
+    "stele sessions end <session-id> < outcome+pause-reason JSON on stdin",
+  "cli.sessions.end_usage_body":
+    "stele sessions end 需要从 stdin 读 JSON: { outcome, pauseReason? }",
+  "cli.sessions.closed":
+    "已关闭 session {id}  outcome={outcome}{pause}",
+  "cli.sessions.resume_usage": "stele sessions resume <session-id>",
+  "cli.sessions.not_found": "找不到 session: {id}",
+  "cli.sessions.continue_last":
+    "上一个 session: {id} (feature {feature} \"{name}\")",
+  "cli.sessions.resume_header": "Resume (mode={mode}):",
+  "cli.sessions.unknown_subcommand":
+    "sessions 没有 {sub} 子命令 —— 试试 list / start / end / resume / continue",
+
+  // ---------------------------------------------------------------------------
+  // cli.project_status.* — parseProjectStatus
+  // ---------------------------------------------------------------------------
+
+  "cli.project_status.invalid":
+    "status 值无效: {value} (应该是 active|winding|dormant|archived 之一)",
 } as const;
 
 export type ZhKey = keyof typeof ZH;
