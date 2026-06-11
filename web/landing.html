@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>实录 · Stele — 决策溯源</title>
+<title>实录 · Stele — Decision provenance</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600&family=Noto+Serif+SC:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
 :root{
@@ -24,7 +24,7 @@ body{
   display:flex;align-items:center;justify-content:center;padding:48px 24px;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
 }
-.card{max-width:560px;width:100%}
+.card{max-width:560px;width:100%;position:relative}
 .eyebrow{
   font-family:var(--mono);font-size:11.5px;font-weight:600;
   letter-spacing:.2em;text-transform:uppercase;color:var(--seal);
@@ -64,19 +64,111 @@ p.sub{font-size:18px;line-height:1.7;color:var(--ink-2);margin-top:22px;text-wra
   letter-spacing:.04em;color:var(--ink-3);line-height:1.7;
 }
 .note code{color:var(--ink-2)}
+.lang-toggle{
+  position:absolute;top:-32px;right:0;display:inline-flex;
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;
+  border:1px solid var(--line);border-radius:5px;padding:2px;gap:0;
+  background:var(--surface);
+}
+.lang-toggle button{
+  background:transparent;border:0;color:var(--ink-3);
+  padding:3px 9px;border-radius:3px;cursor:pointer;font:inherit;letter-spacing:inherit;
+  transition:color .18s,background .18s;
+}
+.lang-toggle button:hover{color:var(--ink)}
+.lang-toggle button.on{background:var(--bg);color:var(--ink)}
 </style>
 </head>
 <body>
   <main class="card">
-    <div class="eyebrow">Decision provenance · 决策溯源</div>
+    <div class="lang-toggle" role="group" aria-label="Language">
+      <button type="button" data-lang="zh">中文</button>
+      <button type="button" data-lang="en">EN</button>
+    </div>
+    <div class="eyebrow" data-i18n="eyebrow">Decision provenance · 决策溯源</div>
     <h1><span class="pn-mark">实录</span> · <span class="pn-mark">Stele</span></h1>
-    <p class="sub">A local-first decision-provenance store. Agents deliver results; <span class="pn-mark">Stele</span> records the decisions behind them — every choice, deferral, and rejection lands beside the artifact so you can trace how anything came to be.</p>
+    <p class="sub" data-i18n="sub">A local-first decision-provenance store. Agents deliver results; <span class="pn-mark">Stele</span> records the decisions behind them — every choice, deferral, and rejection lands beside the artifact so you can trace how anything came to be.</p>
     <pre class="snippet"><span class="sigil">$</span>npm install -g stele-mcp &amp;&amp; stele init</pre>
     <div class="cta-row">
-      <a class="btn btn-solid" href="https://github.com/nnabuuu/kedge-stele" target="_blank" rel="noopener">View on GitHub →</a>
-      <a class="btn btn-ghost" href="/">Open dashboard</a>
+      <a class="btn btn-solid" href="https://github.com/nnabuuu/kedge-stele" target="_blank" rel="noopener" data-i18n="cta_github">View on GitHub →</a>
+      <a class="btn btn-ghost" href="/" data-i18n="cta_dashboard">Open dashboard</a>
     </div>
-    <p class="note">Node ≥ 22.6 · Local SQLite at <code>&lt;project&gt;/.stele/decisions.db</code> · MIT · No tracking</p>
+    <p class="note" data-i18n-html="note">Node ≥ 22.6 · Local SQLite at <code>&lt;project&gt;/.stele/decisions.db</code> · Apache-2.0 · No tracking</p>
   </main>
+<script>
+// Tiny landing-page i18n — no module imports, no fetch, just a key/value
+// swap on data-i18n attributes. The full SPA i18n in /assets/i18n.js is
+// overkill for this single static page.
+//
+// Resolution order: ?lang= → localStorage "stele:lang" → navigator.language.
+// Toggle persists to localStorage; we don't POST to the server here because
+// the landing isn't slug-scoped.
+(function(){
+  const I18N = {
+    en: {
+      title: "Stele · Decision provenance",
+      eyebrow: "Decision provenance · 决策溯源",
+      sub: 'A local-first decision-provenance store. Agents deliver results; <span class="pn-mark">Stele</span> records the decisions behind them — every choice, deferral, and rejection lands beside the artifact so you can trace how anything came to be.',
+      cta_github: "View on GitHub →",
+      cta_dashboard: "Open dashboard",
+      note: 'Node ≥ 22.6 · Local SQLite at <code>&lt;project&gt;/.stele/decisions.db</code> · Apache-2.0 · No tracking',
+    },
+    zh: {
+      title: "实录 · Stele — 决策溯源",
+      eyebrow: "Decision provenance · 决策溯源",
+      sub: '一个 local-first 的决策溯源仓库。agent 交付结果;<span class="pn-mark">Stele</span> 把它们背后的决策记下来 —— 每一次选择、每一次推迟、每一次否决都落在产物旁边,让任何东西的来历都可追溯。',
+      cta_github: "在 GitHub 看 →",
+      cta_dashboard: "打开 dashboard",
+      note: 'Node ≥ 22.6 · SQLite 在本地 <code>&lt;project&gt;/.stele/decisions.db</code> · Apache-2.0 · 不做任何追踪',
+    },
+  };
+
+  function resolve(){
+    const q = new URLSearchParams(location.search).get("lang");
+    if (q === "zh" || q === "en") return q;
+    try {
+      const ls = localStorage.getItem("stele:lang");
+      if (ls === "zh" || ls === "en") return ls;
+    } catch {}
+    return (navigator.language || "en").toLowerCase().startsWith("zh") ? "zh" : "en";
+  }
+
+  function apply(loc){
+    const dict = I18N[loc] || I18N.en;
+    document.documentElement.lang = loc === "zh" ? "zh-CN" : "en";
+    document.title = dict.title;
+    for (const el of document.querySelectorAll("[data-i18n]")) {
+      const k = el.getAttribute("data-i18n");
+      if (dict[k] !== undefined) el.textContent = dict[k];
+    }
+    for (const el of document.querySelectorAll("[data-i18n-html]")) {
+      const k = el.getAttribute("data-i18n-html");
+      if (dict[k] !== undefined) el.innerHTML = dict[k];
+    }
+    // Re-render sub which has embedded HTML (the pn-mark span)
+    const sub = document.querySelector('p.sub[data-i18n="sub"]');
+    if (sub && dict.sub) sub.innerHTML = dict.sub;
+    // Toggle button state
+    for (const btn of document.querySelectorAll(".lang-toggle button")) {
+      btn.classList.toggle("on", btn.getAttribute("data-lang") === loc);
+      btn.setAttribute("aria-pressed", btn.getAttribute("data-lang") === loc ? "true" : "false");
+    }
+  }
+
+  function setLocale(loc){
+    try { localStorage.setItem("stele:lang", loc); } catch {}
+    apply(loc);
+  }
+
+  document.addEventListener("click", function(e){
+    const btn = e.target.closest && e.target.closest("[data-lang]");
+    if (!btn) return;
+    e.preventDefault();
+    setLocale(btn.getAttribute("data-lang"));
+  });
+
+  apply(resolve());
+})();
+</script>
 </body>
 </html>

@@ -16,6 +16,88 @@ npm install -g stele-mcp@snapshot
 
 — nothing yet —
 
+## [0.5.0-snapshot.2] · 2026-06-11
+
+**Web UI bilingual (zh / en) — second half of the 0.5.0 i18n rollout.**
+
+The SPA now mirrors the CLI's bilingual surface from snapshot.1.
+Five page modules + the shared topbar + the landing page + the
+shared ResumeLauncher component all route their user-facing strings
+through `t()`. A segmented `中文 | EN` toggle sits in the topbar;
+clicking it persists to localStorage, POSTs to the project's
+`display_language` config, sets `<html lang>`, and re-renders the
+current page in place (no reload).
+
+Resolution order on boot (`resolveLocale()` in `web/i18n.js`):
+1. `?lang=zh|en` query param (highest precedence so shareable URLs
+   can pin a language).
+2. The project's `display_language` from `/api/config` (cached after
+   boot — only fetched when in a project, not on the multi-tenant
+   landing).
+3. `localStorage.getItem("stele:lang")`.
+4. `navigator.language.startsWith("zh") ? "zh" : "en"`.
+
+Surfaces migrated:
+  • `web/i18n.js` — t(), getLocale(), setLocale(), loadLocale(),
+    formatRelativeDate() (mirror of `src/i18n.ts`)
+  • `web/locales/{en,zh}.js` — paired key tables (~410 strings)
+  • `web/app.js` — boot wires loadLocale() + bindLangToggle();
+    route() now uses t() for the loading/error fallbacks
+  • `web/components/topbar.js` — segmented `中文 | EN` control in
+    `.topbar-actions`. Click delegation lives in `web/app.js`
+    `bindLangToggle()` so the component stays presentation-only.
+  • `web/components/resume-launcher.js` — shared component used by
+    projects/project/trace pages; button labels, loading state,
+    copy feedback all through t().
+  • `web/styles/shell.css` — `.lang-toggle` + `.lang-toggle-btn`
+    segmented-control styles.
+  • `web/pages/graph.js` — Decision Graph page (~30 strings).
+    NODE_STATE_META / RELATION_META labels migrated to runtime
+    helpers; SVG aria-label, filter bar, legend, empty state, hint
+    pane.
+  • `web/pages/tags.js` — Tags page (~70 strings). POLICY_META
+    labels/descs via runtime helpers; bilingual three-part pending
+    banner per policy mode; ~15 toast messages; archive confirm
+    prompt.
+  • `web/pages/projects.js` — Projects overview (~80 strings). Page-
+    specific STATUS_META / FT_STATE / OUTCOME vocab under
+    ui.projects.\* so the design mock can iterate on phrasing without
+    rippling.
+  • `web/pages/project.js` — Single Project page (~110 strings,
+    heaviest). Rail header/count/tag-filter, feature rows, main
+    panel (state pill, summary, stats), timeline, source filter
+    strip, resume strip, session cards, decision chips, empty
+    state.
+  • `web/pages/trace.js` — Trace page (~115 strings). All four
+    enum tables (NODE_STATE_META / RELATION_META / ARC_STAGE / etc.)
+    split structural fields (cls/color/dot) from labels (t()).
+    Cross-session stitch band + life arc + neighbor blocks + affects
+    list + 404 placeholder.
+  • `web/landing.html` — inline-JS i18n (no module imports, no
+    fetch). data-i18n attributes + a tiny KV dict swap. Lang toggle
+    in the top-right.
+
+Server-side:
+  • `src/serve.ts` `handlePostConfigSet` rejects display_language
+    values other than `zh|en` with 400 — same strict enum the CLI
+    enforces.
+
+Deliberate omissions:
+  • Aligned-column SVG / inline labels in graph.js's SOURCE_META
+    use English class names ("agent-live" / "session-extract")
+    everywhere — they're CSS hooks, not user prose.
+  • The brand mark on landing.html stays bilingual (实录 · Stele) —
+    intentional; the brand IS bilingual.
+
+Tests: 247/247 pass (unchanged — Phase B is presentation-layer; the
+i18n parity invariant in `src/i18n.test.ts` still guards the CLI
+locale files). `npx tsc --noEmit` clean. Asset smoke: all five
+`/assets/pages/<page>.js` return 200; `/welcome` (landing) returns
+200 with the `.lang-toggle` markup present.
+
+0.5.0 stable cut + README + CLAUDE.md narrative + tag + push
+follows in Phase C.
+
 ## [0.5.0-snapshot.1] · 2026-06-11
 
 **CLI bilingual (zh / en) — first half of the 0.5.0 i18n rollout.**

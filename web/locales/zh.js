@@ -391,4 +391,17 @@ export const LOCALES_ZH = {
   "ui.trace.not_found_hint":
     "可能是 id 拼错了,或者它还没在本地库里。",
   "ui.trace.back_to_projects": "← 项目",
+
+  // ---------------------------------------------------------------------------
+  // ui.resume.* — 共享的 ResumeLauncher 组件
+  // ---------------------------------------------------------------------------
+
+  "ui.resume.btn": "继续这次对话",
+  "ui.resume.loading": "…",
+  "ui.resume.fetch_failed": "无法获取恢复命令",
+  "ui.resume.label_jump": "回到正在运行的会话",
+  "ui.resume.label_rebuild": "复制并运行以继续这次对话",
+  "ui.resume.copy": "复制",
+  "ui.resume.copied": "已复制 ✓",
+  "ui.resume.copy_failed": "复制失败",
 };

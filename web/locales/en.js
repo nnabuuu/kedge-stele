@@ -403,4 +403,18 @@ export const LOCALES_EN = {
   "ui.trace.not_found_hint":
     "Maybe the id is mistyped, or it isn't in the local store yet.",
   "ui.trace.back_to_projects": "← projects",
+
+  // ---------------------------------------------------------------------------
+  // ui.resume.* — shared ResumeLauncher component (used by projects /
+  // project / trace pages)
+  // ---------------------------------------------------------------------------
+
+  "ui.resume.btn": "continue this conversation",
+  "ui.resume.loading": "…",
+  "ui.resume.fetch_failed": "failed to fetch resume command",
+  "ui.resume.label_jump": "return to the running session",
+  "ui.resume.label_rebuild": "copy and run to continue this conversation",
+  "ui.resume.copy": "copy",
+  "ui.resume.copied": "copied ✓",
+  "ui.resume.copy_failed": "copy failed",
 };

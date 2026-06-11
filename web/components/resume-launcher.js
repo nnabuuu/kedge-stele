@@ -13,6 +13,7 @@
 // Returns a DOM element (or null) — callers append it directly.
 
 import { currentSlug } from "../api.js";
+import { t } from "../i18n.js";
 
 // Resolve the resume-command URL. On slug-scoped pages (Trace/Project) the
 // slug comes from the URL; on the slug-less Projects overview the caller
@@ -37,7 +38,7 @@ export function renderResumeLauncher({ sessionId, slug } = {}) {
   btn.className = "resume-btn";
   btn.type = "button";
   btn.append(Object.assign(document.createElement("span"), { className: "resume-dot" }));
-  btn.append(document.createTextNode("继续这次对话"));
+  btn.append(document.createTextNode(t("ui.resume.btn")));
 
   const pop = document.createElement("div");
   pop.className = "resume-pop";
@@ -50,14 +51,14 @@ export function renderResumeLauncher({ sessionId, slug } = {}) {
     pop.hidden = !pop.hidden;
     if (pop.hidden || loaded) return;
     loaded = true;
-    pop.textContent = "…";
+    pop.textContent = t("ui.resume.loading");
     try {
       const data = await fetchResumeCommand(sessionId, slug);
       pop.textContent = "";
       pop.append(renderPop(data));
     } catch {
       loaded = false;
-      pop.textContent = "无法获取恢复命令";
+      pop.textContent = t("ui.resume.fetch_failed");
     }
   });
 
@@ -70,7 +71,7 @@ function renderPop(data) {
 
   const label = document.createElement("div");
   label.className = "resume-pop-label";
-  label.textContent = data.mode === "jump" ? "回到正在运行的会话" : "复制并运行以继续这次对话";
+  label.textContent = data.mode === "jump" ? t("ui.resume.label_jump") : t("ui.resume.label_rebuild");
   inner.append(label);
 
   const row = document.createElement("div");
@@ -85,14 +86,14 @@ function renderPop(data) {
     const copy = document.createElement("button");
     copy.className = "resume-copy";
     copy.type = "button";
-    copy.textContent = "复制";
+    copy.textContent = t("ui.resume.copy");
     copy.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(data.command);
-        copy.textContent = "已复制 ✓";
-        setTimeout(() => { copy.textContent = "复制"; }, 1500);
+        copy.textContent = t("ui.resume.copied");
+        setTimeout(() => { copy.textContent = t("ui.resume.copy"); }, 1500);
       } catch {
-        copy.textContent = "复制失败";
+        copy.textContent = t("ui.resume.copy_failed");
       }
     });
     row.append(copy);
