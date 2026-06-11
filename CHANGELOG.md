@@ -16,6 +16,65 @@ npm install -g stele-mcp@snapshot
 
 — nothing yet —
 
+## [0.5.0-snapshot.1] · 2026-06-11
+
+**CLI bilingual (zh / en) — first half of the 0.5.0 i18n rollout.**
+
+The stele CLI now picks a language per call. Order of precedence:
+1. Per-project `display_language` config (enum `zh|en`, strict —
+   rejected at `stele config set` time if anything else).
+2. `STELE_LANG` env var (case-insensitive).
+3. `LC_ALL` / `LANG` env starts with `zh` → `zh`.
+4. Otherwise English.
+
+```bash
+stele config set display_language zh   # per-project, persisted
+STELE_LANG=en stele hooks status        # one-shot env override
+```
+
+Surfaces migrated (~220 strings across):
+  • src/cli.ts (init / hooks / daemon / projects / serve / project /
+    features / sessions / tags / config / add / resolve / relate /
+    depends-on / resume / trace / trace-entity / list + the main
+    usage block + the resume-context formatter)
+  • src/hooks.ts (InstallReport / StatusReport message fields)
+  • src/daemon.ts (notes[] across darwin + linux installers)
+  • src/paths.ts (SteleNotInitializedError)
+  • src/registry.ts (slug-generation failure)
+
+The infrastructure:
+  • New module `src/i18n.ts` — `t(key, vars?, count?, locale?)`,
+    `localeFromEnv()`, `setDefaultLocale()`, `formatRelativeDate()`.
+    Flat-key shape, `{placeholder}` interpolation, `.one`/`.other`
+    plural picker. Throws on missing keys in NODE_ENV=test (the
+    parity guardrail); stderr+fallback otherwise. No runtime dep —
+    ~150 lines, hand-rolled.
+  • `src/locales/{en,zh,index}.ts` — paired tables sharing the same
+    key set, asserted at test time by the parity invariant.
+  • `src/i18n.test.ts` — +17 tests covering parity, interpolation,
+    plural picking, env resolution, isLocale guard, relative-date
+    buckets.
+
+Web UI (~410 strings) lands in 0.5.0-snapshot.2.
+
+Trade-offs and deliberate omissions:
+  • Aligned-column labels in status output (`unit:`, `port:`, `code:`,
+    `path:`, `started:`, etc.) deliberately stay English in both
+    locales — `padEnd()` widths are width-sensitive and these are
+    technical field names anyway. Same convention the SessionStart
+    hook already follows for `tag policy:`.
+  • Copy-paste command echoes (`cd ... && claude --resume ...`) stay
+    verbatim — they're commands the user runs, not prose.
+  • `.stele/README.md` content stays English — it's a one-time write
+    into the user's project, and the user can edit it freely afterward.
+
+Tests: 247/247 pass (was 230 + 17). `npx tsc --noEmit` clean. End-to-
+end smoke confirms `STELE_LANG=zh stele init` + `features list` +
+`tags list` + `help` all render in CN; same with `=en` in EN.
+
+NOT publishing. snapshot — Phase B (Web UI) follows; stable 0.5.0
+cuts after that.
+
 ## [0.4.2] · 2026-06-11
 
 **Ship the Chinese README in the npm tarball.** 0.4.1 added
