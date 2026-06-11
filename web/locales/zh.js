@@ -304,4 +304,91 @@ export const LOCALES_ZH = {
     " 起草第一个决策 —— feature 会自动出现。",
   "ui.project.loading": "加载项目中…",
   "ui.project.load_failed": "加载项目失败 · {reason}",
+
+  // ---------------------------------------------------------------------------
+  // ui.trace.* — Trace 页面 (/<slug>/d/<fid>/<localId>)
+  // ---------------------------------------------------------------------------
+
+  "ui.trace.node_state.decided": "已决",
+  "ui.trace.node_state.deferred": "推迟",
+  "ui.trace.node_state.resolved": "已解决",
+  "ui.trace.node_state.superseded": "已被取代",
+  "ui.trace.node_state.open": "待决",
+  "ui.trace.node_state.conflicted": "有冲突",
+  // Relation table
+  "ui.trace.rel.resolves.label": "解决了",
+  "ui.trace.rel.resolves.section": "这条决定关闭了",
+  "ui.trace.rel.resolves.hint": "本条把它们闭合",
+  "ui.trace.rel.resolvedBy.label": "被解决",
+  "ui.trace.rel.resolvedBy.section": "被这条收尾",
+  "ui.trace.rel.resolvedBy.hint": "这些决定关闭了本条",
+  "ui.trace.rel.depends_on.label": "依赖",
+  "ui.trace.rel.depends_on.section": "依赖",
+  "ui.trace.rel.depends_on.hint": "本条建立在它们之上",
+  "ui.trace.rel.depended_on.label": "被依赖",
+  "ui.trace.rel.depended_on.section": "被依赖",
+  "ui.trace.rel.depended_on.hint": "这些决定建立在本条之上",
+  "ui.trace.rel.relates.label": "相关",
+  "ui.trace.rel.relates.section": "相关",
+  "ui.trace.rel.relates.hint": "话题相关的决定",
+  "ui.trace.rel.supersedes.label": "取代了",
+  "ui.trace.rel.supersedes.section": "取代",
+  "ui.trace.rel.supersedes.hint": "本条把它们替换掉",
+  "ui.trace.rel.supersededBy.label": "被取代",
+  "ui.trace.rel.supersededBy.section": "被取代",
+  "ui.trace.rel.supersededBy.hint": "这些决定取代了本条",
+  "ui.trace.rel.reconciles.label": "调和",
+  "ui.trace.rel.reconciles.section": "调和",
+  "ui.trace.rel.reconciles.hint": "把它们的冲突调和",
+  // Focal card
+  "ui.trace.focal.trigger_label": " 触发: ",
+  // Why section
+  "ui.trace.why.eyebrow": "为什么这么定",
+  "ui.trace.why.sub":
+    "不只是结论,还有当时权衡过哪几个方案、选了哪个、拒了哪个。",
+  "ui.trace.why.summary":
+    "取舍全文 · 触发 / 方案 / 理由 / 锁进锁出",
+  "ui.trace.why.k.trigger": "触发",
+  "ui.trace.why.k.constraint": "约束",
+  "ui.trace.why.k.options": "方案",
+  "ui.trace.why.k.reasons": "理由",
+  "ui.trace.why.k.locks": "锁进 / 锁出",
+  "ui.trace.why.option_axis":
+    "沿「{axis}」权衡 · {count} 个选项",
+  "ui.trace.why.lock_in_k": "锁进了",
+  "ui.trace.why.lock_out_k": "锁出了",
+  // Stitch
+  "ui.trace.stitch.eyebrow": "跨对话缝合",
+  "ui.trace.stitch.sub":
+    "在另一次对话里被接上的那条边",
+  "ui.trace.stitch.older": "原本悬挂",
+  "ui.trace.stitch.newer": "在这次会话里被收掉",
+  "ui.trace.stitch.arrow_tip": "resolves",
+  "ui.trace.stitch.days_after": "{count} 天后",
+  "ui.trace.stitch.note_prefix": "记下:",
+  // Arc
+  "ui.trace.arc.eyebrow": "状态变化",
+  "ui.trace.arc.sub": "按时间排开,每一步都来自一次对话",
+  "ui.trace.arc.stage.raised": "提出",
+  "ui.trace.arc.stage.decided": "定下",
+  "ui.trace.arc.stage.deferred": "推迟",
+  "ui.trace.arc.stage.open": "悬而未决",
+  "ui.trace.arc.stage.resolved": "解决",
+  "ui.trace.arc.resolver_prefix": "由 ",
+  "ui.trace.arc.resolver_suffix": " 解决",
+  // Neighbors
+  "ui.trace.neighbors.empty":
+    "这条决定还没有连接到别的决定 —— 没有传入/传出的边。",
+  // Affects
+  "ui.trace.affects.eyebrow": "相关文件",
+  "ui.trace.affects.count_suffix": "· {count} 个实体",
+  // Page-level
+  "ui.trace.loading": "加载决策中…",
+  "ui.trace.missing_url": "URL 中缺少 decision id",
+  "ui.trace.load_failed": "加载决策失败 · {reason}",
+  "ui.trace.not_found_eyebrow": "Not found",
+  "ui.trace.not_found_heading": "决定 {fid}/{did} 不存在",
+  "ui.trace.not_found_hint":
+    "可能是 id 拼错了,或者它还没在本地库里。",
+  "ui.trace.back_to_projects": "← 项目",
 };

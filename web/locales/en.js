@@ -316,4 +316,91 @@ export const LOCALES_EN = {
     " to draft your first decision — features will appear automatically.",
   "ui.project.loading": "loading project…",
   "ui.project.load_failed": "failed to load project · {reason}",
+
+  // ---------------------------------------------------------------------------
+  // ui.trace.* — Trace page (/<slug>/d/<fid>/<localId>)
+  // ---------------------------------------------------------------------------
+
+  "ui.trace.node_state.decided": "decided",
+  "ui.trace.node_state.deferred": "deferred",
+  "ui.trace.node_state.resolved": "resolved",
+  "ui.trace.node_state.superseded": "superseded",
+  "ui.trace.node_state.open": "open",
+  "ui.trace.node_state.conflicted": "conflicted",
+  // Relation table — direction-split keys for resolves/supersedes/depends_on
+  "ui.trace.rel.resolves.label": "resolves",
+  "ui.trace.rel.resolves.section": "this decision closed",
+  "ui.trace.rel.resolves.hint": "the deferred items it closed",
+  "ui.trace.rel.resolvedBy.label": "resolved by",
+  "ui.trace.rel.resolvedBy.section": "wrapped up by",
+  "ui.trace.rel.resolvedBy.hint": "the decision that closed this one",
+  "ui.trace.rel.depends_on.label": "depends on",
+  "ui.trace.rel.depends_on.section": "depends on",
+  "ui.trace.rel.depends_on.hint": "what this decision builds on",
+  "ui.trace.rel.depended_on.label": "depended on by",
+  "ui.trace.rel.depended_on.section": "depended on by",
+  "ui.trace.rel.depended_on.hint": "what builds on this decision",
+  "ui.trace.rel.relates.label": "relates to",
+  "ui.trace.rel.relates.section": "relates to",
+  "ui.trace.rel.relates.hint": "topically related decisions",
+  "ui.trace.rel.supersedes.label": "supersedes",
+  "ui.trace.rel.supersedes.section": "supersedes",
+  "ui.trace.rel.supersedes.hint": "what this decision replaced",
+  "ui.trace.rel.supersededBy.label": "superseded by",
+  "ui.trace.rel.supersededBy.section": "superseded by",
+  "ui.trace.rel.supersededBy.hint": "what replaced this decision",
+  "ui.trace.rel.reconciles.label": "reconciles",
+  "ui.trace.rel.reconciles.section": "reconciles",
+  "ui.trace.rel.reconciles.hint": "reconciles their conflict",
+  // Focal card
+  "ui.trace.focal.trigger_label": " trigger: ",
+  // Why section
+  "ui.trace.why.eyebrow": "why we decided this",
+  "ui.trace.why.sub":
+    "Not just the conclusion — also which options were considered, which was chosen, which were rejected.",
+  "ui.trace.why.summary":
+    "full trade-offs · trigger / options / reasons / locks",
+  "ui.trace.why.k.trigger": "trigger",
+  "ui.trace.why.k.constraint": "constraint",
+  "ui.trace.why.k.options": "options",
+  "ui.trace.why.k.reasons": "reasons",
+  "ui.trace.why.k.locks": "locks in / out",
+  "ui.trace.why.option_axis":
+    "trade-off along «{axis}» · {count} option(s)",
+  "ui.trace.why.lock_in_k": "locks in",
+  "ui.trace.why.lock_out_k": "locks out",
+  // Stitch section
+  "ui.trace.stitch.eyebrow": "cross-session stitch",
+  "ui.trace.stitch.sub":
+    "the edge that got picked up in another conversation",
+  "ui.trace.stitch.older": "originally hanging",
+  "ui.trace.stitch.newer": "closed up in this conversation",
+  "ui.trace.stitch.arrow_tip": "resolves",
+  "ui.trace.stitch.days_after": "{count} days later",
+  "ui.trace.stitch.note_prefix": "note:",
+  // Arc section
+  "ui.trace.arc.eyebrow": "state changes",
+  "ui.trace.arc.sub": "laid out by time, each step from a conversation",
+  "ui.trace.arc.stage.raised": "raised",
+  "ui.trace.arc.stage.decided": "decided",
+  "ui.trace.arc.stage.deferred": "deferred",
+  "ui.trace.arc.stage.open": "open",
+  "ui.trace.arc.stage.resolved": "resolved",
+  "ui.trace.arc.resolver_prefix": "resolved by ",
+  "ui.trace.arc.resolver_suffix": "",
+  // Neighbors
+  "ui.trace.neighbors.empty":
+    "this decision isn't connected to others yet — no incoming/outgoing edges.",
+  // Affects
+  "ui.trace.affects.eyebrow": "related files",
+  "ui.trace.affects.count_suffix": "· {count} entities",
+  // Page-level
+  "ui.trace.loading": "loading decision…",
+  "ui.trace.missing_url": "missing decision id in URL",
+  "ui.trace.load_failed": "failed to load decision · {reason}",
+  "ui.trace.not_found_eyebrow": "Not found",
+  "ui.trace.not_found_heading": "decision {fid}/{did} doesn't exist",
+  "ui.trace.not_found_hint":
+    "Maybe the id is mistyped, or it isn't in the local store yet.",
+  "ui.trace.back_to_projects": "← projects",
 };

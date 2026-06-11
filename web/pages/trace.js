@@ -13,31 +13,37 @@ import { apiGet, ensureCss, slugUrl } from "../api.js";
 import { renderResumeLauncher } from "../components/resume-launcher.js";
 import { h, escapeHtml } from "../dom.js";
 import { icon } from "../icons.js";
+import { t } from "../i18n.js";
 
 // -------------------------------------------------------------------
-// Enums
+// Enums (cls / structural fields stay static; labels come from t() at
+// render time so the locale toggle re-renders pick up new strings)
 // -------------------------------------------------------------------
 
-// nodeState string returned by statusLine — also used for state pill color
-const NODE_STATE_META = {
-  decided:    { label: "已决",      cls: "decided" },
-  deferred:   { label: "推迟",      cls: "deferred" },
-  resolved:   { label: "已解决",    cls: "resolved" },
-  superseded: { label: "已被取代",  cls: "superseded" },
-  open:       { label: "待决",      cls: "open" },
-  conflicted: { label: "有冲突",    cls: "conflicted" },
-};
+const NODE_STATE_KEYS = ["decided", "deferred", "resolved", "superseded", "open", "conflicted"];
+function nodeStateCls(s) { return NODE_STATE_KEYS.includes(s) ? s : "decided"; }
+function nodeStateLabel(s) { return t(`ui.trace.node_state.${nodeStateCls(s)}`); }
 
-const RELATION_META = {
-  resolves:    { label: "解决了",   sectionLabel: "这条决定关闭了", hint: "本条把它们闭合", isKey: true },
-  resolvedBy:  { label: "被解决",   sectionLabel: "被这条收尾",     hint: "这些决定关闭了本条", isKey: true },
-  depends_on:  { label: "依赖",     sectionLabel: "依赖",           hint: "本条建立在它们之上" },
-  depended_on: { label: "被依赖",   sectionLabel: "被依赖",         hint: "这些决定建立在本条之上" },
-  relates:     { label: "相关",     sectionLabel: "相关",           hint: "话题相关的决定" },
-  supersedes:  { label: "取代了",   sectionLabel: "取代",           hint: "本条把它们替换掉" },
-  supersededBy: { label: "被取代", sectionLabel: "被取代",         hint: "这些决定取代了本条" },
-  reconciles:  { label: "调和",     sectionLabel: "调和",           hint: "把它们的冲突调和" },
+const RELATION_KEYS_INFO = {
+  resolves:    { isKey: true },
+  resolvedBy:  { isKey: true },
+  depends_on:  { isKey: false },
+  depended_on: { isKey: false },
+  relates:     { isKey: false },
+  supersedes:  { isKey: false },
+  supersededBy:{ isKey: false },
+  reconciles:  { isKey: false },
 };
+function relMeta(key) {
+  const info = RELATION_KEYS_INFO[key];
+  if (!info) return { label: key, sectionLabel: key, hint: "", isKey: false };
+  return {
+    label: t(`ui.trace.rel.${key}.label`),
+    sectionLabel: t(`ui.trace.rel.${key}.section`),
+    hint: t(`ui.trace.rel.${key}.hint`),
+    isKey: info.isKey,
+  };
+}
 
 const NEIGHBOR_ORDER = [
   "resolvedBy",
@@ -57,28 +63,20 @@ const NEIGHBOR_ORDER = [
 const DAY_MS = 86_400_000;
 function daysAgo(iso) {
   if (!iso) return Number.POSITIVE_INFINITY;
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return Number.POSITIVE_INFINITY;
-  return Math.max(0, Math.floor((Date.now() - t) / DAY_MS));
+  const parsed = Date.parse(iso);
+  if (Number.isNaN(parsed)) return Number.POSITIVE_INFINITY;
+  return Math.max(0, Math.floor((Date.now() - parsed) / DAY_MS));
 }
 function fmtAgo(iso) {
-  if (!iso) return "—";
+  if (!iso) return t("ui.projects.date.unknown");
   const d = daysAgo(iso);
-  if (d <= 0) return "今天";
-  if (d === 1) return "昨天";
-  if (d < 7) return `${d} 天前`;
-  if (d < 14) return "上周";
-  if (d < 30) return `${Math.round(d / 7)} 周前`;
-  return `${Math.round(d / 30)} 个月前`;
+  if (d <= 0) return t("ui.projects.date.today");
+  if (d === 1) return t("ui.projects.date.yesterday");
+  if (d < 7) return t("ui.projects.date.days_ago", { count: d });
+  if (d < 14) return t("ui.projects.date.last_week");
+  if (d < 30) return t("ui.projects.date.weeks_ago", { count: Math.round(d / 7) });
+  return t("ui.projects.date.months_ago", { count: Math.round(d / 30) });
 }
-
-// -------------------------------------------------------------------
-// DOM helper
-// -------------------------------------------------------------------
-
-// h() + escapeHtml now live in ../dom.js (imported above).
-
-// icon() lives in ../icons.js (imported above).
 
 // -------------------------------------------------------------------
 // Helpers
@@ -100,7 +98,7 @@ function decisionTraceHref(id) {
 function statusKeyOf(statusLine) {
   if (!statusLine) return "decided";
   const head = statusLine.split(/[\s—-]/)[0]?.toLowerCase() ?? "decided";
-  if (NODE_STATE_META[head]) return head;
+  if (NODE_STATE_KEYS.includes(head)) return head;
   return "decided";
 }
 
@@ -132,7 +130,7 @@ function renderFocalCard(trace) {
   const d = trace.decision;
   const { mid, localId } = splitDecisionId(d.id);
   const stateKey = statusKeyOf(trace.statusLine);
-  const stateMeta = NODE_STATE_META[stateKey] ?? NODE_STATE_META.decided;
+  const stateCls = nodeStateCls(stateKey);
   const title = d.detail?.title ?? d.title ?? d.id;
   // The mock colors the id pill by the decision's tag, not its type.
   const tagColor = trace.tags?.[0]?.color ?? null;
@@ -140,14 +138,14 @@ function renderFocalCard(trace) {
   return h("section", { class: "focal" },
     h("div", { class: "focal-top" },
       h("span", { class: "fid", style: tagColor ? { "--tc": tagColor } : null }, d.id),
-      h("span", { class: `state-pill st-${stateMeta.cls}` },
+      h("span", { class: `state-pill st-${stateCls}` },
         h("span", { class: "dot" }),
-        stateMeta.label,
+        nodeStateLabel(stateKey),
       ),
-      ...(trace.tags ?? []).map((t) =>
-        h("span", { class: "scope-pill", style: { "--tc": t.color ?? "#9c9a92" } },
+      ...(trace.tags ?? []).map((tag) =>
+        h("span", { class: "scope-pill", style: { "--tc": tag.color ?? "#9c9a92" } },
           h("span", { class: "scope-dot" }),
-          t.name)),
+          tag.name)),
     ),
     h("h1", { class: "focal-title" }, title),
     h("p", { class: "focal-status" }, trace.statusLine),
@@ -159,17 +157,14 @@ function renderFocalCard(trace) {
         " · ",
         h("span", {}, localId)),
       d.detail?.trigger ? h("span", { class: "where-trigger" },
-        " 触发: ",
+        t("ui.trace.focal.trigger_label"),
         h("span", {}, d.detail.trigger)) : null,
     ),
     d.sessionId ? renderResumeLauncher({ sessionId: d.sessionId }) : null,
   );
 }
 
-// "为什么这么定" — the decision rationale. The mock (design/Stele Trace.html
-// :751-782) renders detail.{trigger,constraint,options,why,locks} as a
-// <details> card of why-rows. Our captured detail is plain text (the mock's
-// sample embeds HTML), so we render as text nodes — never innerHTML.
+// "为什么这么定" — the decision rationale.
 function whyRow(label, valueEl) {
   return h("div", { class: "why-row" },
     h("div", { class: "why-k" }, label),
@@ -190,14 +185,14 @@ function renderWhy(trace) {
   }
 
   const rows = [];
-  if (trigger) rows.push(whyRow("触发", h("div", { class: "why-v" }, trigger)));
-  if (constraint) rows.push(whyRow("约束", h("div", { class: "why-v" }, constraint)));
+  if (trigger) rows.push(whyRow(t("ui.trace.why.k.trigger"), h("div", { class: "why-v" }, trigger)));
+  if (constraint) rows.push(whyRow(t("ui.trace.why.k.constraint"), h("div", { class: "why-v" }, constraint)));
 
   if (options?.length) {
     const optEls = [];
     if (optionAxis) {
       optEls.push(h("div", { class: "opt-axis" },
-        `沿「${optionAxis}」权衡 · ${options.length} 个选项`));
+        t("ui.trace.why.option_axis", { axis: optionAxis, count: options.length })));
     }
     options.forEach((o, i) => {
       const chosen = o.verdict === "chosen" || o.chosen === true;
@@ -209,34 +204,34 @@ function renderWhy(trace) {
         ),
       ));
     });
-    rows.push(whyRow("方案", h("div", { class: "why-v" }, ...optEls)));
+    rows.push(whyRow(t("ui.trace.why.k.options"), h("div", { class: "why-v" }, ...optEls)));
   }
 
   if (why?.length) {
-    rows.push(whyRow("理由", h("div", { class: "why-v" },
+    rows.push(whyRow(t("ui.trace.why.k.reasons"), h("div", { class: "why-v" },
       ...why.map((w) => h("p", { class: "why-reason" }, w)))));
   }
 
   if (hasLocks) {
-    rows.push(whyRow("锁进 / 锁出", h("div", { class: "why-v" },
+    rows.push(whyRow(t("ui.trace.why.k.locks"), h("div", { class: "why-v" },
       h("div", { class: "locks" },
         h("div", { class: "lock in" },
-          h("div", { class: "lock-k" }, "锁进了"),
-          h("div", { class: "lock-v" }, locks.in ?? "—")),
+          h("div", { class: "lock-k" }, t("ui.trace.why.lock_in_k")),
+          h("div", { class: "lock-v" }, locks.in ?? t("ui.projects.date.unknown"))),
         h("div", { class: "lock out" },
-          h("div", { class: "lock-k" }, "锁出了"),
-          h("div", { class: "lock-v" }, locks.out ?? "—")),
+          h("div", { class: "lock-k" }, t("ui.trace.why.lock_out_k")),
+          h("div", { class: "lock-v" }, locks.out ?? t("ui.projects.date.unknown"))),
       ))));
   }
 
   return h("section", { class: "why-section" },
     h("div", { class: "why-head" },
-      h("span", { class: "why-eyebrow" }, icon("spark"), "为什么这么定"),
+      h("span", { class: "why-eyebrow" }, icon("spark"), t("ui.trace.why.eyebrow")),
     ),
-    h("p", { class: "why-sub" }, "不只是结论,还有当时权衡过哪几个方案、选了哪个、拒了哪个。"),
+    h("p", { class: "why-sub" }, t("ui.trace.why.sub")),
     h("details", { class: "why", open: true },
       h("summary", {},
-        "取舍全文 · 触发 / 方案 / 理由 / 锁进锁出",
+        t("ui.trace.why.summary"),
         h("span", { class: "chev" }, icon("chevron", 14))),
       ...rows,
     ),
@@ -251,14 +246,13 @@ function renderStitch(stitch) {
 
   return h("section", { class: "stitch" },
     h("div", { class: "stitch-h" },
-      h("span", { class: "eyebrow" }, icon("link"), "跨对话缝合"),
-      h("span", { class: "stitch-sub" },
-        "在另一次对话里被接上的那条边"),
+      h("span", { class: "eyebrow" }, icon("link"), t("ui.trace.stitch.eyebrow")),
+      h("span", { class: "stitch-sub" }, t("ui.trace.stitch.sub")),
     ),
     h("div", { class: "stitch-flow" },
       // resolved (older) side
       h("div", { class: "stitch-card stitch-older" },
-        h("div", { class: "stitch-rel" }, "原本悬挂"),
+        h("div", { class: "stitch-rel" }, t("ui.trace.stitch.older")),
         h("a", { class: "stitch-link", href: decisionTraceHref(stitch.resolved.id), "data-route": "" },
           h("span", { class: "stitch-id" }, splitDecisionId(stitch.resolved.id).localId),
           h("span", { class: "stitch-title" }, stitch.resolved.title),
@@ -269,14 +263,14 @@ function renderStitch(stitch) {
       // arrow
       h("div", { class: "stitch-arrow" },
         h("span", { class: "stitch-arrow-line" }),
-        h("span", { class: "stitch-arrow-tip" }, "resolves"),
+        h("span", { class: "stitch-arrow-tip" }, t("ui.trace.stitch.arrow_tip")),
         span != null
-          ? h("span", { class: "stitch-arrow-span" }, `${span} 天后`)
+          ? h("span", { class: "stitch-arrow-span" }, t("ui.trace.stitch.days_after", { count: span }))
           : null,
       ),
       // resolver (newer) side
       h("div", { class: "stitch-card stitch-newer" },
-        h("div", { class: "stitch-rel" }, "在这次会话里被收掉"),
+        h("div", { class: "stitch-rel" }, t("ui.trace.stitch.newer")),
         h("a", { class: "stitch-link", href: decisionTraceHref(stitch.resolver.id), "data-route": "" },
           h("span", { class: "stitch-id" }, splitDecisionId(stitch.resolver.id).localId),
           h("span", { class: "stitch-title" }, stitch.resolver.title),
@@ -286,30 +280,34 @@ function renderStitch(stitch) {
       ),
     ),
     stitch.edgeNote
-      ? h("p", { class: "stitch-note" }, h("b", {}, "记下:"), " ", stitch.edgeNote)
+      ? h("p", { class: "stitch-note" }, h("b", {}, t("ui.trace.stitch.note_prefix")), " ", stitch.edgeNote)
       : null,
   );
 }
 
-// Life Arc — the resolved decision's lifecycle (mock STAGE table, design
-// Stele Trace.html lines 121-159). Each stage carries its own accent (--ac).
-const ARC_STAGE = {
-  raised:   { label: "提出",     ac: "var(--teal)",   dot: "solid" },
-  decided:  { label: "定下",     ac: "var(--teal)",   dot: "solid" },
-  deferred: { label: "推迟",     ac: "var(--amber)",  dot: "dashed" },
-  open:     { label: "悬而未决", ac: "var(--purple)", dot: "hollow" },
-  resolved: { label: "解决",     ac: "var(--green)",  dot: "fill" },
+// Life Arc — the resolved decision's lifecycle.
+const ARC_STAGE_KEYS = ["raised", "decided", "deferred", "open", "resolved"];
+const ARC_STAGE_VISUAL = {
+  raised:   { ac: "var(--teal)",   dot: "solid"  },
+  decided:  { ac: "var(--teal)",   dot: "solid"  },
+  deferred: { ac: "var(--amber)",  dot: "dashed" },
+  open:     { ac: "var(--purple)", dot: "hollow" },
+  resolved: { ac: "var(--green)",  dot: "fill"   },
 };
+function arcStageMeta(stage) {
+  const k = ARC_STAGE_KEYS.includes(stage) ? stage : "raised";
+  return { label: t(`ui.trace.arc.stage.${k}`), ...ARC_STAGE_VISUAL[k] };
+}
 
 function renderArc(stitch) {
   if (!stitch?.arc?.length) return null;
   // The arc is the RESOLVED decision's lifecycle — only show it on that
-  // decision's page, not on the resolver's (where it'd be "resolved-by-itself").
+  // decision's page, not on the resolver's.
   if (!stitch.focalIsResolved) return null;
   return h("section", { class: "arc-section" },
     h("div", { class: "arc-head" },
-      h("span", { class: "arc-eyebrow" }, icon("branch"), "状态变化"),
-      h("span", { class: "arc-sub" }, "按时间排开,每一步都来自一次对话"),
+      h("span", { class: "arc-eyebrow" }, icon("branch"), t("ui.trace.arc.eyebrow")),
+      h("span", { class: "arc-sub" }, t("ui.trace.arc.sub")),
     ),
     h("div", { class: "arc" },
       ...stitch.arc.map((st) => renderArcStage(st)),
@@ -318,7 +316,7 @@ function renderArc(stitch) {
 }
 
 function renderArcStage(st) {
-  const meta = ARC_STAGE[st.stage] ?? ARC_STAGE.raised;
+  const meta = arcStageMeta(st.stage);
   return h("div", {
       class: `arc-stage stage-${st.stage}${meta.dot === "dashed" ? " dashed" : ""}`,
       style: { "--ac": meta.ac },
@@ -336,7 +334,10 @@ function renderArcStage(st) {
         st.featureName ? h("div", { class: "arc-where" }, st.featureName) : null,
         st.note ? h("div", { class: "arc-note" }, st.note) : null,
         st.resolver
-          ? h("div", { class: "arc-resolver" }, "由 ", h("code", {}, st.resolver), " 解决")
+          ? h("div", { class: "arc-resolver" },
+              t("ui.trace.arc.resolver_prefix"),
+              h("code", {}, st.resolver),
+              t("ui.trace.arc.resolver_suffix"))
           : null,
         st.ccid
           ? h("div", { class: "arc-foot" },
@@ -353,18 +354,16 @@ function renderNeighbors(trace) {
   for (const key of NEIGHBOR_ORDER) {
     const edges = groups.get(key);
     if (!edges?.length) continue;
-    const meta = RELATION_META[key];
-    blocks.push(renderNeighborBlock(meta, key, edges));
+    blocks.push(renderNeighborBlock(relMeta(key), key, edges));
   }
   // Any unknown relations (defensive)
   for (const [key, edges] of groups) {
     if (NEIGHBOR_ORDER.includes(key)) continue;
-    const meta = RELATION_META[key] ?? { label: key, sectionLabel: key, hint: "" };
-    blocks.push(renderNeighborBlock(meta, key, edges));
+    blocks.push(renderNeighborBlock(relMeta(key), key, edges));
   }
   if (blocks.length === 0) {
     return h("section", { class: "neighbors empty" },
-      h("p", { class: "hint" }, "这条决定还没有连接到别的决定 — 没有传入/传出的边。"),
+      h("p", { class: "hint" }, t("ui.trace.neighbors.empty")),
     );
   }
   return h("section", { class: "neighbors" }, ...blocks);
@@ -387,8 +386,7 @@ function renderNeighborBlock(meta, key, edges) {
           h("span", { class: "nb-id" }, splitDecisionId(e.otherId).localId),
           h("span", { class: "nb-title" }, e.otherTitle ?? "?"),
           e.otherState
-            ? h("span", { class: `nb-state s-${e.otherState}` },
-                NODE_STATE_META[e.otherState]?.label ?? e.otherState)
+            ? h("span", { class: `nb-state s-${e.otherState}` }, nodeStateLabel(e.otherState))
             : null,
         ),
       ),
@@ -400,8 +398,8 @@ function renderAffects(trace) {
   if (!trace.affects?.length) return null;
   return h("section", { class: "affects" },
     h("div", { class: "affects-head" },
-      h("span", { class: "eyebrow" }, icon("doc"), "相关文件"),
-      h("span", { class: "affects-sub" }, `· ${trace.affects.length} 个实体`),
+      h("span", { class: "eyebrow" }, icon("doc"), t("ui.trace.affects.eyebrow")),
+      h("span", { class: "affects-sub" }, t("ui.trace.affects.count_suffix", { count: trace.affects.length })),
     ),
     h("div", { class: "affects-list" },
       ...trace.affects.map((a) =>
@@ -425,11 +423,11 @@ function renderAffects(trace) {
 
 export async function render(root, ctx) {
   ensureCss("/assets/styles/pages/trace.css");
-  root.innerHTML = `<div class="loading">loading decision…</div>`;
+  root.innerHTML = `<div class="loading">${escapeHtml(t("ui.trace.loading"))}</div>`;
 
   const { fid: mid, did } = ctx.params ?? {};
   if (!mid || !did) {
-    root.innerHTML = `<div class="loading">missing decision id in URL</div>`;
+    root.innerHTML = `<div class="loading">${escapeHtml(t("ui.trace.missing_url"))}</div>`;
     return;
   }
   const decisionPath = `/decisions/${encodeURIComponent(mid)}/${encodeURIComponent(did)}`;
@@ -441,16 +439,16 @@ export async function render(root, ctx) {
       apiGet(`${decisionPath}/stitch`).catch(() => null),
     ]);
   } catch (err) {
-    root.innerHTML = `<div class="loading">failed to load decision · ${escapeHtml(err.message ?? err)}</div>`;
+    root.innerHTML = `<div class="loading">${escapeHtml(t("ui.trace.load_failed", { reason: String(err.message ?? err) }))}</div>`;
     return;
   }
 
   if (!trace || !trace.decision) {
     root.innerHTML = "";
     root.append(h("section", { class: "placeholder" },
-      h("div", { class: "eyebrow" }, "Not found"),
-      h("h1", {}, `决定 ${mid}/${did} 不存在`),
-      h("p", { class: "hint" }, "可能是 id 拼错了,或者它还没在本地库里。"),
+      h("div", { class: "eyebrow" }, t("ui.trace.not_found_eyebrow")),
+      h("h1", {}, t("ui.trace.not_found_heading", { fid: mid, did })),
+      h("p", { class: "hint" }, t("ui.trace.not_found_hint")),
     ));
     return;
   }
@@ -458,7 +456,7 @@ export async function render(root, ctx) {
   root.innerHTML = "";
   root.append(h("div", { class: "trace-page" },
     h("div", { class: "trace-back" },
-      h("a", { class: "back-link", href: slugUrl("/"), "data-route": "" }, "← 项目"),
+      h("a", { class: "back-link", href: slugUrl("/"), "data-route": "" }, t("ui.trace.back_to_projects")),
     ),
     renderFocalCard(trace),
     renderStitch(stitch),
