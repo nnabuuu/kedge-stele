@@ -22,36 +22,44 @@
 import { listProjects, ensureCss } from "../api.js";
 import { renderResumeLauncher } from "../components/resume-launcher.js";
 import { h, escapeHtml } from "../dom.js";
+import { t } from "../i18n.js";
 
 // -------------------------------------------------------------------
-// Static enums (mirror src/types.ts + the design mock's labels)
+// Static enums (cls stays static — label / cssVar come from t() or
+// a constant at render time so the locale toggle re-renders pick up
+// new strings)
 // -------------------------------------------------------------------
 
-const STATUS_META = {
-  active:   { label: "推进中", cls: "active" },
-  winding:  { label: "收尾中", cls: "winding" },
-  dormant:  { label: "搁置中", cls: "dormant" },
-  archived: { label: "已归档", cls: "archived" },
-};
+const STATUS_KEYS = ["active", "winding", "dormant", "archived"];
+function statusCls(s) {
+  return STATUS_KEYS.includes(s) ? s : "active";
+}
+function statusLabel(s) {
+  return t(`ui.projects.status.${statusCls(s)}`);
+}
 
-const FT_STATE = {
-  draft:   { label: "草稿", cls: "draft" },
-  going:   { label: "进行中", cls: "going" },
-  winding: { label: "收尾",   cls: "winding" },
-  done:    { label: "已完成", cls: "done" },
-  paused:  { label: "搁置",   cls: "paused" },
-};
+const FT_STATE_KEYS = ["draft", "going", "winding", "done", "paused"];
+function ftStateCls(s) {
+  return FT_STATE_KEYS.includes(s) ? s : "going";
+}
+function ftStateLabel(s) {
+  return t(`ui.projects.ft.${ftStateCls(s)}`);
+}
 
-const OUTCOME = {
-  advanced: { label: "推进", cssVar: "--teal" },
-  resolved: { label: "解决", cssVar: "--green" },
-  touched:  { label: "补充", cssVar: "--warm" },
+const OUTCOME_VAR = {
+  advanced: "--teal",
+  resolved: "--green",
+  touched: "--warm",
 };
+function outcomeMeta(type) {
+  const k = OUTCOME_VAR[type] ? type : "touched";
+  return { cssVar: OUTCOME_VAR[k] };
+}
 
 const SORTS = [
-  { id: "recent", label: "最近的对话" },
-  { id: "due",    label: "待关注优先" },
-  { id: "loops",  label: "未闭合最多" },
+  { id: "recent", labelKey: "ui.projects.sort.recent" },
+  { id: "due", labelKey: "ui.projects.sort.due" },
+  { id: "loops", labelKey: "ui.projects.sort.loops" },
 ];
 
 // -------------------------------------------------------------------
@@ -62,31 +70,31 @@ const DAY_MS = 86_400_000;
 
 function daysAgo(iso) {
   if (!iso) return Number.POSITIVE_INFINITY;
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return Number.POSITIVE_INFINITY;
-  return Math.max(0, Math.floor((Date.now() - t) / DAY_MS));
+  const parsed = Date.parse(iso);
+  if (Number.isNaN(parsed)) return Number.POSITIVE_INFINITY;
+  return Math.max(0, Math.floor((Date.now() - parsed) / DAY_MS));
 }
 
 function fmtAgo(iso) {
-  if (!iso) return "—";
+  if (!iso) return t("ui.projects.date.unknown");
   const d = daysAgo(iso);
-  if (d <= 0) return "今天";
-  if (d === 1) return "昨天";
-  if (d < 7)   return `${d} 天前`;
-  if (d < 14)  return "上周";
-  if (d < 30)  return `${Math.round(d / 7)} 周前`;
-  return `${Math.round(d / 30)} 个月前`;
+  if (d <= 0) return t("ui.projects.date.today");
+  if (d === 1) return t("ui.projects.date.yesterday");
+  if (d < 7)   return t("ui.projects.date.days_ago", { count: d });
+  if (d < 14)  return t("ui.projects.date.last_week");
+  if (d < 30)  return t("ui.projects.date.weeks_ago", { count: Math.round(d / 7) });
+  return t("ui.projects.date.months_ago", { count: Math.round(d / 30) });
 }
 
 function fmtWhenShort(iso) {
-  if (!iso) return "—";
+  if (!iso) return t("ui.projects.date.unknown");
   const dt = new Date(iso);
-  if (Number.isNaN(+dt)) return "—";
+  if (Number.isNaN(+dt)) return t("ui.projects.date.unknown");
   const d = daysAgo(iso);
   const hh = String(dt.getHours()).padStart(2, "0");
   const mm = String(dt.getMinutes()).padStart(2, "0");
-  if (d <= 0) return `今天 · ${hh}:${mm}`;
-  if (d === 1) return `昨天 · ${hh}:${mm}`;
+  if (d <= 0) return `${t("ui.projects.date.today")} · ${hh}:${mm}`;
+  if (d === 1) return `${t("ui.projects.date.yesterday")} · ${hh}:${mm}`;
   return `${dt.getMonth() + 1}/${String(dt.getDate()).padStart(2, "0")} · ${hh}:${mm}`;
 }
 
@@ -120,16 +128,16 @@ function renderResumeStrip(hero, heroF, heroOc) {
   return h("section", { class: "resume" },
     h("div", { class: "resume-rail" }),
     h("div", { class: "resume-body" },
-      h("div", { class: "eyebrow is-seal" }, "继续上次的对话"),
+      h("div", { class: "eyebrow is-seal" }, t("ui.projects.resume.eyebrow")),
       h("div", { class: "resume-loc" },
         h("span", { class: "oc", style: { background: `var(${heroOc.cssVar})` } }),
         h("span", { class: "resume-ms" }, heroF.name),
         h("span", { class: "proj" }, `· ${hero.name}`),
         h("span", { class: "resume-meta" },
-          `最近活跃 ${fmtAgo(hero.lastActivity)}`),
+          t("ui.projects.resume.last_active", { when: fmtAgo(hero.lastActivity) })),
       ),
       h("div", { class: "resume-sum" },
-        h("span", { class: "lead" }, "上次聊到"),
+        h("span", { class: "lead" }, t("ui.projects.resume.lead")),
         summary),
       last
         ? h("div", { class: "resume-when" },
@@ -141,7 +149,7 @@ function renderResumeStrip(hero, heroF, heroOc) {
           class: "resume-2nd",
           href: `/${encodeURIComponent(hero.slug)}/`,
           "data-route": "",
-        }, "进入项目 →"),
+        }, t("ui.projects.resume.open_project")),
       ),
     ),
   );
@@ -152,7 +160,7 @@ function renderResumeStrip(hero, heroF, heroOc) {
 // -------------------------------------------------------------------
 
 function renderProjectCard(p, mostRecentSlug) {
-  const meta = STATUS_META[p.status] ?? STATUS_META.active;
+  const cls = statusCls(p.status);
   const recent = p.slug === mostRecentSlug;
   const ft = p.topFeature;
   const isArchived = p.status === "archived";
@@ -164,59 +172,60 @@ function renderProjectCard(p, mostRecentSlug) {
   const body = isArchived
     ? h("div", { class: "pc-archnote" },
         h("span", { class: "adot" }),
-        h("span", { class: "pc-archnote-t" }, isMissing ? ".stele/decisions.db 不可读" : "已归档项目"))
+        h("span", { class: "pc-archnote-t" },
+          isMissing ? t("ui.projects.card.missing_db") : t("ui.projects.card.archived")))
     : isMissing
       ? h("div", { class: "pc-archnote" },
           h("span", { class: "adot" }),
-          h("span", { class: "pc-archnote-t" }, `${p.path} · .stele/ 不存在或不可读`))
+          h("span", { class: "pc-archnote-t" }, t("ui.projects.card.missing_path", { path: p.path })))
       : ft
         ? h("div", { class: "pc-ms-list" },
             renderFeatureRow(ft))
-        : h("div", { class: "pc-empty" }, "还没有 feature");
+        : h("div", { class: "pc-empty" }, t("ui.projects.card.no_feature"));
 
   return h("a", {
-      class: `pcard ${meta.cls}${recent ? " recent" : ""}`,
+      class: `pcard ${cls}${recent ? " recent" : ""}`,
       href: `/${encodeURIComponent(p.slug)}/`,
       "data-route": "",
     },
-    recent ? h("span", { class: "pc-flag" }, "最近一次对话") : null,
+    recent ? h("span", { class: "pc-flag" }, t("ui.projects.card.flag_recent")) : null,
     h("div", { class: "pc-top" },
       h("span", { class: "pc-path" }, p.path),
-      h("span", { class: `pc-status ${meta.cls}` },
+      h("span", { class: `pc-status ${cls}` },
         h("span", { class: "dot" }),
-        meta.label),
+        statusLabel(p.status)),
     ),
     h("div", { class: "pc-name" },
       p.name,
       p.code ? h("i", {}, p.code) : null),
     !isArchived && !isMissing
-      ? h("div", { class: "pc-sec-lbl" }, "feature · 各自由多次对话累积",
+      ? h("div", { class: "pc-sec-lbl" }, t("ui.projects.card.section_features"),
           h("span", { class: "rule" }))
       : isArchived
-        ? h("div", { class: "pc-sec-lbl" }, "归档去向", h("span", { class: "rule" }))
-        : h("div", { class: "pc-sec-lbl" }, "状态", h("span", { class: "rule" })),
+        ? h("div", { class: "pc-sec-lbl" }, t("ui.projects.card.section_archived"), h("span", { class: "rule" }))
+        : h("div", { class: "pc-sec-lbl" }, t("ui.projects.card.section_status"), h("span", { class: "rule" })),
     body,
     h("div", { class: "pc-foot" },
       h("span", { class: `pc-stat${p.openLoops ? "" : " muted"}` },
-        h("b", {}, String(p.openLoops)), " 未闭合"),
+        h("b", {}, String(p.openLoops)), " ", t("ui.projects.card.foot_open")),
       p.dueLoops > 0
         ? h("span", { class: "pc-stat due" },
-            h("b", {}, String(p.dueLoops)), " 待关注")
+            h("b", {}, String(p.dueLoops)), " ", t("ui.projects.card.foot_due"))
         : null,
       h("span", { class: "pc-stat muted" },
-        h("b", {}, String(p.featureCount)), " feature · ",
-        h("b", {}, String(featuresDone)), " 完成"),
-      h("span", { class: "pc-go" }, "进入 →"),
+        h("b", {}, String(p.featureCount)), " ", t("ui.projects.card.foot_features"), " · ",
+        h("b", {}, String(featuresDone)), " ", t("ui.projects.card.foot_done")),
+      h("span", { class: "pc-go" }, t("ui.projects.card.cta")),
     ),
   );
 }
 
 function renderFeatureRow(f) {
-  const st = FT_STATE[f.state] ?? FT_STATE.going;
+  const cls = ftStateCls(f.state);
   const last = f.lastSession;
   const ocType = last?.outcome?.type;
-  const oc = ocType ? OUTCOME[ocType] : OUTCOME.touched;
-  const summary = last?.summary ?? "—";
+  const oc = outcomeMeta(ocType);
+  const summary = last?.summary ?? t("ui.projects.date.unknown");
 
   return h("div", { class: "pc-ms", style: { "--oc": `var(${oc.cssVar})` } },
     h("div", { class: "pc-ms-top" },
@@ -225,11 +234,11 @@ function renderFeatureRow(f) {
     ),
     h("div", { class: "pc-ms-meta" },
       last ? h("span", { class: "pc-ms-sessions" }, fmtAgo(last.startedAt)) : null,
-      h("span", { class: `ms-status ${st.cls}` }, st.label),
+      h("span", { class: `ms-status ${cls}` }, ftStateLabel(f.state)),
     ),
-    summary !== "—"
+    summary !== t("ui.projects.date.unknown")
       ? h("div", { class: "pc-ms-sum" },
-          h("span", { class: "lead" }, "上次"),
+          h("span", { class: "lead" }, t("ui.projects.feature_row.last_label")),
           h("span", {}, summary))
       : null,
   );
@@ -274,13 +283,13 @@ let state = {
 
 export async function render(root, _ctx) {
   ensureCss("/assets/styles/pages/projects.css");
-  root.innerHTML = `<div class="loading">loading projects…</div>`;
+  root.innerHTML = `<div class="loading">${escapeHtml(t("ui.projects.loading"))}</div>`;
 
   let projects;
   try {
     projects = await listProjects();
   } catch (err) {
-    root.innerHTML = `<div class="loading">failed to load /api/projects · ${escapeHtml(err.message ?? err)}</div>`;
+    root.innerHTML = `<div class="loading">${escapeHtml(t("ui.projects.load_failed", { reason: String(err.message ?? err) }))}</div>`;
     return;
   }
 
@@ -300,7 +309,7 @@ function rerender(root, projects) {
   const hero = projects.find((p) => p.slug === recentSlug) ?? projects[0];
   const heroF = hero?.topFeature;
   const heroOcType = heroF?.lastSession?.outcome?.type;
-  const heroOc = heroOcType ? OUTCOME[heroOcType] : OUTCOME.touched;
+  const heroOc = outcomeMeta(heroOcType);
 
   if (heroF) {
     root.append(renderResumeStrip(hero, heroF, heroOc));
@@ -313,9 +322,9 @@ function rerender(root, projects) {
   const totalAll = projects.length;
   root.append(h("div", { class: "shelf-head" },
     h("div", {},
-      h("h2", {}, "在记录的 project"),
+      h("h2", {}, t("ui.projects.shelf.heading")),
       h("div", { class: "shelf-sub" },
-        `${totalLive} 个在推进 · ${totalAll} 个在记录`),
+        t("ui.projects.shelf.sub", { live: totalLive, total: totalAll })),
     ),
     h("div", { class: "sorter" },
       ...SORTS.map((s) =>
@@ -323,7 +332,7 @@ function rerender(root, projects) {
           class: state.sort === s.id ? "on" : "",
           type: "button",
           onClick: () => { state.sort = s.id; rerender(root, projects); },
-        }, s.label),
+        }, t(s.labelKey)),
       ),
     ),
   ));
@@ -342,8 +351,8 @@ function rerender(root, projects) {
         onClick: () => { state.showTucked = !state.showTucked; rerender(root, projects); },
       },
         state.showTucked
-          ? "收起搁置 / 归档"
-          : ["搁置 / 归档 ", h("b", {}, String(tucked.length))]),
+          ? t("ui.projects.tuck.collapse")
+          : [t("ui.projects.tuck.expand"), h("b", {}, String(tucked.length))]),
       h("span", { class: "tuck-rule" }),
     ));
     if (state.showTucked) {
@@ -357,22 +366,22 @@ function rerender(root, projects) {
   const totalLoops = projects.reduce((s, p) => s + (p.openLoops ?? 0), 0);
   const totalDue   = projects.reduce((s, p) => s + (p.dueLoops ?? 0), 0);
   root.append(h("div", { class: "shelf-foot" },
-    h("span", {}, h("span", { class: "n" }, String(totalAll)), " 个 project 在记录"),
-    h("span", {}, h("span", { class: "n" }, String(totalLoops)), " 个未闭合回路"),
-    h("span", {}, h("span", { class: "n" }, String(totalDue)), " 项待关注"),
-    h("span", { class: "tagline" }, "视图都是当场从图里查的 — 图一变,这屏就跟着变。"),
+    h("span", {}, h("span", { class: "n" }, String(totalAll)), " ", t("ui.projects.shelf_foot.projects")),
+    h("span", {}, h("span", { class: "n" }, String(totalLoops)), " ", t("ui.projects.shelf_foot.loops")),
+    h("span", {}, h("span", { class: "n" }, String(totalDue)), " ", t("ui.projects.shelf_foot.due")),
+    h("span", { class: "tagline" }, t("ui.projects.shelf_foot.tagline")),
   ));
 }
 
 function renderEmptyState() {
   return h("section", { class: "placeholder" },
-    h("div", { class: "eyebrow" }, "No projects"),
-    h("h1", {}, "还没有项目在记录"),
+    h("div", { class: "eyebrow" }, t("ui.projects.empty.eyebrow")),
+    h("h1", {}, t("ui.projects.empty.heading")),
     h("p", { class: "hint" },
-      "在任意项目根目录跑 ",
+      t("ui.projects.empty.hint_p1"),
       h("code", {}, "stele init"),
-      " 把它注册到 ",
+      t("ui.projects.empty.hint_p2"),
       h("code", {}, "~/.stele/registry.json"),
-      "。装好的项目会出现在这里。"),
+      t("ui.projects.empty.hint_p3")),
   );
 }

@@ -185,4 +185,73 @@ export const LOCALES_EN = {
   "ui.tags.toast.restore_failed": "restore failed · {reason}",
   "ui.tags.loading": "loading tags…",
   "ui.tags.load_failed": "failed to load tags · {reason}",
+
+  // ---------------------------------------------------------------------------
+  // ui.projects.* — Projects page (/ — multi-project overview)
+  // Page-specific labels live here even when overlapping with ui.states.* —
+  // the design mock's vocabulary in this view is independently editable, so
+  // we keep the keys local rather than rebinding the shared enums.
+  // ---------------------------------------------------------------------------
+
+  "ui.projects.status.active": "in progress",
+  "ui.projects.status.winding": "wrapping up",
+  "ui.projects.status.dormant": "dormant",
+  "ui.projects.status.archived": "archived",
+  "ui.projects.ft.draft": "draft",
+  "ui.projects.ft.going": "going",
+  "ui.projects.ft.winding": "wrapping up",
+  "ui.projects.ft.done": "done",
+  "ui.projects.ft.paused": "paused",
+  "ui.projects.outcome.advanced": "advanced",
+  "ui.projects.outcome.resolved": "resolved",
+  "ui.projects.outcome.touched": "touched",
+  "ui.projects.sort.recent": "most recent",
+  "ui.projects.sort.due": "needs attention first",
+  "ui.projects.sort.loops": "most open loops",
+  "ui.projects.resume.eyebrow": "continue last conversation",
+  "ui.projects.resume.last_active": "last active {when}",
+  "ui.projects.resume.lead": "last touched on",
+  "ui.projects.resume.open_project": "open project →",
+  "ui.projects.card.flag_recent": "most recent conversation",
+  "ui.projects.card.archived": "archived project",
+  "ui.projects.card.missing_db": ".stele/decisions.db unreadable",
+  "ui.projects.card.missing_path":
+    "{path} · .stele/ missing or unreadable",
+  "ui.projects.card.no_feature": "no feature yet",
+  "ui.projects.card.section_features":
+    "feature · each accumulated from multiple conversations",
+  "ui.projects.card.section_archived": "archive destination",
+  "ui.projects.card.section_status": "status",
+  "ui.projects.card.foot_open": "open",
+  "ui.projects.card.foot_due": "due",
+  "ui.projects.card.foot_features": "feature",
+  "ui.projects.card.foot_done": "done",
+  "ui.projects.card.cta": "enter →",
+  "ui.projects.feature_row.last_label": "last",
+  "ui.projects.shelf.heading": "projects on file",
+  "ui.projects.shelf.sub":
+    "{live} in progress · {total} on file",
+  "ui.projects.tuck.collapse": "collapse dormant / archived",
+  "ui.projects.tuck.expand": "dormant / archived ",
+  "ui.projects.shelf_foot.projects": "projects on file",
+  "ui.projects.shelf_foot.loops": "open loops",
+  "ui.projects.shelf_foot.due": "items needing attention",
+  "ui.projects.shelf_foot.tagline":
+    "Every view is queried live from the graph — change the graph, this view follows.",
+  "ui.projects.empty.eyebrow": "No projects",
+  "ui.projects.empty.heading": "no projects on file yet",
+  "ui.projects.empty.hint_p1": "in any project root, run ",
+  "ui.projects.empty.hint_p2": " to register it in ",
+  "ui.projects.empty.hint_p3":
+    ". Registered projects show up here.",
+  "ui.projects.date.today": "today",
+  "ui.projects.date.yesterday": "yesterday",
+  "ui.projects.date.last_week": "last week",
+  "ui.projects.date.days_ago": "{count} days ago",
+  "ui.projects.date.weeks_ago": "{count} weeks ago",
+  "ui.projects.date.months_ago": "{count} months ago",
+  "ui.projects.date.unknown": "—",
+  "ui.projects.loading": "loading projects…",
+  "ui.projects.load_failed":
+    "failed to load /api/projects · {reason}",
 };
