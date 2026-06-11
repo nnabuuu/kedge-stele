@@ -19,42 +19,37 @@ import { apiGet, ensureCss, slugUrl } from "../api.js";
 import { renderResumeLauncher } from "../components/resume-launcher.js";
 import { h, escapeHtml } from "../dom.js";
 import { icon } from "../icons.js";
+import { t } from "../i18n.js";
 
 // -------------------------------------------------------------------
-// Static enums (mirror src/types.ts)
+// Static enums (cls stays static; labels come from t() at render time
+// so the locale toggle re-renders pick up new strings)
 // -------------------------------------------------------------------
 
-const STATUS_META = {
-  active:   { label: "推进中", cls: "active" },
-  winding:  { label: "收尾中", cls: "winding" },
-  dormant:  { label: "搁置中", cls: "dormant" },
-  archived: { label: "已归档", cls: "archived" },
-};
+const STATUS_KEYS = ["active", "winding", "dormant", "archived"];
+function statusCls(s) { return STATUS_KEYS.includes(s) ? s : "active"; }
+function statusLabel(s) { return t(`ui.projects.status.${statusCls(s)}`); }
 
-const FT_STATE = {
-  draft:   { label: "草稿", cls: "draft" },
-  going:   { label: "进行中", cls: "going" },
-  winding: { label: "收尾",   cls: "winding" },
-  done:    { label: "已完成", cls: "done" },
-  paused:  { label: "搁置",   cls: "paused" },
-};
+const FT_STATE_KEYS = ["draft", "going", "winding", "done", "paused"];
+function ftStateCls(s) { return FT_STATE_KEYS.includes(s) ? s : "going"; }
+function ftStateLabel(s) { return t(`ui.projects.ft.${ftStateCls(s)}`); }
 
-const OUTCOME = {
-  advanced: { label: "推进", cssVar: "--teal" },
-  resolved: { label: "解决", cssVar: "--green" },
-  touched:  { label: "补充", cssVar: "--warm" },
+const OUTCOME_VAR = {
+  advanced: "--teal",
+  resolved: "--green",
+  touched:  "--warm",
 };
+function outcomeMeta(type) {
+  const key = OUTCOME_VAR[type] ? type : "touched";
+  return { cssVar: OUTCOME_VAR[key], label: t(`ui.projects.outcome.${key}`) };
+}
 
 // The decision chip colors/labels by derived nodeState, not raw type — a
 // resolved deferred (the central provenance act) must read 已解决/green, not
 // 推迟/amber. cls matches the .dchip-g.<cls> / .dchip-st.<cls> CSS.
-const NODE_STATE_CHIP = {
-  decision:   { label: "已决",     cls: "decision" },
-  deferred:   { label: "推迟",     cls: "deferred" },
-  open:       { label: "悬而未决", cls: "open" },
-  resolved:   { label: "已解决",   cls: "resolved" },
-  superseded: { label: "已取代",   cls: "superseded" },
-};
+const NODE_STATE_KEYS = ["decision", "deferred", "open", "resolved", "superseded"];
+function nodeStateCls(ns) { return NODE_STATE_KEYS.includes(ns) ? ns : "decision"; }
+function nodeStateLabel(ns) { return t(`ui.project.node_state.${nodeStateCls(ns)}`); }
 function nodeStateOf(d) {
   if (d.supersededBy) return "superseded";
   if (d.status === "resolved") return "resolved";
@@ -63,10 +58,12 @@ function nodeStateOf(d) {
 
 // 0.4.0 — capture provenance pill (rendered in the decision chip footer).
 // "manual" gets no pill — the absence IS the marker for human-authored.
-const SOURCE_META = {
-  "agent-live":      { label: "agent · live",   cls: "agent-live" },
-  "session-extract": { label: "agent · post-hoc", cls: "session-extract" },
-};
+const SOURCE_KEYS = { "agent-live": "agent_live", "session-extract": "session_extract" };
+function sourceMeta(src) {
+  const key = SOURCE_KEYS[src];
+  if (!key) return null;
+  return { label: t(`ui.project.source.${key}`), cls: src };
+}
 
 // -------------------------------------------------------------------
 // Date helpers
@@ -76,41 +73,41 @@ const DAY_MS = 86_400_000;
 
 function daysAgo(iso) {
   if (!iso) return Number.POSITIVE_INFINITY;
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return Number.POSITIVE_INFINITY;
-  return Math.max(0, Math.floor((Date.now() - t) / DAY_MS));
+  const parsed = Date.parse(iso);
+  if (Number.isNaN(parsed)) return Number.POSITIVE_INFINITY;
+  return Math.max(0, Math.floor((Date.now() - parsed) / DAY_MS));
 }
 
 function fmtAgo(iso) {
-  if (!iso) return "—";
+  if (!iso) return t("ui.projects.date.unknown");
   const d = daysAgo(iso);
-  if (d <= 0) return "今天";
-  if (d === 1) return "昨天";
-  if (d < 7) return `${d} 天前`;
-  if (d < 14) return "上周";
-  if (d < 30) return `${Math.round(d / 7)} 周前`;
-  return `${Math.round(d / 30)} 个月前`;
+  if (d <= 0) return t("ui.projects.date.today");
+  if (d === 1) return t("ui.projects.date.yesterday");
+  if (d < 7) return t("ui.projects.date.days_ago", { count: d });
+  if (d < 14) return t("ui.projects.date.last_week");
+  if (d < 30) return t("ui.projects.date.weeks_ago", { count: Math.round(d / 7) });
+  return t("ui.projects.date.months_ago", { count: Math.round(d / 30) });
 }
 
 function fmtMD(iso) {
-  if (!iso) return "—";
+  if (!iso) return t("ui.projects.date.unknown");
   const dt = new Date(iso);
-  if (Number.isNaN(+dt)) return "—";
+  if (Number.isNaN(+dt)) return t("ui.projects.date.unknown");
   return `${dt.getMonth() + 1}/${String(dt.getDate()).padStart(2, "0")}`;
 }
 
 function fmtHM(iso) {
-  if (!iso) return "—";
+  if (!iso) return t("ui.projects.date.unknown");
   const dt = new Date(iso);
-  if (Number.isNaN(+dt)) return "—";
+  if (Number.isNaN(+dt)) return t("ui.projects.date.unknown");
   return `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
 }
 
 function fmtWhenShort(iso) {
-  if (!iso) return "—";
+  if (!iso) return t("ui.projects.date.unknown");
   const d = daysAgo(iso);
-  if (d <= 0) return `今天 · ${fmtHM(iso)}`;
-  if (d === 1) return `昨天 · ${fmtHM(iso)}`;
+  if (d <= 0) return `${t("ui.projects.date.today")} · ${fmtHM(iso)}`;
+  if (d === 1) return `${t("ui.projects.date.yesterday")} · ${fmtHM(iso)}`;
   return `${fmtMD(iso)} · ${fmtHM(iso)}`;
 }
 
@@ -194,7 +191,7 @@ let railShowMore = false;
 
 function railTags(rail) {
   const m = new Map();
-  for (const f of rail) for (const t of f.tags ?? []) if (!m.has(t.name)) m.set(t.name, t);
+  for (const f of rail) for (const tag of f.tags ?? []) if (!m.has(tag.name)) m.set(tag.name, tag);
   return [...m.values()];
 }
 
@@ -203,13 +200,13 @@ function renderRail(rail, selectedFid, onSelect, onToggleTag, onClearTags) {
   const active = activeTagFilter;
   const filtered = active.length === 0
     ? rail
-    : rail.filter((f) => (f.tags ?? []).some((t) => active.includes(t.name)));
+    : rail.filter((f) => (f.tags ?? []).some((tag) => active.includes(tag.name)));
 
   return h("aside", { class: "rail" },
     h("div", { class: "rail-h" },
-      h("h2", {}, "feature"),
+      h("h2", {}, t("ui.project.rail.heading")),
       h("div", { class: "rail-h-r" },
-        h("span", {}, `${filtered.length} 个`),
+        h("span", {}, t("ui.project.rail.count", { count: filtered.length })),
       ),
     ),
     allTags.length > 0 ? renderRtools(allTags, active, onToggleTag, onClearTags) : null,
@@ -218,7 +215,7 @@ function renderRail(rail, selectedFid, onSelect, onToggleTag, onClearTags) {
     ),
     filtered.length === 0
       ? h("div", { class: "filt-empty" },
-          active.length ? "没有匹配这些标签的 feature" : "没有 feature — 试试在这个项目里跑 /stele:feature")
+          active.length ? t("ui.project.rail.empty_filtered") : t("ui.project.rail.empty_unfiltered"))
       : null,
   );
 }
@@ -229,39 +226,38 @@ function renderRtools(allTags, active, onToggleTag, onClearTags) {
   const extra = allTags.slice(DEFAULT_N);
   return h("div", { class: "rtools" },
     h("div", { class: "rtools-row" },
-      h("span", { class: "rtools-lbl" }, "按标签筛选"),
+      h("span", { class: "rtools-lbl" }, t("ui.project.rail.tag_filter_label")),
       active.length
-        ? h("button", { class: "rtools-clear", type: "button", onClick: onClearTags }, "清除")
+        ? h("button", { class: "rtools-clear", type: "button", onClick: onClearTags }, t("ui.project.rail.tag_filter_clear"))
         : null,
     ),
     h("div", { class: "rtools-chips" },
-      ...shown.map((t) => renderTagChip(t, active.includes(t.name), onToggleTag)),
+      ...shown.map((tag) => renderTagChip(tag, active.includes(tag.name), onToggleTag)),
       extra.length
         ? h("button", {
             class: "tagmore",
             type: "button",
             onClick: () => { railShowMore = !railShowMore; onToggleTag(null); },
-          }, railShowMore ? "收起" : `更多 ${extra.length}`)
+          }, railShowMore ? t("ui.project.rail.tag_collapse") : t("ui.project.rail.tag_more", { count: extra.length }))
         : null,
     ),
     railShowMore && extra.length
       ? h("div", { class: "rtools-chips rtools-extra" },
-          ...extra.map((t) => renderTagChip(t, active.includes(t.name), onToggleTag)))
+          ...extra.map((tag) => renderTagChip(tag, active.includes(tag.name), onToggleTag)))
       : null,
   );
 }
 
-function renderTagChip(t, on, onToggleTag) {
+function renderTagChip(tag, on, onToggleTag) {
   return h("button", {
       class: `tagchip tog${on ? " on" : ""}`,
       type: "button",
-      style: { "--tc": t.color ?? "#9c9a92" },
-      onClick: () => onToggleTag(t.name),
-    }, t.name);
+      style: { "--tc": tag.color ?? "#9c9a92" },
+      onClick: () => onToggleTag(tag.name),
+    }, tag.name);
 }
 
 function renderFeatureRow(f, isSelected, onSelect) {
-  const st = FT_STATE[f.state] ?? FT_STATE.going;
   return h("button", {
       class: `mrow ${f.state}${isSelected ? " on" : ""}`,
       type: "button",
@@ -272,16 +268,16 @@ function renderFeatureRow(f, isSelected, onSelect) {
       h("span", { class: "mrow-name" }, f.name),
     ),
     h("div", { class: "mrow-meta" },
-      h("span", { class: "mrow-ses" }, `${f.sessionCount} 次对话`),
+      h("span", { class: "mrow-ses" }, t("ui.project.rail.feature_sessions", { count: f.sessionCount })),
       f.lastActivity
-        ? h("span", {}, `· 最近 ${fmtAgo(f.lastActivity)}`)
+        ? h("span", {}, t("ui.project.rail.feature_last_activity", { when: fmtAgo(f.lastActivity) }))
         : null,
-      h("span", { class: "mrow-state" }, st.label),
+      h("span", { class: "mrow-state" }, ftStateLabel(f.state)),
     ),
     f.tags.length > 0
       ? h("div", { class: "mrow-tags" },
-          ...f.tags.map((t) =>
-            h("span", { class: "td", style: { "--tc": t.color }, title: t.name }),
+          ...f.tags.map((tag) =>
+            h("span", { class: "td", style: { "--tc": tag.color }, title: tag.name }),
           ),
         )
       : null,
@@ -297,15 +293,14 @@ function renderMain(featureDetail, onSourceFilter, railItem) {
     return h("main", { class: "main" },
       h("div", { class: "main-in" },
         h("section", { class: "placeholder" },
-          h("h1", {}, "没有选中 feature"),
-          h("p", { class: "hint" }, "在左边选一个,或者跑 /stele:feature 创建。"),
+          h("h1", {}, t("ui.project.main.no_selection_heading")),
+          h("p", { class: "hint" }, t("ui.project.main.no_selection_hint")),
         ),
       ),
     );
   }
 
   const f = featureDetail.feature;
-  const st = FT_STATE[f.state] ?? FT_STATE.going;
   const allSessions = featureDetail.sessions; // [{session, decisions}]
 
   // 0.4.0 — apply the ?src= filter. Filter decisions inside each session,
@@ -346,7 +341,7 @@ function renderMain(featureDetail, onSourceFilter, railItem) {
           h("h1", { class: "ms-title" }, f.name),
           h("span", { class: `fe-state-pill ${f.state}` },
             h("span", { class: "dot" }),
-            st.label,
+            ftStateLabel(f.state),
           ),
         ),
         f.about
@@ -354,26 +349,26 @@ function renderMain(featureDetail, onSourceFilter, railItem) {
           : null,
         f.summary
           ? h("p", { class: "ms-summary" },
-              h("span", { class: "lead" }, "rolling summary"),
+              h("span", { class: "lead" }, t("ui.project.main.rolling_summary_lead")),
               f.summary)
           : null,
         railItem?.tags?.length
           ? h("div", { class: "ms-tags" },
-              ...railItem.tags.map((t) =>
-                h("span", { class: "ms-tag", style: { "--tc": t.color ?? "#9c9a92" } },
+              ...railItem.tags.map((tag) =>
+                h("span", { class: "ms-tag", style: { "--tc": tag.color ?? "#9c9a92" } },
                   h("span", { class: "td" }),
-                  t.name)))
+                  tag.name)))
           : null,
         h("div", { class: "ms-stats" },
           h("span", { class: "ms-stat" },
             h("b", {}, String(allSessions.length)),
-            " 次对话累积"),
+            " ", t("ui.project.main.stat_sessions")),
           h("span", { class: "ms-stat" },
             h("b", {}, srcFilter ? `${decCount} / ${totalDecCount}` : String(decCount)),
-            " 个决定"),
+            " ", t("ui.project.main.stat_decisions")),
           latest?.session?.startedAt
             ? h("span", { class: "ms-stat" },
-                `最近 ${fmtAgo(latest.session.startedAt)}`)
+                t("ui.project.main.stat_last", { when: fmtAgo(latest.session.startedAt) }))
             : null,
         ),
       ),
@@ -386,15 +381,14 @@ function renderMain(featureDetail, onSourceFilter, railItem) {
 
       // Timeline
       h("div", { class: "tl-head" },
-        h("span", { class: "eyebrow" }, "对话时间线"),
+        h("span", { class: "eyebrow" }, t("ui.project.timeline.eyebrow")),
         h("span", { class: "tl-hint" },
-          `· 这个 feature 由 ${sessions.length} 次对话累积而成`),
+          t("ui.project.timeline.hint", { count: sessions.length })),
       ),
-      h("p", { class: "tl-sub" },
-        "每一次对话推进一点,沉淀出下面的决定。点决定可进溯源图看它的来历。"),
+      h("p", { class: "tl-sub" }, t("ui.project.timeline.sub")),
       sessions.length === 0
         ? h("div", { class: "placeholder" },
-            h("p", { class: "hint" }, "还没有 session — 在这个 feature 下跑 /stele:feature 开始。"))
+            h("p", { class: "hint" }, t("ui.project.timeline.empty")))
         : h("div", { class: "tl" },
             ...orderedSessions.map((s, idx) =>
               renderSessionCard(s, sessions.length - idx, s === latest),
@@ -405,31 +399,31 @@ function renderMain(featureDetail, onSourceFilter, railItem) {
 }
 
 /**
- * 0.4.0 — source filter strip. Only visible when ?src= is active. Click
- * "清除筛选" to drop the filter and re-render.
+ * 0.4.0 — source filter strip. Only visible when ?src= is active.
  */
 function renderSourceFilterStrip(srcFilter, onSourceFilter) {
   if (!srcFilter) return null;
-  const labelMap = {
-    "agent-live": "agent · live",
-    "session-extract": "agent · post-hoc",
-    "manual": "manual",
+  const SOURCE_LABEL_KEY = {
+    "agent-live": "ui.project.source.agent_live",
+    "session-extract": "ui.project.source.session_extract",
+    "manual": "ui.project.source.manual",
   };
-  const label = labelMap[srcFilter] ?? srcFilter;
+  const labelKey = SOURCE_LABEL_KEY[srcFilter];
+  const label = labelKey ? t(labelKey) : srcFilter;
   return h("div", { class: "src-filter-strip" },
-    h("span", { class: "src-filter-lbl" }, "正在按来源筛选: "),
+    h("span", { class: "src-filter-lbl" }, t("ui.project.source_filter.label")),
     h("span", { class: `src-filter-pill src-${srcFilter}` }, label),
     h("button", {
         class: "src-filter-clear",
         type: "button",
         onClick: () => onSourceFilter(null),
-      }, "清除筛选 ✕"),
+      }, t("ui.project.source_filter.clear")),
   );
 }
 
 function renderResumeStrip(latestBucket, totalSessions) {
   const s = latestBucket.session;
-  const summary = s.outcome?.summary ?? s.summary ?? "—";
+  const summary = s.outcome?.summary ?? s.summary ?? t("ui.projects.date.unknown");
   const when = fmtWhenShort(s.startedAt);
   const ago = fmtAgo(s.startedAt);
 
@@ -437,19 +431,19 @@ function renderResumeStrip(latestBucket, totalSessions) {
     h("div", { class: "resume-rail" }),
     h("div", { class: "resume-body" },
       h("div", { class: "resume-top" },
-        h("span", { class: "eyebrow is-seal" }, "继续上次的对话"),
+        h("span", { class: "eyebrow is-seal" }, t("ui.project.resume.eyebrow")),
         h("span", { class: "resume-when" },
-          `第 ${totalSessions} 次 · ${when} · ${ago}`),
+          t("ui.project.resume.when", { n: totalSessions, when, ago })),
       ),
       h("div", { class: "resume-sum" },
-        h("span", { class: "lead" }, "上次聊到"),
+        h("span", { class: "lead" }, t("ui.project.resume.lead")),
         summary),
       h("div", { class: "resume-foot" },
         s.id ? renderResumeLauncher({ sessionId: s.id }) : null,
         h("span", { class: "resume-ccid" },
           s.sourceSessionId
             ? `cc · ${s.sourceSessionId.slice(0, 8)}…`
-            : "no source session id"),
+            : t("ui.project.resume.no_ccid")),
       ),
     ),
   );
@@ -457,9 +451,9 @@ function renderResumeStrip(latestBucket, totalSessions) {
 
 function renderSessionCard(bucket, sessionNum, isLatest) {
   const s = bucket.session;
-  const oc = s.outcome ? (OUTCOME[s.outcome.type] ?? OUTCOME.touched) : OUTCOME.touched;
+  const oc = outcomeMeta(s.outcome?.type);
   const dur = fmtDuration(s.startedAt, s.endedAt);
-  const summary = s.outcome?.summary ?? s.summary ?? "—";
+  const summary = s.outcome?.summary ?? s.summary ?? t("ui.projects.date.unknown");
 
   return h("div", {
       class: `tl-row${isLatest ? " latest" : ""}`,
@@ -477,7 +471,7 @@ function renderSessionCard(bucket, sessionNum, isLatest) {
     ),
     h("div", { class: "tl-card" },
       h("div", { class: "tl-ctop" },
-        h("span", { class: "tl-n" }, `第 ${sessionNum} 次`),
+        h("span", { class: "tl-n" }, t("ui.project.session.label", { n: sessionNum })),
         h("span", { class: "tl-oc" },
           h("span", { class: "d" }),
           oc.label,
@@ -486,7 +480,7 @@ function renderSessionCard(bucket, sessionNum, isLatest) {
           fmtHM(s.startedAt),
           dur ? ` · ${dur}` : "",
         ),
-        isLatest ? h("span", { class: "tl-latest-badge" }, "最近") : null,
+        isLatest ? h("span", { class: "tl-latest-badge" }, t("ui.project.session.latest_badge")) : null,
       ),
       h("div", { class: "tl-sum" }, summary),
       bucket.decisions.length > 0
@@ -496,7 +490,7 @@ function renderSessionCard(bucket, sessionNum, isLatest) {
         h("span", { class: "tl-ccid" },
           s.sourceSessionId
             ? `cc · ${s.sourceSessionId.slice(0, 8)}…`
-            : "—"),
+            : t("ui.projects.date.unknown")),
       ),
     ),
   );
@@ -504,7 +498,7 @@ function renderSessionCard(bucket, sessionNum, isLatest) {
 
 function renderDecisionsSection(decisions) {
   return h("div", { class: "tl-dec" },
-    h("div", { class: "tl-dec-lbl" }, `这次对话产出的决定 · ${decisions.length}`),
+    h("div", { class: "tl-dec-lbl" }, t("ui.project.decisions.label", { count: decisions.length })),
     h("div", { class: "tl-dec-list" },
       ...decisions.map(renderDecisionChip),
     ),
@@ -512,7 +506,8 @@ function renderDecisionsSection(decisions) {
 }
 
 function renderDecisionChip(d) {
-  const ns = NODE_STATE_CHIP[nodeStateOf(d)] ?? NODE_STATE_CHIP.decision;
+  const ns = nodeStateOf(d);
+  const nsCls = nodeStateCls(ns);
   const title = d.detail?.title ?? d.title ?? d.id;
   // Decision id is "<featureId>/<localId>"; Trace route is /<slug>/d/<f>/<id>
   const parts = d.id.split("/");
@@ -522,9 +517,12 @@ function renderDecisionChip(d) {
 
   // 0.4.0 — source pill. Only render when source is one of the machine
   // values; 'manual' (or absent) → no pill, the absence IS the marker.
-  const sm = d.source ? SOURCE_META[d.source] : null;
-  const conf = (d.confidence != null && Number.isFinite(d.confidence))
+  const sm = d.source ? sourceMeta(d.source) : null;
+  const confValue = (d.confidence != null && Number.isFinite(d.confidence))
     ? ` · ${d.confidence.toFixed(2)}`
+    : "";
+  const titleConfSuffix = confValue
+    ? t("ui.project.decision.confidence_suffix", { conf: confValue })
     : "";
 
   return h("a", {
@@ -533,16 +531,18 @@ function renderDecisionChip(d) {
       "data-route": "",
       onClick: (e) => e.stopPropagation(),
     },
-    h("span", { class: `dchip-g ${ns.cls}` }, localId || d.id),
+    h("span", { class: `dchip-g ${nsCls}` }, localId || d.id),
     h("span", { class: "dchip-t" }, title),
     d.tags?.[0]
       ? h("span", { class: "dchip-tag", style: { "--tc": d.tags[0].color ?? "#9c9a92" } },
           h("span", { class: "td" }),
           d.tags[0].name)
       : null,
-    sm ? h("span", { class: `dchip-src ${sm.cls}`, title: `源: ${sm.label}${conf ? `, 置信度${conf}` : ""}` },
-      sm.label + conf) : null,
-    h("span", { class: `dchip-st ${ns.cls}` }, ns.label),
+    sm ? h("span", {
+      class: `dchip-src ${sm.cls}`,
+      title: t("ui.project.decision.source_title", { label: sm.label, conf: titleConfSuffix }),
+    }, sm.label + confValue) : null,
+    h("span", { class: `dchip-st ${nsCls}` }, nodeStateLabel(ns)),
   );
 }
 
@@ -552,7 +552,7 @@ function renderDecisionChip(d) {
 
 export async function render(root, ctx) {
   ensureCss("/assets/styles/pages/project.css");
-  root.innerHTML = `<div class="loading">loading project…</div>`;
+  root.innerHTML = `<div class="loading">${escapeHtml(t("ui.project.loading"))}</div>`;
   // Reset the module-level rail filter on each (re)entry — the page module is
   // cached and cross-project nav is pushState + re-render (no reload), so a
   // stale activeTagFilter would otherwise carry project A's tags into B and
@@ -568,7 +568,7 @@ export async function render(root, ctx) {
       apiGet("/project").catch(() => null),
     ]);
   } catch (err) {
-    root.innerHTML = `<div class="loading">failed to load project · ${escapeHtml(err.message ?? err)}</div>`;
+    root.innerHTML = `<div class="loading">${escapeHtml(t("ui.project.load_failed", { reason: String(err.message ?? err) }))}</div>`;
     return;
   }
 
@@ -652,7 +652,7 @@ async function renderShell(root, ctx, projectInfo, rail, selectedFid) {
 }
 
 function renderProjectSubhead(project) {
-  const meta = STATUS_META[project.status] ?? STATUS_META.active;
+  const cls = statusCls(project.status);
   return h("div", { class: "proj-sub" },
     h("div", { class: "proj-sub-l" },
       h("span", { class: "proj-name" },
@@ -662,9 +662,9 @@ function renderProjectSubhead(project) {
     ),
     h("div", { class: "proj-sub-r" },
       h("span", { class: "proj-path" }, project.path),
-      h("span", { class: `proj-status ${meta.cls}` },
+      h("span", { class: `proj-status ${cls}` },
         h("span", { class: "dot" }),
-        meta.label,
+        statusLabel(project.status),
       ),
     ),
   );
@@ -676,13 +676,13 @@ function renderEmpty(root, ctx, projectInfo) {
     root.append(renderProjectSubhead(projectInfo.project));
   }
   root.append(h("section", { class: "placeholder" },
-    h("div", { class: "eyebrow" }, "No features yet"),
-    h("h1", {}, "这个项目还没有 feature"),
+    h("div", { class: "eyebrow" }, t("ui.project.empty.eyebrow")),
+    h("h1", {}, t("ui.project.empty.heading")),
     h("p", { class: "hint" },
-      "在项目根目录跑 ",
+      t("ui.project.empty.hint_p1"),
       h("code", {}, "stele init"),
-      " 装好钩子,然后用 ",
+      t("ui.project.empty.hint_p2"),
       h("code", {}, "/stele:feature"),
-      " 起草第一个决策 — feature 会自动出现。"),
+      t("ui.project.empty.hint_p3")),
   ));
 }

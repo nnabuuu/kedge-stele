@@ -254,4 +254,66 @@ export const LOCALES_EN = {
   "ui.projects.loading": "loading projects…",
   "ui.projects.load_failed":
     "failed to load /api/projects · {reason}",
+
+  // ---------------------------------------------------------------------------
+  // ui.project.* — single Project page (/<slug>/)
+  // Reuses ui.projects.status.* / ui.projects.ft.* / ui.projects.outcome.*
+  // for the shared enum vocabulary.
+  // ---------------------------------------------------------------------------
+
+  "ui.project.node_state.decision": "decided",
+  "ui.project.node_state.deferred": "deferred",
+  "ui.project.node_state.open": "open",
+  "ui.project.node_state.resolved": "resolved",
+  "ui.project.node_state.superseded": "superseded",
+  "ui.project.source.agent_live": "agent · live",
+  "ui.project.source.session_extract": "agent · post-hoc",
+  "ui.project.source.manual": "manual",
+  "ui.project.rail.heading": "feature",
+  "ui.project.rail.count": "{count}",
+  "ui.project.rail.empty_filtered":
+    "no feature matches these tags",
+  "ui.project.rail.empty_unfiltered":
+    "no feature — try running /stele:feature in this project",
+  "ui.project.rail.tag_filter_label": "filter by tag",
+  "ui.project.rail.tag_filter_clear": "clear",
+  "ui.project.rail.tag_more": "more {count}",
+  "ui.project.rail.tag_collapse": "collapse",
+  "ui.project.rail.feature_sessions": "{count} conversations",
+  "ui.project.rail.feature_last_activity": "· last {when}",
+  "ui.project.main.no_selection_heading": "no feature selected",
+  "ui.project.main.no_selection_hint":
+    "pick one on the left, or run /stele:feature to create one.",
+  "ui.project.main.rolling_summary_lead": "rolling summary",
+  "ui.project.main.stat_sessions": "conversations accumulated",
+  "ui.project.main.stat_decisions": "decisions",
+  "ui.project.main.stat_last": "last {when}",
+  "ui.project.timeline.eyebrow": "conversation timeline",
+  "ui.project.timeline.hint":
+    "· this feature accumulated across {count} conversations",
+  "ui.project.timeline.sub":
+    "Each conversation pushes forward a bit; decisions settle below. Click a decision to open its trace.",
+  "ui.project.timeline.empty":
+    "no sessions yet — run /stele:feature under this feature to start.",
+  "ui.project.source_filter.label": "filtering by source: ",
+  "ui.project.source_filter.clear": "clear filter ✕",
+  "ui.project.resume.eyebrow": "continue last conversation",
+  "ui.project.resume.when": "session #{n} · {when} · {ago}",
+  "ui.project.resume.lead": "last touched on",
+  "ui.project.resume.no_ccid": "no source session id",
+  "ui.project.session.label": "session #{n}",
+  "ui.project.session.latest_badge": "most recent",
+  "ui.project.decisions.label":
+    "decisions from this conversation · {count}",
+  "ui.project.decision.source_title":
+    "source: {label}{conf}",
+  "ui.project.decision.confidence_suffix": ", confidence{conf}",
+  "ui.project.empty.eyebrow": "No features yet",
+  "ui.project.empty.heading": "this project has no feature yet",
+  "ui.project.empty.hint_p1": "in the project root, run ",
+  "ui.project.empty.hint_p2": " to install the hooks, then use ",
+  "ui.project.empty.hint_p3":
+    " to draft your first decision — features will appear automatically.",
+  "ui.project.loading": "loading project…",
+  "ui.project.load_failed": "failed to load project · {reason}",
 };

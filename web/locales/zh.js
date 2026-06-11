@@ -244,4 +244,64 @@ export const LOCALES_ZH = {
   "ui.projects.loading": "加载项目中…",
   "ui.projects.load_failed":
     "加载 /api/projects 失败 · {reason}",
+
+  // ---------------------------------------------------------------------------
+  // ui.project.* — 单项目 Project 页面 (/<slug>/)
+  // ---------------------------------------------------------------------------
+
+  "ui.project.node_state.decision": "已决",
+  "ui.project.node_state.deferred": "推迟",
+  "ui.project.node_state.open": "悬而未决",
+  "ui.project.node_state.resolved": "已解决",
+  "ui.project.node_state.superseded": "已取代",
+  "ui.project.source.agent_live": "agent · live",
+  "ui.project.source.session_extract": "agent · post-hoc",
+  "ui.project.source.manual": "manual",
+  "ui.project.rail.heading": "feature",
+  "ui.project.rail.count": "{count} 个",
+  "ui.project.rail.empty_filtered":
+    "没有匹配这些标签的 feature",
+  "ui.project.rail.empty_unfiltered":
+    "没有 feature —— 试试在这个项目里跑 /stele:feature",
+  "ui.project.rail.tag_filter_label": "按标签筛选",
+  "ui.project.rail.tag_filter_clear": "清除",
+  "ui.project.rail.tag_more": "更多 {count}",
+  "ui.project.rail.tag_collapse": "收起",
+  "ui.project.rail.feature_sessions": "{count} 次对话",
+  "ui.project.rail.feature_last_activity": "· 最近 {when}",
+  "ui.project.main.no_selection_heading": "没有选中 feature",
+  "ui.project.main.no_selection_hint":
+    "在左边选一个,或者跑 /stele:feature 创建。",
+  "ui.project.main.rolling_summary_lead": "rolling summary",
+  "ui.project.main.stat_sessions": "次对话累积",
+  "ui.project.main.stat_decisions": "个决定",
+  "ui.project.main.stat_last": "最近 {when}",
+  "ui.project.timeline.eyebrow": "对话时间线",
+  "ui.project.timeline.hint":
+    "· 这个 feature 由 {count} 次对话累积而成",
+  "ui.project.timeline.sub":
+    "每一次对话推进一点,沉淀出下面的决定。点决定可进溯源图看它的来历。",
+  "ui.project.timeline.empty":
+    "还没有 session —— 在这个 feature 下跑 /stele:feature 开始。",
+  "ui.project.source_filter.label": "正在按来源筛选: ",
+  "ui.project.source_filter.clear": "清除筛选 ✕",
+  "ui.project.resume.eyebrow": "继续上次的对话",
+  "ui.project.resume.when": "第 {n} 次 · {when} · {ago}",
+  "ui.project.resume.lead": "上次聊到",
+  "ui.project.resume.no_ccid": "no source session id",
+  "ui.project.session.label": "第 {n} 次",
+  "ui.project.session.latest_badge": "最近",
+  "ui.project.decisions.label":
+    "这次对话产出的决定 · {count}",
+  "ui.project.decision.source_title":
+    "源: {label}{conf}",
+  "ui.project.decision.confidence_suffix": ", 置信度{conf}",
+  "ui.project.empty.eyebrow": "No features yet",
+  "ui.project.empty.heading": "这个项目还没有 feature",
+  "ui.project.empty.hint_p1": "在项目根目录跑 ",
+  "ui.project.empty.hint_p2": " 装好钩子,然后用 ",
+  "ui.project.empty.hint_p3":
+    " 起草第一个决策 —— feature 会自动出现。",
+  "ui.project.loading": "加载项目中…",
+  "ui.project.load_failed": "加载项目失败 · {reason}",
 };
