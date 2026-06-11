@@ -3,14 +3,13 @@
 All notable changes to **stele-mcp** are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Versions use SemVer with a `-snapshot` pre-release tag during the alpha
-phase — **the API may shift between snapshot releases**. The `latest`
-npm dist-tag is intentionally pinned at `0.0.1-snapshot`; install
-explicit snapshots via:
+Versions use SemVer; install the latest with `npm install -g stele-mcp`.
 
-```bash
-npm install -g stele-mcp@snapshot
-```
+> **History note**: during the 0.0.x–0.1.x alpha the `latest` dist-tag was
+> deliberately pinned at `0.0.1-snapshot` and a separate `snapshot`
+> dist-tag pointed at the rolling pre-release. Both are gone as of 0.5.0
+> — `latest` now tracks stable releases and there is no `snapshot`
+> dist-tag. Pre-release entries below are kept for historical reference.
 
 ## [Unreleased]
 
