@@ -193,12 +193,12 @@ async function initCommand(args: string[]): Promise<void> {
     else if (a === "--port") {
       const n = Number(args[++i]);
       if (!Number.isInteger(n) || n < 1 || n > 65535) {
-        console.error(`invalid --port value: ${args[i]}`);
+        console.error(t("cli.init.invalid_port", { value: args[i] }));
         process.exit(1);
       }
       port = n;
     } else {
-      console.error(`unknown init flag: ${a}`);
+      console.error(t("cli.init.unknown_flag", { flag: a }));
       process.exit(1);
     }
   }
@@ -207,8 +207,8 @@ async function initCommand(args: string[]): Promise<void> {
   const steleDir = join(cwd, ".stele");
 
   if (existsSync(steleDir)) {
-    console.error(`stele already initialized at ${steleDir}`);
-    console.error(`(rm -rf .stele to reset — you'll lose all decisions)`);
+    console.error(t("cli.init.already_initialized", { path: steleDir }));
+    console.error(t("cli.init.reset_hint"));
     process.exit(1);
   }
 
@@ -240,28 +240,28 @@ async function initCommand(args: string[]): Promise<void> {
     if (!/^\.stele\/?$/m.test(current)) {
       const sep = current.endsWith("\n") || current.length === 0 ? "" : "\n";
       writeFileSync(gitignorePath, current + sep + ".stele/\n");
-      gitignoreNote = "added .stele/ to .gitignore";
+      gitignoreNote = t("cli.init.gitignore_added");
     } else {
-      gitignoreNote = ".gitignore already mentions .stele/";
+      gitignoreNote = t("cli.init.gitignore_already");
     }
   } else {
     writeFileSync(gitignorePath, ".stele/\n");
-    gitignoreNote = "wrote .gitignore with .stele/";
+    gitignoreNote = t("cli.init.gitignore_written");
   }
 
   const mcpPath = join(cwd, ".mcp.json");
   let mcpConfig: { mcpServers?: Record<string, unknown> } = { mcpServers: {} };
-  let mcpNote = "wrote .mcp.json with stele entry";
+  let mcpNote = t("cli.init.mcp_written");
   if (existsSync(mcpPath)) {
     let parsed: unknown;
     try {
       parsed = JSON.parse(readFileSync(mcpPath, "utf8"));
     } catch {
-      console.error(`existing .mcp.json is not valid JSON — refusing to overwrite`);
+      console.error(t("cli.init.mcp_invalid_json"));
       process.exit(1);
     }
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      console.error(`existing .mcp.json is not an object — refusing to overwrite`);
+      console.error(t("cli.init.mcp_not_object"));
       process.exit(1);
     }
     mcpConfig = parsed as typeof mcpConfig;
@@ -269,15 +269,15 @@ async function initCommand(args: string[]): Promise<void> {
       mcpConfig.mcpServers = {};
     }
     mcpNote = mcpConfig.mcpServers!.stele
-      ? "updated stele entry in existing .mcp.json"
-      : "merged stele entry into existing .mcp.json";
+      ? t("cli.init.mcp_updated")
+      : t("cli.init.mcp_merged");
   }
   mcpConfig.mcpServers!.stele = { command: "stele-mcp" };
   writeFileSync(mcpPath, JSON.stringify(mcpConfig, null, 2) + "\n");
 
-  console.log(`stele initialized at ${steleDir}`);
+  console.log(t("cli.init.created", { path: steleDir }));
   console.log(``);
-  console.log(`  wrote .stele/README.md`);
+  console.log(`  ${t("cli.init.wrote_readme")}`);
   console.log(`  ${mcpNote}`);
   console.log(`  ${gitignoreNote}`);
 
@@ -287,10 +287,10 @@ async function initCommand(args: string[]): Promise<void> {
   try {
     const reg = registerProject(cwd);
     projectSlug = reg.slug;
-    console.log(`  ${reg.isNew ? "registered" : "already registered"} as slug "${reg.slug}"`);
+    console.log(`  ${t(reg.isNew ? "cli.init.slug_registered" : "cli.init.slug_already_registered", { slug: reg.slug })}`);
   } catch (e) {
     projectSlug = "<this-project>";
-    console.error(`  ⚠ registry write failed (continuing): ${(e as Error).message}`);
+    console.error(`  ${t("cli.init.registry_failed", { reason: (e as Error).message })}`);
   }
 
   // Default-install hooks (Stop + SessionStart + stele-capture skill +
@@ -309,7 +309,7 @@ async function initCommand(args: string[]): Promise<void> {
       console.log(`  ${r.legacyCommandsCleaned}`);
       console.log(`  ${r.settings}`);
     } catch (e) {
-      console.error(`  ⚠ hooks install failed (continuing): ${(e as Error).message}`);
+      console.error(`  ${t("cli.init.hooks_failed", { reason: (e as Error).message })}`);
     }
   }
 
@@ -319,28 +319,28 @@ async function initCommand(args: string[]): Promise<void> {
   // get registered into the global registry.
   if (!skipDaemon) {
     if (process.platform !== "darwin" && process.platform !== "linux") {
-      console.log(`  ⓘ daemon not installed (unsupported platform: ${process.platform})`);
+      console.log(`  ${t("cli.init.daemon_unsupported_platform", { platform: process.platform })}`);
     } else {
       try {
         const r = await installDaemon({ port });
-        console.log(`  installed ${r.platform} daemon — http://127.0.0.1:${r.port} (loaded: ${r.loaded ? "yes" : "no"})`);
+        console.log(`  ${t("cli.init.daemon_installed", { platform: r.platform, port: r.port, loaded: t(r.loaded ? "cli.init.loaded_yes" : "cli.init.loaded_no") })}`);
         for (const n of r.notes) console.log(`    · ${n}`);
       } catch (e) {
-        console.error(`  ⚠ daemon install failed (continuing): ${(e as Error).message}`);
-        console.error(`    you can retry with: stele daemon install --port <N>`);
+        console.error(`  ${t("cli.init.daemon_failed", { reason: (e as Error).message })}`);
+        console.error(`    ${t("cli.init.daemon_retry_hint")}`);
       }
     }
   }
 
   console.log(``);
-  console.log(`Next:`);
-  console.log(`  1. Restart Claude Code in this directory (it picks up .mcp.json).`);
+  console.log(t("cli.init.next_header"));
+  console.log(`  ${t("cli.init.next_restart")}`);
   if (skipDaemon) {
-    console.log(`  2. Run \`stele serve --multi\` to launch the browser UI.`);
+    console.log(`  ${t("cli.init.next_serve_manual")}`);
   } else {
-    console.log(`  2. Open http://127.0.0.1:${port}/${projectSlug}/ — daemon serves it always-on.`);
+    console.log(`  ${t("cli.init.next_open_daemon", { port, slug: projectSlug })}`);
   }
-  console.log(`  3. Ask "what's waiting on me?" to see open loops.`);
+  console.log(`  ${t("cli.init.next_ask")}`);
 }
 
 // -----------------------------------------------------------------------------

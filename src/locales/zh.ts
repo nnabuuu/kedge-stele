@@ -114,6 +114,53 @@ export const ZH = {
     "没有 stele 的旧命令需要清理 (跳过了 {count} 个 user-level 文件{s} —— 没有 stele 指纹)",
   "cli.hooks.legacy_removed":
     "删除了 {count} 个旧命令{s} ({detail})",
+
+  // ---------------------------------------------------------------------------
+  // cli.init.* — `stele init` 输出
+  // ---------------------------------------------------------------------------
+
+  "cli.init.invalid_port": "--port 值无效: {value}",
+  "cli.init.unknown_flag": "init 不认识的 flag: {flag}",
+  "cli.init.already_initialized": "{path} 里已经有 stele 仓库了",
+  "cli.init.reset_hint":
+    "(想重来的话 rm -rf .stele —— 所有 decision 会一起消失)",
+  "cli.init.gitignore_added": "把 .stele/ 添加到了 .gitignore",
+  "cli.init.gitignore_already": ".gitignore 里已经有 .stele/",
+  "cli.init.gitignore_written": "写入 .gitignore,包含 .stele/",
+  "cli.init.mcp_written": "写入 .mcp.json,带 stele 条目",
+  "cli.init.mcp_invalid_json":
+    "现有的 .mcp.json 不是合法 JSON —— 拒绝覆盖",
+  "cli.init.mcp_not_object":
+    "现有的 .mcp.json 不是 object —— 拒绝覆盖",
+  "cli.init.mcp_updated": "更新了现有 .mcp.json 里的 stele 条目",
+  "cli.init.mcp_merged": "把 stele 条目合并进了现有的 .mcp.json",
+  "cli.init.created": "stele 已在 {path} 初始化",
+  "cli.init.wrote_readme": "写入 .stele/README.md",
+  "cli.init.slug_registered": "注册为 slug \"{slug}\"",
+  "cli.init.slug_already_registered": "已经注册过了,slug 是 \"{slug}\"",
+  "cli.init.registry_failed":
+    "⚠ 写入 registry 失败 (继续): {reason}",
+  "cli.init.hooks_failed":
+    "⚠ 安装 hooks 失败 (继续): {reason}",
+  "cli.init.daemon_unsupported_platform":
+    "ⓘ daemon 未安装 (当前平台不支持: {platform})",
+  "cli.init.daemon_installed":
+    "已安装 {platform} 上的 daemon —— http://127.0.0.1:{port} (loaded: {loaded})",
+  "cli.init.daemon_failed":
+    "⚠ 安装 daemon 失败 (继续): {reason}",
+  "cli.init.daemon_retry_hint":
+    "你可以稍后重试: stele daemon install --port <N>",
+  "cli.init.next_header": "接下来:",
+  "cli.init.next_restart":
+    "1. 在这个目录重启 Claude Code (它会读到 .mcp.json)。",
+  "cli.init.next_serve_manual":
+    "2. 跑 `stele serve --multi` 启动浏览器 UI。",
+  "cli.init.next_open_daemon":
+    "2. 打开 http://127.0.0.1:{port}/{slug}/ —— daemon 已经在常驻服务。",
+  "cli.init.next_ask":
+    "3. 问 \"什么在等我?\" 看待办循环。",
+  "cli.init.loaded_yes": "是",
+  "cli.init.loaded_no": "否",
 } as const;
 
 export type ZhKey = keyof typeof ZH;

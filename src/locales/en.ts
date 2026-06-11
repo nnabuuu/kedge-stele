@@ -114,6 +114,53 @@ export const EN = {
     "no stele legacy commands to clean ({count} user-level file{s} skipped — no stele fingerprint)",
   "cli.hooks.legacy_removed":
     "removed {count} legacy command{s} ({detail})",
+
+  // ---------------------------------------------------------------------------
+  // cli.init.* — `stele init` output
+  // ---------------------------------------------------------------------------
+
+  "cli.init.invalid_port": "invalid --port value: {value}",
+  "cli.init.unknown_flag": "unknown init flag: {flag}",
+  "cli.init.already_initialized": "stele already initialized at {path}",
+  "cli.init.reset_hint":
+    "(rm -rf .stele to reset — you'll lose all decisions)",
+  "cli.init.gitignore_added": "added .stele/ to .gitignore",
+  "cli.init.gitignore_already": ".gitignore already mentions .stele/",
+  "cli.init.gitignore_written": "wrote .gitignore with .stele/",
+  "cli.init.mcp_written": "wrote .mcp.json with stele entry",
+  "cli.init.mcp_invalid_json":
+    "existing .mcp.json is not valid JSON — refusing to overwrite",
+  "cli.init.mcp_not_object":
+    "existing .mcp.json is not an object — refusing to overwrite",
+  "cli.init.mcp_updated": "updated stele entry in existing .mcp.json",
+  "cli.init.mcp_merged": "merged stele entry into existing .mcp.json",
+  "cli.init.created": "stele initialized at {path}",
+  "cli.init.wrote_readme": "wrote .stele/README.md",
+  "cli.init.slug_registered": "registered as slug \"{slug}\"",
+  "cli.init.slug_already_registered": "already registered as slug \"{slug}\"",
+  "cli.init.registry_failed":
+    "⚠ registry write failed (continuing): {reason}",
+  "cli.init.hooks_failed":
+    "⚠ hooks install failed (continuing): {reason}",
+  "cli.init.daemon_unsupported_platform":
+    "ⓘ daemon not installed (unsupported platform: {platform})",
+  "cli.init.daemon_installed":
+    "installed {platform} daemon — http://127.0.0.1:{port} (loaded: {loaded})",
+  "cli.init.daemon_failed":
+    "⚠ daemon install failed (continuing): {reason}",
+  "cli.init.daemon_retry_hint":
+    "you can retry with: stele daemon install --port <N>",
+  "cli.init.next_header": "Next:",
+  "cli.init.next_restart":
+    "1. Restart Claude Code in this directory (it picks up .mcp.json).",
+  "cli.init.next_serve_manual":
+    "2. Run `stele serve --multi` to launch the browser UI.",
+  "cli.init.next_open_daemon":
+    "2. Open http://127.0.0.1:{port}/{slug}/ — daemon serves it always-on.",
+  "cli.init.next_ask":
+    "3. Ask \"what's waiting on me?\" to see open loops.",
+  "cli.init.loaded_yes": "yes",
+  "cli.init.loaded_no": "no",
 } as const;
 
 export type EnKey = keyof typeof EN;
