@@ -94,4 +94,88 @@ export const LOCALES_ZH = {
   "ui.graph.highlight_clear": "清除",
   "ui.graph.loading": "加载决策图…",
   "ui.graph.load_failed": "加载决策图失败 · {reason}",
+
+  // ---------------------------------------------------------------------------
+  // ui.tags.* — Tags 页面 (/<slug>/tags)
+  // ---------------------------------------------------------------------------
+
+  "ui.tags.eyebrow": "Tag library",
+  "ui.tags.heading": "标签",
+  "ui.tags.count_active": "在用",
+  "ui.tags.count_pending": "待确认",
+  "ui.tags.count_archived": "已归档",
+  "ui.tags.policy_section_label": "本地策略 · 谁能建新标签",
+  "ui.tags.policy_section_hint":
+    "存在 .stele/decisions.db · 不出本机",
+  "ui.tags.policy.auto.label": "自动新增",
+  "ui.tags.policy.auto.desc":
+    "agent 提的新标签自动生效,事后能看到。最轻松,但容易积出近义标签。",
+  "ui.tags.policy.propose.label": "提议待确认",
+  "ui.tags.policy.propose.desc":
+    "agent 提议,你逐条确认。手动把关,适合开始阶段。",
+  "ui.tags.policy.locked.label": "仅用现有",
+  "ui.tags.policy.locked.desc":
+    "标签库锁定。agent 只能用已有标签,新提议被拦下。",
+  "ui.tags.policy.default_badge": "默认",
+  "ui.tags.policy.require_reason_title":
+    "采用前要 agent 说明理由",
+  "ui.tags.policy.require_reason_desc":
+    "提议新标签时,agent 必须附上「为什么现有标签不够用」。",
+  "ui.tags.pending_section_label": "待确认 / 提议",
+  "ui.tags.pending_banner_propose_prefix": "当前是",
+  "ui.tags.pending_banner_propose_strong": "「提议待确认」",
+  "ui.tags.pending_banner_propose_suffix":
+    ": 下面的新标签需要你逐个确认才进标签库。",
+  "ui.tags.pending_banner_auto_prefix": "当前是",
+  "ui.tags.pending_banner_auto_strong": "「自动新增」",
+  "ui.tags.pending_banner_auto_suffix":
+    ": agent 建的标签直接生效,这里只是回看。",
+  "ui.tags.pending_banner_locked_prefix": "当前是",
+  "ui.tags.pending_banner_locked_strong": "「仅用现有」",
+  "ui.tags.pending_banner_locked_suffix":
+    ": 这些是被拦下的提议。你可以破例采用,或让它们就这么记着。",
+  "ui.tags.pending_no_reason": "(没有附上理由)",
+  "ui.tags.pending_targets": " · 计划应用到 {count} 个目标",
+  "ui.tags.pending_action_confirm": "采用",
+  "ui.tags.pending_action_reject": "驳回",
+  "ui.tags.library_section_label": "在用的标签",
+  "ui.tags.library_section_hint":
+    "点色块改色 · 悬停看操作",
+  "ui.tags.library_empty":
+    "还没有标签 —— agent 在 /stele:feature 流程里识别到的标签会出现在这里。",
+  "ui.tags.row_recolor_title": "改色",
+  "ui.tags.row_count": " 处在用",
+  "ui.tags.row_kind_fallback": "scope",
+  "ui.tags.row_origin_agent": "agent",
+  "ui.tags.row_origin_you": "你",
+  "ui.tags.row_action_rename": "改名",
+  "ui.tags.row_action_archive": "归档",
+  "ui.tags.row_action_restore": "恢复",
+  "ui.tags.rename_prompt": "新名字",
+  "ui.tags.archive_confirm":
+    "归档 \"{name}\"? 已经打过的标记不会被清除。",
+  "ui.tags.archived_summary": "已归档 · {count}",
+  "ui.tags.no_date": "—",
+
+  // Toast 消息
+  "ui.tags.toast.policy_changed": "策略 → {label}",
+  "ui.tags.toast.policy_change_failed": "改策略失败 · {reason}",
+  "ui.tags.toast.require_reason_on": "要求 agent 附上理由",
+  "ui.tags.toast.require_reason_off": "不强制理由",
+  "ui.tags.toast.setting_change_failed":
+    "改设置失败 · {reason}",
+  "ui.tags.toast.confirmed": "采用 · {name}",
+  "ui.tags.toast.confirm_failed": "采用失败 · {reason}",
+  "ui.tags.toast.rejected": "驳回 · {name}",
+  "ui.tags.toast.reject_failed": "驳回失败 · {reason}",
+  "ui.tags.toast.renamed": "重命名 · {name}",
+  "ui.tags.toast.rename_failed": "改名失败 · {reason}",
+  "ui.tags.toast.recolored": "色块已更新",
+  "ui.tags.toast.recolor_failed": "改色失败 · {reason}",
+  "ui.tags.toast.archived": "已归档 · {name}",
+  "ui.tags.toast.archive_failed": "归档失败 · {reason}",
+  "ui.tags.toast.restored": "已恢复 · {name}",
+  "ui.tags.toast.restore_failed": "恢复失败 · {reason}",
+  "ui.tags.loading": "加载标签…",
+  "ui.tags.load_failed": "加载标签失败 · {reason}",
 };

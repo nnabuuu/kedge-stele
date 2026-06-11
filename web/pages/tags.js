@@ -23,28 +23,23 @@
 
 import { apiGet, apiPost, ensureCss } from "../api.js";
 import { h, escapeHtml } from "../dom.js";
+import { t, formatRelativeDate } from "../i18n.js";
 
 // -------------------------------------------------------------------
-// Enums
+// Enums (label / desc come from t() at render time so the topbar
+// toggle re-renders pick up new locales — see graph.js for the
+// pattern)
 // -------------------------------------------------------------------
-
-const POLICY_META = {
-  auto: {
-    label: "自动新增",
-    desc: "agent 提的新标签自动生效,事后能看到。最轻松,但容易积出近义标签。",
-  },
-  propose: {
-    label: "提议待确认",
-    desc: "agent 提议,你逐条确认。手动把关,适合开始阶段。",
-    isDefault: true,
-  },
-  locked: {
-    label: "仅用现有",
-    desc: "标签库锁定。agent 只能用已有标签,新提议被拦下。",
-  },
-};
 
 const POLICY_KEYS = ["auto", "propose", "locked"];
+const POLICY_DEFAULT = "propose";
+
+function policyLabel(key) {
+  return t(`ui.tags.policy.${key}.label`);
+}
+function policyDesc(key) {
+  return t(`ui.tags.policy.${key}.desc`);
+}
 
 // -------------------------------------------------------------------
 // DOM helper
@@ -53,15 +48,10 @@ const POLICY_KEYS = ["auto", "propose", "locked"];
 // h() + escapeHtml now live in ../dom.js (imported above).
 
 function fmtAgo(iso) {
-  if (!iso) return "—";
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "—";
-  const d = Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
-  if (d <= 0) return "今天";
-  if (d === 1) return "昨天";
-  if (d < 30) return `${d} 天前`;
-  if (d < 365) return `${Math.round(d / 30)} 个月前`;
-  return `${Math.round(d / 365)} 年前`;
+  if (!iso) return t("ui.tags.no_date");
+  const parsed = Date.parse(iso);
+  if (Number.isNaN(parsed)) return t("ui.tags.no_date");
+  return formatRelativeDate(new Date(parsed));
 }
 
 // -------------------------------------------------------------------
@@ -87,15 +77,15 @@ function toast(msg, isErr = false) {
 function renderHeader(activeCount, pendCount, archivedCount) {
   return h("div", { class: "tag-page-head" },
     h("div", { class: "sec-head" },
-      h("div", { class: "eyebrow" }, "Tag library"),
-      h("h1", {}, "标签"),
+      h("div", { class: "eyebrow" }, t("ui.tags.eyebrow")),
+      h("h1", {}, t("ui.tags.heading")),
     ),
     h("div", { class: "tag-head-counts" },
-      h("span", {}, h("span", { class: "n" }, String(activeCount)), " 在用"),
+      h("span", {}, h("span", { class: "n" }, String(activeCount)), " ", t("ui.tags.count_active")),
       h("span", { class: "sep" }),
-      h("span", {}, h("span", { class: "n" }, String(pendCount)), " 待确认"),
+      h("span", {}, h("span", { class: "n" }, String(pendCount)), " ", t("ui.tags.count_pending")),
       h("span", { class: "sep" }),
-      h("span", {}, h("span", { class: "n" }, String(archivedCount)), " 已归档"),
+      h("span", {}, h("span", { class: "n" }, String(archivedCount)), " ", t("ui.tags.count_archived")),
     ),
   );
 }
@@ -103,30 +93,30 @@ function renderHeader(activeCount, pendCount, archivedCount) {
 function renderPolicy(state, onPolicyChange, onRequireReasonChange) {
   return h("section", { class: "sec policy-sec" },
     h("div", { class: "sec-h" },
-      h("span", { class: "eyebrow" }, "本地策略 · 谁能建新标签"),
-      h("span", { class: "hint" }, "存在 .stele/decisions.db · 不出本机"),
+      h("span", { class: "eyebrow" }, t("ui.tags.policy_section_label")),
+      h("span", { class: "hint" }, t("ui.tags.policy_section_hint")),
     ),
     h("div", { class: "policy" },
       h("div", { class: "policy-modes" },
         ...POLICY_KEYS.map((k) => {
-          const m = POLICY_META[k];
+          const isDefault = k === POLICY_DEFAULT;
           return h("button", {
               class: `pmode${state.policy === k ? " on" : ""}`,
               type: "button",
               onClick: () => onPolicyChange(k),
             },
             h("span", { class: "pmode-t" },
-              m.label,
-              m.isDefault ? h("span", { class: "badge" }, "默认") : null,
+              policyLabel(k),
+              isDefault ? h("span", { class: "badge" }, t("ui.tags.policy.default_badge")) : null,
             ),
-            h("span", { class: "pmode-d" }, m.desc),
+            h("span", { class: "pmode-d" }, policyDesc(k)),
           );
         }),
       ),
       h("div", { class: "policy-extra" },
         h("div", { class: "policy-extra-tx" },
-          h("b", {}, "采用前要 agent 说明理由"),
-          h("span", {}, "提议新标签时,agent 必须附上「为什么现有标签不够用」。"),
+          h("b", {}, t("ui.tags.policy.require_reason_title")),
+          h("span", {}, t("ui.tags.policy.require_reason_desc")),
         ),
         h("button", {
             class: `toggle${state.requireReason ? " on" : ""}`,
@@ -144,15 +134,23 @@ function renderPolicy(state, onPolicyChange, onRequireReasonChange) {
 function renderPending(pending, policy, onConfirm, onReject) {
   if (pending.length === 0) return null;
 
+  // Banner shape: prefix + <b>strong</b> + suffix per policy. Splitting into
+  // three keys per locale keeps natural CN/EN order without forcing string
+  // concatenation in the caller.
+  const banner = (mode) => [
+    t(`ui.tags.pending_banner_${mode}_prefix`),
+    h("b", {}, t(`ui.tags.pending_banner_${mode}_strong`)),
+    t(`ui.tags.pending_banner_${mode}_suffix`),
+  ];
   const bannerCopy = {
-    propose: ["当前是", h("b", {}, "「提议待确认」"), ": 下面的新标签需要你逐个确认才进标签库。"],
-    auto:    ["当前是", h("b", {}, "「自动新增」"), ": agent 建的标签直接生效,这里只是回看。"],
-    locked:  ["当前是", h("b", {}, "「仅用现有」"), ": 这些是被拦下的提议。你可以破例采用,或让它们就这么记着。"],
+    propose: banner("propose"),
+    auto: banner("auto"),
+    locked: banner("locked"),
   };
 
   return h("section", { class: "sec" },
     h("div", { class: "sec-h" },
-      h("span", { class: "eyebrow" }, "待确认 / 提议"),
+      h("span", { class: "eyebrow" }, t("ui.tags.pending_section_label")),
       h("span", { class: "cnt" }, String(pending.length)),
     ),
     h("div", { class: `pend-banner ${policy}` }, bannerCopy[policy] ?? bannerCopy.propose),
@@ -168,10 +166,10 @@ function renderPendingRow(p, onConfirm, onReject) {
         h("div", { class: "pend-name" }, p.name),
         p.reason
           ? h("div", { class: "pend-reason" }, p.reason)
-          : h("div", { class: "pend-reason muted" }, "(没有附上理由)"),
+          : h("div", { class: "pend-reason muted" }, t("ui.tags.pending_no_reason")),
         h("div", { class: "pend-sub" },
           `${fmtAgo(p.createdAt)}`,
-          p.targets?.length ? ` · 计划应用到 ${p.targets.length} 个目标` : "",
+          p.targets?.length ? t("ui.tags.pending_targets", { count: p.targets.length }) : "",
         ),
       ),
     ),
@@ -180,12 +178,12 @@ function renderPendingRow(p, onConfirm, onReject) {
           class: "btn-mini ok",
           type: "button",
           onClick: () => onConfirm(p),
-        }, "采用"),
+        }, t("ui.tags.pending_action_confirm")),
       h("button", {
           class: "btn-mini no",
           type: "button",
           onClick: () => onReject(p),
-        }, "驳回"),
+        }, t("ui.tags.pending_action_reject")),
     ),
   );
 }
@@ -193,12 +191,12 @@ function renderPendingRow(p, onConfirm, onReject) {
 function renderLibrary(tags, onRename, onRecolor, onArchive) {
   return h("section", { class: "sec" },
     h("div", { class: "sec-h" },
-      h("span", { class: "eyebrow" }, "在用的标签"),
+      h("span", { class: "eyebrow" }, t("ui.tags.library_section_label")),
       h("span", { class: "cnt" }, String(tags.length)),
-      h("span", { class: "hint" }, "点色块改色 · 悬停看操作"),
+      h("span", { class: "hint" }, t("ui.tags.library_section_hint")),
     ),
     tags.length === 0
-      ? h("div", { class: "lib-empty" }, "还没有标签 — agent 在 /stele:feature 流程里识别到的标签会出现在这里。")
+      ? h("div", { class: "lib-empty" }, t("ui.tags.library_empty"))
       : h("div", { class: "tlib" },
           ...tags.map((tg) => renderTagRow(tg, false, onRename, onRecolor, onArchive)),
         ),
@@ -210,7 +208,7 @@ function renderArchived(archived, onRestore) {
   return h("details", { class: "arch" },
     h("summary", {},
       h("span", { class: "chev" }, "▸"),
-      `已归档 · ${archived.length}`),
+      t("ui.tags.archived_summary", { count: archived.length })),
     h("div", { class: "arch-list tlib" },
       ...archived.map((tg) => renderTagRow(tg, true, null, null, null, onRestore)),
     ),
@@ -223,36 +221,36 @@ function renderTagRow(tag, isArchived, onRename, onRecolor, onArchive, onRestore
         class: "trow-color",
         type: "color",
         value: tag.color ?? "#9c9a92",
-        title: "改色",
+        title: t("ui.tags.row_recolor_title"),
         disabled: isArchived,
         onChange: (e) => onRecolor?.(tag, e.target.value),
       }),
     h("span", { class: "trow-name", title: tag.name }, tag.name),
-    h("span", { class: "trow-count" }, h("b", {}, String(tag.count ?? 0)), " 处在用"),
-    h("span", { class: "trow-kind" }, tag.kind ?? "scope"),
+    h("span", { class: "trow-count" }, h("b", {}, String(tag.count ?? 0)), t("ui.tags.row_count")),
+    h("span", { class: "trow-kind" }, tag.kind ?? t("ui.tags.row_kind_fallback")),
     h("span", { class: `trow-origin trow-origin-${tag.origin}` },
-      tag.origin === "agent" ? "agent" : "you"),
+      tag.origin === "agent" ? t("ui.tags.row_origin_agent") : t("ui.tags.row_origin_you")),
     h("div", { class: "trow-acts" },
       isArchived
         ? h("button", {
             class: "btn-mini",
             type: "button",
             onClick: () => onRestore?.(tag),
-          }, "恢复")
+          }, t("ui.tags.row_action_restore"))
         : [
             h("button", {
               class: "btn-mini ghost",
               type: "button",
               onClick: () => {
-                const nv = window.prompt("新名字", tag.name);
+                const nv = window.prompt(t("ui.tags.rename_prompt"), tag.name);
                 if (nv && nv.trim() && nv !== tag.name) onRename?.(tag, nv.trim());
               },
-            }, "改名"),
+            }, t("ui.tags.row_action_rename")),
             h("button", {
               class: "btn-mini ghost",
               type: "button",
               onClick: () => onArchive?.(tag),
-            }, "归档"),
+            }, t("ui.tags.row_action_archive")),
           ],
     ),
   );
@@ -300,11 +298,11 @@ async function onPolicyChange(next) {
   rerender();
   try {
     await apiPost("/config/tag_policy", { value: next });
-    toast(`策略 → ${POLICY_META[next].label}`);
+    toast(t("ui.tags.toast.policy_changed", { label: policyLabel(next) }));
   } catch (err) {
     state.policy = prev;
     rerender();
-    toast(`改策略失败 · ${err.message ?? err}`, true);
+    toast(t("ui.tags.toast.policy_change_failed", { reason: err.message ?? err }), true);
   }
 }
 
@@ -314,11 +312,11 @@ async function onRequireReasonChange(next) {
   rerender();
   try {
     await apiPost("/config/tag_require_reason", { value: String(next) });
-    toast(next ? "要求 agent 附上理由" : "不强制理由");
+    toast(next ? t("ui.tags.toast.require_reason_on") : t("ui.tags.toast.require_reason_off"));
   } catch (err) {
     state.requireReason = prev;
     rerender();
-    toast(`改设置失败 · ${err.message ?? err}`, true);
+    toast(t("ui.tags.toast.setting_change_failed", { reason: err.message ?? err }), true);
   }
 }
 
@@ -327,9 +325,9 @@ async function onConfirm(p) {
     await apiPost(`/tags/proposals/${encodeURIComponent(p.id)}/confirm`, {});
     await loadAll();
     rerender();
-    toast(`采用 · ${p.name}`);
+    toast(t("ui.tags.toast.confirmed", { name: p.name }));
   } catch (err) {
-    toast(`采用失败 · ${err.message ?? err}`, true);
+    toast(t("ui.tags.toast.confirm_failed", { reason: err.message ?? err }), true);
   }
 }
 
@@ -338,9 +336,9 @@ async function onReject(p) {
     await apiPost(`/tags/proposals/${encodeURIComponent(p.id)}/reject`, {});
     await loadAll();
     rerender();
-    toast(`驳回 · ${p.name}`);
+    toast(t("ui.tags.toast.rejected", { name: p.name }));
   } catch (err) {
-    toast(`驳回失败 · ${err.message ?? err}`, true);
+    toast(t("ui.tags.toast.reject_failed", { reason: err.message ?? err }), true);
   }
 }
 
@@ -349,9 +347,9 @@ async function onRename(tag, newName) {
     await apiPost(`/tags/${encodeURIComponent(tag.id)}/rename`, { name: newName });
     await loadAll();
     rerender();
-    toast(`重命名 · ${newName}`);
+    toast(t("ui.tags.toast.renamed", { name: newName }));
   } catch (err) {
-    toast(`改名失败 · ${err.message ?? err}`, true);
+    toast(t("ui.tags.toast.rename_failed", { reason: err.message ?? err }), true);
   }
 }
 
@@ -359,23 +357,23 @@ async function onRecolor(tag, color) {
   try {
     await apiPost(`/tags/${encodeURIComponent(tag.id)}/recolor`, { color });
     // Update in-place; don't reload everything
-    const t = state.active.find((x) => x.id === tag.id);
-    if (t) t.color = color;
-    toast("色块已更新");
+    const found = state.active.find((x) => x.id === tag.id);
+    if (found) found.color = color;
+    toast(t("ui.tags.toast.recolored"));
   } catch (err) {
-    toast(`改色失败 · ${err.message ?? err}`, true);
+    toast(t("ui.tags.toast.recolor_failed", { reason: err.message ?? err }), true);
   }
 }
 
 async function onArchive(tag) {
-  if (!confirm(`归档 "${tag.name}"? 已经打过的标记不会被清除。`)) return;
+  if (!confirm(t("ui.tags.archive_confirm", { name: tag.name }))) return;
   try {
     await apiPost(`/tags/${encodeURIComponent(tag.id)}/archive`, {});
     await loadAll();
     rerender();
-    toast(`已归档 · ${tag.name}`);
+    toast(t("ui.tags.toast.archived", { name: tag.name }));
   } catch (err) {
-    toast(`归档失败 · ${err.message ?? err}`, true);
+    toast(t("ui.tags.toast.archive_failed", { reason: err.message ?? err }), true);
   }
 }
 
@@ -384,9 +382,9 @@ async function onRestore(tag) {
     await apiPost(`/tags/${encodeURIComponent(tag.id)}/restore`, {});
     await loadAll();
     rerender();
-    toast(`已恢复 · ${tag.name}`);
+    toast(t("ui.tags.toast.restored", { name: tag.name }));
   } catch (err) {
-    toast(`恢复失败 · ${err.message ?? err}`, true);
+    toast(t("ui.tags.toast.restore_failed", { reason: err.message ?? err }), true);
   }
 }
 
@@ -420,11 +418,11 @@ function rerender() {
 export async function render(root, _ctx) {
   ensureCss("/assets/styles/pages/tags.css");
   rootEl = root;
-  root.innerHTML = `<div class="loading">loading tags…</div>`;
+  root.innerHTML = `<div class="loading">${escapeHtml(t("ui.tags.loading"))}</div>`;
   try {
     await loadAll();
   } catch (err) {
-    root.innerHTML = `<div class="loading">failed to load tags · ${escapeHtml(err.message ?? err)}</div>`;
+    root.innerHTML = `<div class="loading">${escapeHtml(t("ui.tags.load_failed", { reason: String(err.message ?? err) }))}</div>`;
     return;
   }
   rerender();
