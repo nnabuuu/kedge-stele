@@ -107,8 +107,10 @@ function statusKeyOf(statusLine) {
 // state-pill already shows the state).
 function focalNote(statusLine) {
   if (!statusLine) return "";
-  const parts = statusLine.split(/\s+[—-]\s+/);
-  return parts.length > 1 ? parts.slice(1).join(" — ") : statusLine;
+  // Strip only the LEADING "STATE — " prefix; keep the body verbatim (it's
+  // free text that may itself contain a spaced hyphen).
+  const m = statusLine.match(/^\S+\s+[—-]\s+([\s\S]+)$/);
+  return m ? m[1] : statusLine;
 }
 
 // Group edges by an inferred relation key, splitting the symmetric relations
@@ -170,7 +172,7 @@ function renderPicker(focalId, siblings) {
 
 function renderFocalCard(trace) {
   const d = trace.decision;
-  const { mid, localId } = splitDecisionId(d.id);
+  const { mid } = splitDecisionId(d.id);
   const stateKey = statusKeyOf(trace.statusLine);
   const title = d.detail?.title ?? d.title ?? d.id;
   const tagColor = trace.tags?.[0]?.color ?? null;
@@ -190,9 +192,7 @@ function renderFocalCard(trace) {
     h("div", { class: "focal-where" },
       h("a", { class: "mlink", href: slugUrl(`/?f=${encodeURIComponent(mid)}`), "data-route": "" },
         icon("flag", 11),
-        h("b", {}, mid),
-        " · ",
-        h("span", {}, localId)),
+        h("b", {}, trace.featureName ?? mid)),
     ),
   );
 }
@@ -352,11 +352,12 @@ function renderNbGroup(key, edges, focalMid) {
   );
 }
 
-// dref-g uses the neighbor's type-ish color; map its derived state onto the
-// three glyph colors (decision teal / deferred amber / open purple).
-function gClsOf(state) {
-  if (state === "deferred") return "deferred";
-  if (state === "open") return "open";
+// dref-g glyph color follows the neighbor's decision TYPE (the mock's TYPE_G):
+// decision→teal / deferred→amber / open→purple. A resolved deferred keeps the
+// amber glyph even though its derived state is "resolved".
+function gClsOf(type) {
+  if (type === "deferred") return "deferred";
+  if (type === "open") return "open";
   return "decision";
 }
 
@@ -365,7 +366,7 @@ function renderDRef(edge, focalMid) {
   const internal = otherMid === focalMid;
   const state = edge.otherState ?? "decided";
   return h("a", { class: "dref", href: decisionTraceHref(edge.otherId), "data-route": "" },
-    h("span", { class: `dref-g ${gClsOf(state)}` }, localId),
+    h("span", { class: `dref-g ${gClsOf(edge.otherType)}` }, localId),
     h("span", { class: "dref-t" }, edge.otherTitle ?? "?"),
     h("span", { class: `dref-st ${nodeStateCls(state)}` }, nodeStateLabel(state)),
     h("span", { class: "dref-go" }, icon(internal ? "arrowRight" : "ext", 14)),

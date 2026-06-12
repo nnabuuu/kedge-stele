@@ -158,12 +158,14 @@ export interface TraceEdge {
   otherId: DecisionId;
   otherTitle: string;
   otherState?: string;   // derived nodeState of the other decision (for the state pill)
+  otherType?: string;    // raw decision type (decision|deferred|open) — for the glyph color
   direction: "out" | "in";
   note?: string;
 }
 
 export interface Trace {
   decision: Decision;
+  featureName?: string;  // resolved name of decision.featureId (focal-where label)
   statusLine: string;
   affects: { ref: EntityRef; label: string; href?: string }[];
   edges: TraceEdge[];
@@ -218,6 +220,7 @@ export async function trace(
       otherId: e.to,
       otherTitle: o?.title ?? "?",
       otherState: o ? nodeState(o) : undefined,
+      otherType: o?.type,
       direction: "out",
       note: e.note,
     });
@@ -229,6 +232,7 @@ export async function trace(
       otherId: e.from,
       otherTitle: o?.title ?? "?",
       otherState: o ? nodeState(o) : undefined,
+      otherType: o?.type,
       direction: "in",
       note: e.note,
     });
@@ -244,7 +248,14 @@ export async function trace(
     .taggingsForTarget("decision", id)
     .map((t) => ({ name: t.name, color: t.color }));
 
-  return { decision: d, statusLine: statusLine(store, d, locale), affects, edges, tags };
+  return {
+    decision: d,
+    featureName: store.getFeature(d.featureId)?.name,
+    statusLine: statusLine(store, d, locale),
+    affects,
+    edges,
+    tags,
+  };
 }
 
 export async function traceEntity(

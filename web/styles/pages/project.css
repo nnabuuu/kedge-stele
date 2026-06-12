@@ -99,23 +99,21 @@
 }
 .rail-h {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 14px;
 }
 .rail-h h2 {
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--seal);
+  letter-spacing: 0.04em;
+  color: var(--t1);
   margin: 0;
 }
 .rail-h-r {
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10.5px;
+  font-weight: 600;
   color: var(--t3);
 }
 
@@ -146,13 +144,15 @@
   font-weight: 600;
   padding: 3px 9px 3px 8px;
   border-radius: 99px;
-  color: var(--tc);
-  background: color-mix(in srgb, var(--tc) 10%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--tc) 28%, transparent);
+  color: var(--t2);
+  background: var(--surface2);
+  border: 1px solid transparent;
 }
+.tagchip .td { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--tc); }
 .tagchip.tog { cursor: pointer; transition: 0.14s; }
-.tagchip.tog:hover { background: color-mix(in srgb, var(--tc) 16%, var(--surface)); }
+.tagchip.tog:hover { border-color: var(--border-strong); }
 .tagchip.tog.on { color: #fff; background: var(--tc); border-color: var(--tc); }
+.tagchip.tog.on .td { background: rgba(255, 255, 255, 0.9); }
 .tagmore {
   font-size: 10.5px;
   font-weight: 600;
@@ -206,11 +206,12 @@
   border-color: var(--mc, var(--accent));
   box-shadow: inset 3px 0 0 var(--mc, var(--accent));
 }
-.mrow.going  { --mc: var(--teal); }
-.mrow.winding { --mc: var(--amber); }
-.mrow.done   { --mc: var(--green); }
-.mrow.paused { --mc: var(--t3); }
-.mrow.draft  { --mc: var(--t3); }
+/* state accent (mock MS_STATE.mc) drives the .mrow.on left rail + the dot fill */
+.mrow.going   { --mc: var(--teal); }
+.mrow.winding { --mc: var(--green); }
+.mrow.done    { --mc: var(--t3); }
+.mrow.paused  { --mc: var(--amber); }
+.mrow.draft   { --mc: var(--t3); }
 
 .mrow-top {
   display: flex;
@@ -218,53 +219,55 @@
   gap: 7px;
 }
 .mrow-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--mc);
   flex: none;
 }
+/* finished/draft features read as a ring, not a filled dot */
+.mrow.done .mrow-dot  { background: transparent; border: 2px solid var(--t3); }
+.mrow.draft .mrow-dot { background: transparent; border: 2px dashed var(--t3); }
 .mrow-name {
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
+  letter-spacing: -0.1px;
+  line-height: 1.3;
   color: var(--t1);
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
+.mrow.done .mrow-name, .mrow.draft .mrow-name { color: var(--t2); font-weight: 500; }
 .mrow-meta {
-  margin-top: 5px;
+  padding-left: 16px; /* hang under the name (8px dot + 8px gap) */
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-family: var(--mono);
+  gap: 7px;
+  white-space: nowrap;
   font-size: 10.5px;
   color: var(--t3);
-  flex-wrap: wrap;
 }
+.mrow-ses { display: inline-flex; align-items: center; gap: 4px; }
+.mrow-ses svg { color: var(--t3); }
 .mrow-state {
   margin-left: auto;
-  font-family: var(--mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 2px 6px;
-  border-radius: 3px;
-  background: var(--surface2);
-  color: var(--t2);
+  font-weight: 700;
+  letter-spacing: 0.03em;
 }
+.mrow.going .mrow-state   { color: var(--teal); }
+.mrow.winding .mrow-state { color: var(--green); }
+.mrow.paused .mrow-state  { color: var(--amber); }
+.mrow.done .mrow-state, .mrow.draft .mrow-state { color: var(--t3); }
 .mrow-tags {
-  margin-top: 6px;
+  padding-left: 16px;
+  margin-top: 3px;
   display: flex;
   gap: 4px;
 }
 .mrow-tags .td {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
   background: var(--tc, var(--t3));
 }
 .filt-empty {

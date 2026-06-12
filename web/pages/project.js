@@ -238,7 +238,9 @@ function renderTagChip(tag, on, onToggleTag) {
       type: "button",
       style: { "--tc": tag.color ?? "#9c9a92" },
       onClick: () => onToggleTag(tag.name),
-    }, tag.name);
+    },
+    h("span", { class: "td" }),
+    tag.name);
 }
 
 function renderFeatureRow(f, isSelected, onSelect) {
@@ -252,15 +254,17 @@ function renderFeatureRow(f, isSelected, onSelect) {
       h("span", { class: "mrow-name" }, f.name),
     ),
     h("div", { class: "mrow-meta" },
-      h("span", { class: "mrow-ses" }, t("ui.project.rail.feature_sessions", { count: f.sessionCount })),
+      h("span", { class: "mrow-ses" },
+        icon("msg", 11),
+        t("ui.project.rail.feature_sessions", { count: f.sessionCount })),
       f.lastActivity
         ? h("span", {}, t("ui.project.rail.feature_last_activity", { when: fmtAgo(f.lastActivity) }))
         : null,
       h("span", { class: "mrow-state" }, ftStateLabel(f.state)),
     ),
-    f.tags.length > 0
+    (f.tags ?? []).length > 0
       ? h("div", { class: "mrow-tags" },
-          ...f.tags.map((tag) =>
+          ...(f.tags ?? []).map((tag) =>
             h("span", { class: "td", style: { "--tc": tag.color }, title: tag.name }),
           ),
         )

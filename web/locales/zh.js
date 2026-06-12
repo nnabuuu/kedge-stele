@@ -407,7 +407,7 @@ export const LOCALES_ZH = {
   "ui.trace.arc.stage.deferred": "推迟",
   "ui.trace.arc.stage.open": "悬而未决",
   "ui.trace.arc.stage.resolved": "解决",
-  "ui.trace.arc.resolver_prefix": "由 ",
+  "ui.trace.arc.resolver_prefix": "被 ",
   "ui.trace.arc.resolver_suffix": " 解决",
   // Neighbors
   "ui.trace.neighbors.empty":

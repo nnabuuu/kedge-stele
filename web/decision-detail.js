@@ -34,7 +34,7 @@ export function mapDetail(d) {
     return {
       n: OPT_LETTERS[i] ?? String(i + 1),
       ap,
-      vd: o.why ?? (o.verdict === "chosen" ? "✓" : "✗"),
+      vd: o.why || (o.verdict === "chosen" ? "✓" : "✗"), // || not ?? — empty string also falls back
       chosen: o.chosen ?? o.verdict === "chosen",
     };
   });
