@@ -407,10 +407,11 @@
 .fdec-num { font-family: var(--serif), serif; font-size: 15px; font-weight: 500; font-style: italic; color: var(--t3); letter-spacing: -0.1px; min-width: 54px; padding-top: 4px; flex: none; }
 .fdec-title { flex: 1; min-width: 150px; font-size: 17.5px; font-weight: 700; letter-spacing: -0.3px; line-height: 1.32; color: var(--t1); }
 .fdec-st { font-size: 11px; font-weight: 700; flex: none; white-space: nowrap; align-self: flex-start; margin-top: 5px; }
-.fdec-st.decided  { color: var(--teal); }
-.fdec-st.deferred { color: var(--amber); }
-.fdec-st.open     { color: var(--purple); }
-.fdec-st.resolved { color: var(--green); }
+.fdec-st.decided    { color: var(--teal); }
+.fdec-st.deferred   { color: var(--amber); }
+.fdec-st.open       { color: var(--purple); }
+.fdec-st.resolved   { color: var(--green); }
+.fdec-st.superseded { color: var(--t3); }
 .fdec-foot { margin-top: 2px; }
 .fdec.over { opacity: .6; }
 .fdec.over .fdec-title { text-decoration: line-through; text-decoration-color: var(--t3); color: var(--t2); font-weight: 600; }

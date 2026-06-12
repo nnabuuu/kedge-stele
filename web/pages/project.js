@@ -404,6 +404,7 @@ const SESS_BUCKETS = [
 // uses "decided" (not "decision") and treats a resolved deferred/open as its
 // own "resolved" type (which buckets with Decisions and renders dimmed).
 function effMockType(d) {
+  if (d.supersededBy) return "superseded"; // class must match the label (nodeStateOf)
   if (d.status === "resolved") return "resolved";
   if (d.type === "decision") return "decided";
   return d.type; // deferred | open

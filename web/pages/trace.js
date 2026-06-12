@@ -277,13 +277,18 @@ function arcDateLabel(st) {
     : md;
 }
 
-// Right-aligned duration badge — currently the deferral length on the hung step.
+// Right-aligned duration badge — the deferral length on the hung step. Diff on
+// the SAME local-calendar frame fmtMD renders the span dates in, so the badge
+// can never disagree with the "悬 from → to" endpoints beside it; a sub-day
+// deferral (same calendar day) shows no badge.
 function arcSegLabel(st) {
-  if (st.stage === "deferred" && st.toAt) {
-    const days = Math.max(0, Math.round((Date.parse(st.toAt) - Date.parse(st.at)) / DAY_MS));
-    return days <= 0 ? t("ui.trace.arc.seg_immediate") : t("ui.trace.arc.seg_hung", { days }, days);
-  }
-  return null;
+  if (st.stage !== "deferred" || !st.toAt) return null;
+  const midnight = (iso) => {
+    const d = new Date(iso);
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  };
+  const days = Math.round((midnight(st.toAt) - midnight(st.at)) / DAY_MS);
+  return days >= 1 ? t("ui.trace.arc.seg_hung", { days }, days) : null;
 }
 
 function renderLifecycle(stitch) {

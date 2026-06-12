@@ -425,7 +425,6 @@ export const LOCALES_EN = {
   "ui.trace.arc.span": "hung {from} → {to}",
   "ui.trace.arc.seg_hung.one": "hung {days} day",
   "ui.trace.arc.seg_hung.other": "hung {days} days",
-  "ui.trace.arc.seg_immediate": "same day",
   // Neighbors
   "ui.trace.neighbors.empty":
     "this decision isn't connected to others yet — no incoming/outgoing edges.",

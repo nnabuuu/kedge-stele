@@ -412,7 +412,6 @@ export const LOCALES_ZH = {
   "ui.trace.arc.date_session": "{date} · 第 {n} 次",
   "ui.trace.arc.span": "悬 {from} → {to}",
   "ui.trace.arc.seg_hung": "悬了 {days} 天",
-  "ui.trace.arc.seg_immediate": "立即",
   // Neighbors
   "ui.trace.neighbors.empty":
     "这条决定还没有连接到别的决定 —— 没有传入/传出的边。",
