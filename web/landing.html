@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>实录 · Stele — Decision provenance</title>
+<title>Stele · Carve your decisions</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600&family=Noto+Serif+SC:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
 :root{
@@ -85,13 +85,12 @@ p.sub{font-size:18px;line-height:1.7;color:var(--ink-2);margin-top:22px;text-wra
       <button type="button" data-lang="zh">中文</button>
       <button type="button" data-lang="en">EN</button>
     </div>
-    <div class="eyebrow" data-i18n="eyebrow">Decision provenance · 决策溯源</div>
     <h1><span class="pn-mark">实录</span> · <span class="pn-mark">Stele</span></h1>
-    <p class="sub" data-i18n="sub">A local-first decision-provenance store. Agents deliver results; <span class="pn-mark">Stele</span> records the decisions behind them — every choice, deferral, and rejection lands beside the artifact so you can trace how anything came to be.</p>
+    <p class="sub" data-i18n="sub"><span class="pn-mark">Stele</span> carves your decisions. Every choice, every deferral, every rejection. Find the reasoning behind anything you built, whenever you need it.</p>
     <pre class="snippet"><span class="sigil">$</span>npm install -g stele-mcp &amp;&amp; stele init</pre>
     <div class="cta-row">
-      <a class="btn btn-solid" href="https://github.com/nnabuuu/kedge-stele" target="_blank" rel="noopener" data-i18n="cta_github">View on GitHub →</a>
-      <a class="btn btn-ghost" href="/" data-i18n="cta_dashboard">Open dashboard</a>
+      <a class="btn btn-solid" href="https://github.com/nnabuuu/kedge-stele" target="_blank" rel="noopener" data-i18n="cta_github">GitHub →</a>
+      <a class="btn btn-ghost" href="/" data-i18n="cta_dashboard">Open dashboard →</a>
     </div>
     <p class="note" data-i18n-html="note">Node ≥ 22.6 · Local SQLite at <code>&lt;project&gt;/.stele/decisions.db</code> · Apache-2.0 · No tracking</p>
   </main>
@@ -106,19 +105,17 @@ p.sub{font-size:18px;line-height:1.7;color:var(--ink-2);margin-top:22px;text-wra
 (function(){
   const I18N = {
     en: {
-      title: "Stele · Decision provenance",
-      eyebrow: "Decision provenance · 决策溯源",
-      sub: 'A local-first decision-provenance store. Agents deliver results; <span class="pn-mark">Stele</span> records the decisions behind them — every choice, deferral, and rejection lands beside the artifact so you can trace how anything came to be.',
-      cta_github: "View on GitHub →",
-      cta_dashboard: "Open dashboard",
+      title: "Stele · Carve your decisions",
+      sub: '<span class="pn-mark">Stele</span> carves your decisions. Every choice, every deferral, every rejection. Find the reasoning behind anything you built, whenever you need it.',
+      cta_github: "GitHub →",
+      cta_dashboard: "Open dashboard →",
       note: 'Node ≥ 22.6 · Local SQLite at <code>&lt;project&gt;/.stele/decisions.db</code> · Apache-2.0 · No tracking',
     },
     zh: {
-      title: "实录 · Stele — 决策溯源",
-      eyebrow: "Decision provenance · 决策溯源",
-      sub: '一个 local-first 的决策溯源仓库。agent 交付结果;<span class="pn-mark">Stele</span> 把它们背后的决策记下来 —— 每一次选择、每一次推迟、每一次否决都落在产物旁边,让任何东西的来历都可追溯。',
-      cta_github: "在 GitHub 看 →",
-      cta_dashboard: "打开 dashboard",
+      title: "实录 · Stele · 把决策刻下来",
+      sub: '<span class="pn-mark">实录</span>把你的决策刻下来。每一次选择、推迟、否决。你做的任何东西,日后都能溯回它当时是怎么来的。',
+      cta_github: "GitHub →",
+      cta_dashboard: "打开 dashboard →",
       note: 'Node ≥ 22.6 · SQLite 在本地 <code>&lt;project&gt;/.stele/decisions.db</code> · Apache-2.0 · 不做任何追踪',
     },
   };
