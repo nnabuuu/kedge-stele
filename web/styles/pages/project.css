@@ -380,6 +380,10 @@
 .sess-oc { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--oc); }
 .sess-oc .d { width: 7px; height: 7px; border-radius: 50%; background: var(--oc); }
 .sess-time { font-family: var(--mono); font-size: 10.5px; color: var(--t3); }
+.sess-deccount {
+  font-family: var(--mono); font-size: 10px; font-weight: 600; color: var(--t2);
+  background: var(--surface2); padding: 2px 8px; border-radius: 99px;
+}
 .sess-head-r { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; }
 .sess-core { padding: 3px 0 3px 16px; border-left: 3px solid color-mix(in srgb, var(--oc) 50%, var(--border)); }
 .sess.latest .sess-core { border-left-color: var(--seal); }

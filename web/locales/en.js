@@ -307,6 +307,8 @@ export const LOCALES_EN = {
   "ui.project.session.latest_tag": "most recent",
   "ui.project.session.core_latest": "last left off",
   "ui.project.session.core_label": "what this settled",
+  "ui.project.session.dec_count.one": "{n} decision",
+  "ui.project.session.dec_count.other": "{n} decisions",
   "ui.project.bucket.dec": "Decisions",
   "ui.project.bucket.def": "Deferred",
   "ui.project.bucket.oq": "Open questions",

@@ -295,6 +295,7 @@ export const LOCALES_ZH = {
   "ui.project.session.latest_tag": "最近一次",
   "ui.project.session.core_latest": "上次聊到",
   "ui.project.session.core_label": "这次聊定的核心",
+  "ui.project.session.dec_count": "{n} 个决定",
   "ui.project.bucket.dec": "决定",
   "ui.project.bucket.def": "推迟",
   "ui.project.bucket.oq": "待解的问题",

@@ -35,6 +35,19 @@ const FT_STATE_KEYS = ["draft", "going", "winding", "done", "paused"];
 function ftStateCls(s) { return FT_STATE_KEYS.includes(s) ? s : "going"; }
 function ftStateLabel(s) { return t(`ui.projects.ft.${ftStateCls(s)}`); }
 
+// A feature whose decisions are all settled (≥1 decision, zero open/deferred
+// loops) reads as completed — derive the DISPLAYED state as "done" while the
+// stored state stays going/winding (the user keeps manual control via the
+// dashboard). Pure display; nothing is mutated. Needs the openLoops /
+// decisionCount the featuresList projection already provides per feature.
+function displayFtState(f) {
+  if ((f.state === "going" || f.state === "winding") &&
+      (f.decisionCount ?? 0) > 0 && (f.openLoops ?? 0) === 0) {
+    return "done";
+  }
+  return f.state;
+}
+
 const OUTCOME_VAR = {
   advanced: "--teal",
   resolved: "--green",
@@ -244,8 +257,9 @@ function renderTagChip(tag, on, onToggleTag) {
 }
 
 function renderFeatureRow(f, isSelected, onSelect) {
+  const ds = displayFtState(f);
   return h("button", {
-      class: `mrow ${f.state}${isSelected ? " on" : ""}`,
+      class: `mrow ${ds}${isSelected ? " on" : ""}`,
       type: "button",
       onClick: () => onSelect(f.id),
     },
@@ -260,7 +274,7 @@ function renderFeatureRow(f, isSelected, onSelect) {
       f.lastActivity
         ? h("span", {}, t("ui.project.rail.feature_last_activity", { when: fmtAgo(f.lastActivity) }))
         : null,
-      h("span", { class: "mrow-state" }, ftStateLabel(f.state)),
+      h("span", { class: "mrow-state" }, ftStateLabel(ds)),
     ),
     (f.tags ?? []).length > 0
       ? h("div", { class: "mrow-tags" },
@@ -309,6 +323,9 @@ function renderMain(featureDetail, onSourceFilter, railItem) {
   const totalDecCount = allSessions.reduce((n, s) => n + s.decisions.length, 0);
   const latest = allSessions[allSessions.length - 1] ?? null;
   const lastIdx = sessions.length - 1;
+  // Derived "done" display when all loops are settled — uses the rail item's
+  // openLoops/decisionCount (the full-feature counts, unaffected by ?src=).
+  const headState = railItem ? displayFtState(railItem) : f.state;
 
   return h("main", { class: "main" },
     h("div", { class: "main-in", "data-fid": f.id },
@@ -317,9 +334,9 @@ function renderMain(featureDetail, onSourceFilter, railItem) {
       h("div", { class: "ms-head" },
         h("div", { class: "ms-titlerow" },
           h("h1", { class: "ms-title" }, f.name),
-          h("span", { class: `ms-state-pill ${ftStateCls(f.state)}` },
+          h("span", { class: `ms-state-pill ${ftStateCls(headState)}` },
             h("span", { class: "dot" }),
-            ftStateLabel(f.state),
+            ftStateLabel(headState),
           ),
         ),
         f.about ? h("p", { class: "ms-about" }, richText(f.about)) : null,
@@ -455,6 +472,10 @@ function renderSessionBlock(bucket, n, isLatest) {
         h("span", { class: "sess-date" }, fmtMD(s.startedAt)),
         h("span", { class: "sess-oc" }, h("span", { class: "d" }), oc.label),
         h("span", { class: "sess-time" }, fmtHM(s.startedAt), dur ? ` · ${dur}` : ""),
+        bucket.decisions.length
+          ? h("span", { class: "sess-deccount" },
+              t("ui.project.session.dec_count", { n: bucket.decisions.length }, bucket.decisions.length))
+          : null,
         h("span", { class: "sess-head-r" },
           s.id ? renderResumeLauncher({ sessionId: s.id }) : null),
       ),
@@ -475,16 +496,23 @@ function renderSessGroups(decisions) {
     .map((b) => ({ b, items: decisions.filter((d) => bucketKeyOf(d) === b.key) }))
     .filter((g) => g.items.length > 0);
   if (groups.length === 0) return null;
+  // A single-bucket session needs no "决定/Decisions" header — the repeated
+  // header was the "multiple Decisions sections" noise. The card's left-border
+  // color still signals the type and the count lives on the session head. Show
+  // headers only when a session actually mixes decision types.
+  const showHeaders = groups.length > 1;
   const showEn = getLocale() !== "en"; // the Latin subtitle is a flourish; drop it on en
   return h("div", { class: "sess-groups" },
     ...groups.map(({ b, items }) =>
       h("div", { class: "grp", style: { "--bc": b.bc } },
-        h("div", { class: "grp-h" },
-          h("span", { class: "grp-dot" }),
-          h("span", { class: "grp-lbl" }, t(b.labelKey)),
-          showEn ? h("span", { class: "grp-en" }, b.en) : null,
-          h("span", { class: "grp-n" }, String(items.length)),
-        ),
+        showHeaders
+          ? h("div", { class: "grp-h" },
+              h("span", { class: "grp-dot" }),
+              h("span", { class: "grp-lbl" }, t(b.labelKey)),
+              showEn ? h("span", { class: "grp-en" }, b.en) : null,
+              h("span", { class: "grp-n" }, String(items.length)),
+            )
+          : null,
         h("div", { class: "grp-cards" },
           ...items.map((d) => renderFlatDecision(d, b.key)),
         ),
