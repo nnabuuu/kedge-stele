@@ -189,22 +189,24 @@
 }
 
 .mrow {
-  display: block;
+  display: flex; /* column with a 5px gap supplies the name→meta→tags spacing */
+  flex-direction: column;
+  gap: 5px;
   width: 100%;
   text-align: left;
-  padding: 10px 11px;
-  background: var(--bg);
+  padding: 11px 12px;
   border: 1px solid transparent;
-  border-radius: 6px;
-  margin-bottom: 5px;
-  transition: border-color 0.16s ease, background 0.16s ease;
+  border-radius: var(--r-lg);
+  margin-bottom: 4px;
+  transition: 0.15s;
   cursor: pointer;
 }
-.mrow:hover { border-color: var(--border); }
+.mrow:hover { background: var(--bg); }
 .mrow.on {
-  background: var(--surface2);
-  border-color: var(--mc, var(--accent));
-  box-shadow: inset 3px 0 0 var(--mc, var(--accent));
+  background: var(--bg);
+  border-color: var(--border-strong);
+  border-left: 3px solid var(--mc, var(--teal));
+  box-shadow: var(--shadow-sm);
 }
 /* state accent (mock MS_STATE.mc) drives the .mrow.on left rail + the dot fill */
 .mrow.going   { --mc: var(--teal); }
@@ -247,8 +249,8 @@
   font-size: 10.5px;
   color: var(--t3);
 }
-.mrow-ses { display: inline-flex; align-items: center; gap: 4px; }
-.mrow-ses svg { color: var(--t3); }
+.mrow-ses { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--t2); }
+.mrow.done .mrow-ses { color: var(--t3); font-weight: 500; }
 .mrow-state {
   margin-left: auto;
   font-weight: 700;

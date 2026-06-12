@@ -13,7 +13,6 @@
 //   GET /<slug>/api/features/<mid>/decisions            siblings (picker)
 
 import { apiGet, ensureCss, slugUrl } from "../api.js";
-import { renderResumeLauncher } from "../components/resume-launcher.js";
 import { h, escapeHtml, richText } from "../dom.js";
 import { mapDetail, renderDecisionDetail } from "../decision-detail.js";
 import { icon } from "../icons.js";
@@ -235,7 +234,7 @@ function renderStitch(stitch) {
 
 function renderStitchCard(ref) {
   return h("a", { class: "stitch-card", href: decisionTraceHref(ref.id), "data-route": "" },
-    h("span", { class: "dref-g decision" }, splitDecisionId(ref.id).localId),
+    h("span", { class: `dref-g ${gClsOf(ref.type)}` }, splitDecisionId(ref.id).localId),
     h("span", { class: "stitch-card-t" }, ref.title),
     h("span", { class: "dref-go" }, icon("arrowRight", 14)),
   );
