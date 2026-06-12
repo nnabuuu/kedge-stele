@@ -468,6 +468,8 @@ export interface TraceStitchDecision {
 export interface ArcStage {
   stage: "raised" | "deferred" | "open" | "decided" | "resolved";
   at: string;            // ISO timestamp of this step
+  toAt?: string;         // end of the step's span (deferred → resolution time) — for the date span + duration badge
+  sessionOrdinal?: number; // "第N次" — this step's session position within its feature (1-based)
   featureName?: string;
   note?: string;
   resolver?: DecisionId; // set on the resolved step — which decision closed it
@@ -587,10 +589,22 @@ export function traceStitch(store: Store, decisionId: DecisionId): TraceStitch |
   });
 
   // Build the resolved decision's lifecycle: raised → (deferred) → resolved.
+  // sessionOrdinal = this step's session's 1-based position within its feature
+  // (the mock's "第N次"); the deferred step carries toAt so the frontend can
+  // render the hung span + duration badge.
+  const ordinalOf = (s: Session | null): number | undefined => {
+    if (!s) return undefined;
+    const i = store.sessionsInFeature(s.featureId).findIndex((x) => x.id === s.id);
+    return i >= 0 ? i + 1 : undefined;
+  };
+  const raisedAt = resolvedDec.raisedBy?.at ?? resolvedDec.createdAt;
+  const resolvedAt = resolverDec.raisedBy?.at ?? resolverDec.createdAt;
+
   const arc: ArcStage[] = [];
   arc.push({
     stage: "raised",
-    at: resolvedDec.raisedBy?.at ?? resolvedDec.createdAt,
+    at: raisedAt,
+    sessionOrdinal: ordinalOf(resolvedSession),
     featureName: store.getFeature(resolvedDec.featureId)?.name,
     note: resolvedDec.detail?.trigger ?? resolvedDec.title,
     ccid: resolvedSession?.sourceSessionId,
@@ -598,14 +612,16 @@ export function traceStitch(store: Store, decisionId: DecisionId): TraceStitch |
   if (resolvedDec.type === "deferred") {
     arc.push({
       stage: "deferred",
-      at: resolvedDec.raisedBy?.at ?? resolvedDec.createdAt,
+      at: raisedAt,
+      toAt: resolvedAt, // the hung span ends when the resolver landed
       note: resolvedDec.revisit?.cond ?? "推迟,待复审",
       ccid: resolvedSession?.sourceSessionId,
     });
   }
   arc.push({
     stage: "resolved",
-    at: resolverDec.raisedBy?.at ?? resolverDec.createdAt,
+    at: resolvedAt,
+    sessionOrdinal: ordinalOf(resolverSession),
     featureName: store.getFeature(resolverDec.featureId)?.name,
     note: resolverDec.title,
     resolver: resolverDec.id,

@@ -80,6 +80,13 @@ function fmtAgo(iso) {
   return t("ui.projects.date.months_ago", { count: Math.round(d / 30) });
 }
 
+function fmtMD(iso) {
+  if (!iso) return "";
+  const dt = new Date(iso);
+  if (Number.isNaN(+dt)) return "";
+  return `${dt.getMonth() + 1}/${String(dt.getDate()).padStart(2, "0")}`;
+}
+
 // -------------------------------------------------------------------
 // Helpers
 // -------------------------------------------------------------------
@@ -257,6 +264,28 @@ function arcStageMeta(stage) {
   return { label: t(`ui.trace.arc.stage.${k}`), ...ARC_STAGE_VISUAL[k] };
 }
 
+// Session-anchored date label (mock "M/D · 第N次"); the deferred step shows the
+// hung span "悬 from → to" instead.
+function arcDateLabel(st) {
+  if (st.stage === "deferred" && st.toAt) {
+    return t("ui.trace.arc.span", { from: fmtMD(st.at), to: fmtMD(st.toAt) });
+  }
+  const md = fmtMD(st.at);
+  if (!md) return fmtAgo(st.at); // unparseable timestamp → relative fallback
+  return st.sessionOrdinal
+    ? t("ui.trace.arc.date_session", { date: md, n: st.sessionOrdinal })
+    : md;
+}
+
+// Right-aligned duration badge — currently the deferral length on the hung step.
+function arcSegLabel(st) {
+  if (st.stage === "deferred" && st.toAt) {
+    const days = Math.max(0, Math.round((Date.parse(st.toAt) - Date.parse(st.at)) / DAY_MS));
+    return days <= 0 ? t("ui.trace.arc.seg_immediate") : t("ui.trace.arc.seg_hung", { days }, days);
+  }
+  return null;
+}
+
 function renderLifecycle(stitch) {
   // The arc is the RESOLVED decision's lifecycle — show it only on that
   // decision's page, not on the resolver's.
@@ -278,11 +307,14 @@ function renderArcStage(st) {
       h("span", { class: "arc-line" }),
     ),
     h("div", { class: "arc-body" },
-      h("div", { class: "arc-shead" },
-        h("span", { class: "arc-stagelabel" }, meta.label),
-        h("span", { class: "arc-date" }, fmtAgo(st.at)),
-        st.seg ? h("span", { class: "arc-seg" }, st.seg) : null,
-      ),
+      (() => {
+        const seg = arcSegLabel(st);
+        return h("div", { class: "arc-shead" },
+          h("span", { class: "arc-stagelabel" }, meta.label),
+          h("span", { class: "arc-date" }, arcDateLabel(st)),
+          seg ? h("span", { class: "arc-seg" }, seg) : null,
+        );
+      })(),
       h("div", { class: `arc-card${st.key ? " key" : ""}` },
         st.featureName ? h("div", { class: "arc-where" }, icon("flag", 11), st.featureName) : null,
         st.note ? h("div", { class: "arc-note" }, richText(st.note)) : null,

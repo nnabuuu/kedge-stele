@@ -421,6 +421,11 @@ export const LOCALES_EN = {
   "ui.trace.arc.stage.resolved": "resolved",
   "ui.trace.arc.resolver_prefix": "resolved by ",
   "ui.trace.arc.resolver_suffix": "",
+  "ui.trace.arc.date_session": "{date} · session #{n}",
+  "ui.trace.arc.span": "hung {from} → {to}",
+  "ui.trace.arc.seg_hung.one": "hung {days} day",
+  "ui.trace.arc.seg_hung.other": "hung {days} days",
+  "ui.trace.arc.seg_immediate": "same day",
   // Neighbors
   "ui.trace.neighbors.empty":
     "this decision isn't connected to others yet — no incoming/outgoing edges.",
