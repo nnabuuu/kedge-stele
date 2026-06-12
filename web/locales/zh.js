@@ -374,6 +374,15 @@ export const LOCALES_ZH = {
     "沿「{axis}」权衡 · {count} 个选项",
   "ui.trace.why.lock_in_k": "锁进了",
   "ui.trace.why.lock_out_k": "锁出了",
+  // Picker + section headers (rebuild)
+  "ui.trace.picker.label": "选一条决定",
+  "ui.trace.picker.ty.decision": "决定",
+  "ui.trace.picker.ty.deferred": "推迟",
+  "ui.trace.picker.ty.open": "待问",
+  "ui.trace.sec.lifecycle": "状态变化",
+  "ui.trace.sec.tradeoffs": "取舍",
+  "ui.trace.sec.related": "相关决定",
+  "ui.trace.sec.affects": "牵动到的",
   // Stitch
   "ui.trace.stitch.eyebrow": "跨对话缝合",
   "ui.trace.stitch.sub":
@@ -383,6 +392,13 @@ export const LOCALES_ZH = {
   "ui.trace.stitch.arrow_tip": "resolves",
   "ui.trace.stitch.days_after": "{count} 天后",
   "ui.trace.stitch.note_prefix": "记下:",
+  "ui.trace.stitch.self": "本条 · {id}",
+  "ui.trace.stitch.rel_resolved_by": "被解决于",
+  "ui.trace.stitch.rel_resolves": "解决了",
+  "ui.trace.stitch.say_resolved_by":
+    "这条当时<b>没就地解决</b>,后来在另一次对话里被下面这条决定收掉 —— status 翻成「<mark class=\"good\">已解决</mark>」。",
+  "ui.trace.stitch.say_resolves":
+    "这条决定回头收掉了之前挂起的悬案 —— 它们的 status 因此翻成「<mark class=\"good\">已解决</mark>」。",
   // Arc
   "ui.trace.arc.eyebrow": "状态变化",
   "ui.trace.arc.sub": "按时间排开,每一步都来自一次对话",

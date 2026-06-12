@@ -23,6 +23,9 @@ const ICON_PATHS = {
   clock:   [["circle", { cx: 12, cy: 12, r: 8.5 }], ["polyline", { points: "12 7.5 12 12 15.2 13.8" }]],
   help:    [["circle", { cx: 12, cy: 12, r: 8.5 }], ["path", { d: "M9.6 9.4a2.5 2.5 0 0 1 4.8 .9c0 1.7-2.4 1.9-2.4 3.4" }],
             ["circle", { cx: 12, cy: 16.7, r: 0.7, fill: "currentColor", stroke: "none" }]],
+  arrowRight: [["line", { x1: 5, y1: 12, x2: 18, y2: 12 }], ["polyline", { points: "13 7 18 12 13 17" }]],
+  arrowUp:    [["line", { x1: 12, y1: 19, x2: 12, y2: 6 }], ["polyline", { points: "7 11 12 6 17 11" }]],
+  arrowDown:  [["line", { x1: 12, y1: 5, x2: 12, y2: 18 }], ["polyline", { points: "7 13 12 18 17 13" }]],
 };
 
 // Build an inline icon SVG (class "ic"). Returns null for an unknown name.

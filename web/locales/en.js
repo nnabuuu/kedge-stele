@@ -386,6 +386,15 @@ export const LOCALES_EN = {
     "trade-off along «{axis}» · {count} option(s)",
   "ui.trace.why.lock_in_k": "locks in",
   "ui.trace.why.lock_out_k": "locks out",
+  // Picker + section headers (rebuild)
+  "ui.trace.picker.label": "pick a decision",
+  "ui.trace.picker.ty.decision": "Decision",
+  "ui.trace.picker.ty.deferred": "Deferred",
+  "ui.trace.picker.ty.open": "Open",
+  "ui.trace.sec.lifecycle": "Lifecycle",
+  "ui.trace.sec.tradeoffs": "Trade-offs",
+  "ui.trace.sec.related": "Related",
+  "ui.trace.sec.affects": "Affects",
   // Stitch section
   "ui.trace.stitch.eyebrow": "cross-session stitch",
   "ui.trace.stitch.sub":
@@ -395,6 +404,13 @@ export const LOCALES_EN = {
   "ui.trace.stitch.arrow_tip": "resolves",
   "ui.trace.stitch.days_after": "{count} days later",
   "ui.trace.stitch.note_prefix": "note:",
+  "ui.trace.stitch.self": "this · {id}",
+  "ui.trace.stitch.rel_resolved_by": "resolved by",
+  "ui.trace.stitch.rel_resolves": "resolves",
+  "ui.trace.stitch.say_resolved_by":
+    "This one <b>wasn't settled in place</b>; a later conversation closed it with the decision below — its status flipped to <mark class=\"good\">resolved</mark>.",
+  "ui.trace.stitch.say_resolves":
+    "This decision went back and closed earlier open questions — their status flipped to <mark class=\"good\">resolved</mark>.",
   // Arc section
   "ui.trace.arc.eyebrow": "state changes",
   "ui.trace.arc.sub": "laid out by time, each step from a conversation",
