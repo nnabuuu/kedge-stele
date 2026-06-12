@@ -277,6 +277,11 @@ export interface Decision {
   // never set by callers. UNIQUE in DDL — second write with same key returns a
   // skipped-duplicate marker instead of inserting.
   dedupKey?: string;
+  // Manual closure: a deferred/open loop closed by hand (e.g. when its Feature
+  // was marked complete) rather than answered by a later decision. The closer
+  // sets status='resolved' so it leaves the open-loop set, but leaves
+  // resolvedBy unset — this marker is the only signal that it was a hand-close.
+  closedManually?: { at: string; by?: string; reason?: string };
   createdAt: string;
 }
 

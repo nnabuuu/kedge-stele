@@ -5,15 +5,14 @@
 // informational output goes to stderr via console.error / process.stderr.write.
 // A stray console.log here corrupts the JSON-RPC framing and the client hangs.
 //
-// 0.1.0 tool roster (24 tools):
+// tool roster (23 tools):
 //   capture path:   decision_capture, decision_resume, decision_trace, decision_resolve
-//   features:       feature_open, feature_list
-//   features:     feature_list, feature_open, feature_report
+//   features:       feature_list, feature_open, feature_decisions, feature_set_summary,
+//                   feature_report, feature_complete
 //   sessions:       session_start, session_end, resume_command
 //   tags:           tag_propose, tag_apply, tag_confirm, tag_reject,
 //                   tag_recolor, tag_rename, tag_archive, tag_restore
 //   config:         config_get, config_set
-//   (retired):      feature_close (state advances via feature_report flow)
 //
 // All shapes are mirrors of src/types.ts via src/schemas.ts.
 import { writeFileSync } from "node:fs";
@@ -556,6 +555,37 @@ server.registerTool(
     try {
       const draft = buildFeatureReportDraft(store, featureId);
       const text = JSON.stringify(draft, null, 2);
+      return { content: [{ type: "text", text }] };
+    } catch (e) {
+      return { content: [{ type: "text", text: `error: ${(e as Error).message}` }] };
+    }
+  },
+);
+
+server.registerTool(
+  "feature_complete",
+  {
+    description:
+      "Mark a Feature complete (用户说某个 feature 做完了时才调用): set its state to 'done' AND " +
+      "close every still-open / deferred decision on it as MANUALLY closed — status flips to " +
+      "'resolved' with no resolver, and a `closedManually` marker records the hand-close. Use " +
+      "ONLY when the user declares the feature finished; never auto-close open questions on " +
+      "your own judgment.",
+    inputSchema: {
+      featureId: z.string(),
+      reason: z.string().optional(),
+    },
+  },
+  async ({ featureId, reason }) => {
+    try {
+      const f = store.getFeature(featureId);
+      if (!f) {
+        return { content: [{ type: "text", text: `no such feature: ${featureId}` }] };
+      }
+      const { closed } = store.markFeatureComplete(featureId, { by: "agent", reason });
+      const text = closed.length
+        ? `marked ${featureId} done · closed ${closed.length} open/deferred loop(s): ${closed.join(", ")}`
+        : `marked ${featureId} done · no open/deferred loops to close`;
       return { content: [{ type: "text", text }] };
     } catch (e) {
       return { content: [{ type: "text", text: `error: ${(e as Error).message}` }] };

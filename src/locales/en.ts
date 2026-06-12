@@ -287,6 +287,8 @@ export const EN = {
   "cli.features_cmd.opened": "opened {id} \"{name}\" (state=draft)",
   "cli.features_cmd.set_state_usage":
     "stele features set-state <id> <draft|going|winding|done|paused>",
+  "cli.features_cmd.complete_usage":
+    "stele features complete <id> [--reason \"…\"]",
   "cli.features_cmd.not_found": "no such feature: {id}",
   "cli.features_cmd.report_usage": "stele features report <id>",
   "cli.features_cmd.report_header":
@@ -487,6 +489,8 @@ export const EN = {
     "DEFERRED — {trigger} (revisit: {revisit})",
   "projection.status.resolved":
     "RESOLVED — by {by}{title}",
+  "projection.status.closed_manually":
+    "RESOLVED — manually closed{reason}",
   "projection.status.superseded":
     "SUPERSEDED — replaced by {by}",
   "projection.status.conflicted":

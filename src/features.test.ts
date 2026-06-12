@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { Store } from "./store.ts";
-import type { Feature } from "./types.ts";
+import type { Decision, Feature } from "./types.ts";
 
 function bootProject(s: Store): { projectId: string } {
   const projectId = s.nextProjectId();
@@ -220,4 +220,63 @@ test("nextLocalDecisionId scoped to feature+type, picks D/DEF/OQ prefix", () => 
     affects: [], createdAt: "2026-06-09T00:00:00Z",
   });
   assert.equal(s.nextLocalDecisionId("F-01", "decision"), "F-01/D-02");
+});
+
+// ---- markFeatureComplete ---------------------------------------------------
+
+function mkDec(
+  featureId: string,
+  id: string,
+  type: "decision" | "deferred" | "open",
+  status?: "open" | "resolved",
+): Decision {
+  return {
+    id, featureId, type, status,
+    title: id,
+    raisedBy: { trigger: "t", actor: "a", layer: "personal", at: "2026-06-09T00:00:00Z" },
+    affects: [],
+    detail: type === "decision" ? { options: [] } : undefined,
+    createdAt: "2026-06-09T00:00:00Z",
+  };
+}
+
+test("markFeatureComplete closes open/deferred loops + sets done", () => {
+  const s = new Store(":memory:");
+  const { projectId } = bootProject(s);
+  s.putFeature(mkFeature(projectId, "F-01", "feat", "going"));
+  s.putDecision(mkDec("F-01", "F-01/D-01", "decision"));
+  s.putDecision(mkDec("F-01", "F-01/DEF-01", "deferred", "open"));
+  s.putDecision(mkDec("F-01", "F-01/OQ-01", "open", "open"));
+
+  const { closed } = s.markFeatureComplete("F-01", { by: "test", reason: "shipped" });
+  assert.deepEqual([...closed].sort(), ["F-01/DEF-01", "F-01/OQ-01"]);
+
+  const f = s.getFeature("F-01")!;
+  assert.equal(f.state, "done");
+  assert.ok(f.completedAt);
+
+  for (const id of ["F-01/DEF-01", "F-01/OQ-01"]) {
+    const d = s.getDecision(id)!;
+    assert.equal(d.status, "resolved");
+    assert.ok(d.closedManually);
+    assert.equal(d.closedManually!.by, "test");
+    assert.equal(d.closedManually!.reason, "shipped");
+    assert.ok(d.closedManually!.at);
+    assert.equal(d.resolvedBy, undefined); // hand-close has no resolver
+  }
+
+  const dec = s.getDecision("F-01/D-01")!; // the decided one is untouched
+  assert.equal(dec.status, undefined);
+  assert.equal(dec.closedManually, undefined);
+});
+
+test("markFeatureComplete is idempotent + throws on unknown feature", () => {
+  const s = new Store(":memory:");
+  const { projectId } = bootProject(s);
+  s.putFeature(mkFeature(projectId, "F-01", "feat", "going"));
+  s.putDecision(mkDec("F-01", "F-01/OQ-01", "open", "open"));
+  s.markFeatureComplete("F-01");
+  assert.deepEqual(s.markFeatureComplete("F-01").closed, []); // second run closes nothing
+  assert.equal(s.getFeature("F-01")!.state, "done");
+  assert.throws(() => s.markFeatureComplete("NOPE"), /no such feature/);
 });

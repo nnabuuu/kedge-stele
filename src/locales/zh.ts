@@ -284,6 +284,8 @@ export const ZH = {
   "cli.features_cmd.opened": "已打开 {id} \"{name}\" (state=draft)",
   "cli.features_cmd.set_state_usage":
     "stele features set-state <id> <draft|going|winding|done|paused>",
+  "cli.features_cmd.complete_usage":
+    "stele features complete <id> [--reason \"…\"]",
   "cli.features_cmd.not_found": "找不到 feature: {id}",
   "cli.features_cmd.report_usage": "stele features report <id>",
   "cli.features_cmd.report_header":
@@ -475,6 +477,8 @@ export const ZH = {
     "DEFERRED — {trigger} (复审: {revisit})",
   "projection.status.resolved":
     "RESOLVED — 由 {by}{title} 解决",
+  "projection.status.closed_manually":
+    "RESOLVED — 手动关闭{reason}",
   "projection.status.superseded":
     "SUPERSEDED — 被 {by} 取代",
   "projection.status.conflicted":

@@ -191,6 +191,11 @@ function statusLine(store: Store, d: Decision, locale?: Locale): string {
       return t("projection.status.deferred", { trigger: d.detail?.trigger ?? d.title, revisit }, undefined, locale);
     }
     case "resolved": {
+      // Manually closed (no resolver) reads as a hand-close, not "resolved by X".
+      if (d.closedManually && !d.resolvedBy) {
+        const reason = d.closedManually.reason ? ` — ${d.closedManually.reason}` : "";
+        return t("projection.status.closed_manually", { reason }, undefined, locale);
+      }
       const by = d.resolvedBy ? store.getDecision(d.resolvedBy) : null;
       const byId = d.resolvedBy ?? t("projection.status.unknown_id", undefined, undefined, locale);
       const title = by ? ` (${by.title})` : "";

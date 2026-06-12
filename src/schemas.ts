@@ -192,6 +192,9 @@ export const DecisionSchema = z
     source: z.enum(["manual", "agent-live", "session-extract"]).optional(),
     confidence: z.number().min(0).max(1).optional(),
     dedupKey: z.string().optional(),
+    closedManually: z
+      .object({ at: z.string(), by: z.string().optional(), reason: z.string().optional() })
+      .optional(),
     createdAt: z.string(),
   })
   // Cross-field rule: type='decision' demands a detail body with options

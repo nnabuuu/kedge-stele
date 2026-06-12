@@ -130,6 +130,14 @@ No session end, no pause reason, no state transition. The command is
 **reconcile-only**. State transitions (`going → winding → done`) happen
 manually via the dashboard.
 
+**Marking a Feature done.** If — and only if — the **user** says a Feature is
+finished, call `feature_complete { featureId, reason? }`. It sets the Feature
+to `done` AND closes every still-open / deferred decision on it as *manually
+closed* (status → resolved, no resolver, a `closedManually` marker recorded).
+Never call it on your own judgment: closing open questions is the user's
+commitment, not yours. This is the only place an agent moves a Feature to
+`done`.
+
 ## When the user types `/stele:feature` mid-conversation
 
 You may be partway through a decision the user hasn't committed to yet.

@@ -723,6 +723,18 @@ async function dispatchApi(
       store.setFeatureSummary(id, body.summary);
       return json(res, 200, { id, summary: body.summary });
     }
+    // mark a feature complete — done + close its open/deferred loops (manually)
+    const mFeatureComplete = apiPath.match(/^\/api\/features\/([^/]+)\/complete$/);
+    if (mFeatureComplete) {
+      const id = decodeURIComponent(mFeatureComplete[1]);
+      if (!store.getFeature(id)) return notFound(res);
+      let raw: unknown = {};
+      try { raw = await readJsonBody(req); } catch { /* empty body is fine */ }
+      const body = validate(z.object({ reason: z.string().optional() }), raw ?? {}, res);
+      if (!body) return;
+      const { closed } = store.markFeatureComplete(id, { by: "web", reason: body.reason });
+      return json(res, 200, { ok: true, id, closed });
+    }
     // 0.1.0 — project status
     const mProjectStatus = apiPath.match(/^\/api\/project\/status$/);
     if (mProjectStatus) return await handlePostProjectStatus(store, req, res);

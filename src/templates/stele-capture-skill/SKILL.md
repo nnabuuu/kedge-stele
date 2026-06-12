@@ -31,7 +31,11 @@ external arbiter. You read your own reply, you decide, you capture.
    against captured decisions; step 4 captures each gap. Same
    fidelity as live (you're still the live agent here too).
    `/stele:scan` is the same idea, but over historical sources
-   (older transcripts, git log, external files).
+   (older transcripts, git log, external files). When the **user**
+   says a Feature is finished, you may call `feature_complete
+   { featureId, reason? }` — it marks the Feature `done` and hand-closes
+   its remaining open/deferred loops (`closedManually`). Only on the
+   user's say-so; never close open questions on your own.
 
 3. **Post-hoc (Layer 3, opt-in) — `source='session-extract'`.** When
    the user has enabled SessionEnd auto-extract via

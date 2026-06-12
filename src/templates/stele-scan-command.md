@@ -172,12 +172,23 @@ For each kept candidate:
    ```
    sourceSession: {
      source: "claude-code",
-     sourceSessionId: <session-id from the transcript>
+     sourceSessionId: "<transcript-session-id>#<featureId>"
    }
    ```
-   The MCP server will find-or-create the Session row.
-   `UNIQUE(source, source_sess_id)` handles re-runs — you can scan
-   the same transcript twice without duplicating Sessions.
+   **CRITICAL — suffix the sourceSessionId with `#<featureId>`.** A stele
+   Session belongs to exactly ONE Feature, and the Project timeline groups
+   decisions *by the session's* feature. If you scan a transcript that
+   touched several Features and pass the **bare** transcript id for all of
+   them, every capture lands on the SAME session — and because that session
+   can only have one home, the later captures *reassign* it, yanking the
+   earlier decisions out of their Features' timelines. Suffixing with
+   `#<featureId>` gives you one session per (transcript, Feature), so each
+   Feature keeps its own coherent session. Example: a transcript
+   `8e96cd87-…` that produced F-04 and F-01 decisions →
+   `8e96cd87-…#F-04` for the F-04 ones, `8e96cd87-…#F-01` for the F-01 ones.
+   The MCP server find-or-creates the Session row; `UNIQUE(source,
+   source_sess_id)` plus the suffix handle re-runs — you can scan the same
+   transcript twice without duplicating Sessions or re-homing anything.
 
 3. **Build the decision payload:**
    ```
@@ -201,7 +212,7 @@ For each kept candidate:
      feature: { mode: "continue", id: <step 1 resolution> }
              | { mode: "unscoped" }
      sourceSession: { source: "claude-code",
-                      sourceSessionId: <sess-id> }    // CC transcript only
+                      sourceSessionId: "<sess-id>#<featureId>" }  // CC only; suffix per step 2
      source: "session-extract"
      confidence: 0..1
    ```
@@ -230,6 +241,12 @@ Scan complete:
   amber pill + filter that surfaces SessionEnd captures will surface
   these too. Edit / delete from the Trace page.
 ```
+
+If a backfilled Feature is **historical and finished** (all its work is
+done, only stragglers remain open/deferred), ask the user whether to mark
+it complete — `feature_complete { featureId, reason: "scan: historical" }`
+sets it `done` and hand-closes the stragglers (`closedManually`). Ask
+first; don't assume a scanned Feature is finished.
 
 ## Confidence calibration
 

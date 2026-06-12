@@ -684,6 +684,23 @@ function featuresCommand(store: Store, args: string[]): void {
     return;
   }
 
+  if (sub === "complete") {
+    const id = args[1];
+    if (!id) {
+      console.error(t("cli.features_cmd.complete_usage"));
+      process.exit(1);
+    }
+    if (!store.getFeature(id)) {
+      console.error(t("cli.features_cmd.not_found", { id }));
+      process.exit(1);
+    }
+    const ri = args.indexOf("--reason");
+    const reason = ri >= 0 ? args[ri + 1] : undefined;
+    const { closed } = store.markFeatureComplete(id, { by: "cli", reason });
+    console.log(`${id} → done · closed ${closed.length} loop${closed.length === 1 ? "" : "s"}`);
+    return;
+  }
+
   if (sub === "report") {
     const id = args[1];
     if (!id) {

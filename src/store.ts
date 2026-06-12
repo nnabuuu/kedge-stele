@@ -682,6 +682,41 @@ export class Store {
   }
 
   /**
+   * Mark a Feature complete: close every still-open / deferred decision on it as
+   * MANUALLY closed (status='resolved' so it leaves the open-loop set used by
+   * nodeState / openLoops / resumeDigest, but resolvedBy stays unset and a
+   * `closedManually` marker records the hand-close), then move the Feature to
+   * 'done'. Returns the ids that were closed. One transaction so the sweep
+   * can't tear under the always-on daemon.
+   */
+  markFeatureComplete(
+    id: FeatureId,
+    opts: { at?: string; by?: string; reason?: string } = {},
+  ): { closed: DecisionId[] } {
+    const at = opts.at ?? new Date().toISOString();
+    const closed: DecisionId[] = [];
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const f = this.getFeature(id);
+      if (!f) throw new Error(`no such feature: ${id}`);
+      for (const d of this.decisionsInFeature(id)) {
+        if ((d.type === "deferred" || d.type === "open") && d.status !== "resolved") {
+          d.status = "resolved";
+          d.closedManually = { at, by: opts.by, reason: opts.reason };
+          this.putDecision(d);
+          closed.push(d.id);
+        }
+      }
+      this.setFeatureState(id, "done"); // stamps completedAt
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+    return { closed };
+  }
+
+  /**
    * Mark a type='decision' as superseded by another decision.
    * Used by addEdge(supersedes). See setDecisionResolved for the
    * concurrency rationale.
