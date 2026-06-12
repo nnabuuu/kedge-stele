@@ -59,3 +59,49 @@ export function escapeHtml(s) {
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[ch]);
 }
+
+// Render a string of decision content with a SMALL allowlist of inline emphasis
+// tags into real DOM nodes. The design (spec §4) injects emphasis as HTML —
+// <em>, <strong>/<b>, <mark> (+ class "warn"/"good"), <code> — into decision
+// detail fields (trigger, constraint, why[], option.desc, locks, ms-about, …).
+// We render exactly those and turn EVERYTHING else into inert text: arbitrary
+// tags (<script>, <img onerror=…>, <div>), unexpected attributes, and stray
+// close tags all degrade to literal characters via text nodes. innerHTML is
+// never touched, so this is XSS-safe by construction even though the content is
+// agent-authored.
+//
+// Returns a DocumentFragment — append it like any node (h() and Element.append
+// both splice a fragment's children in place).
+const RICH_TAG_RE = /<(\/?)(em|strong|b|code|mark)(?:\s+class="(warn|good)")?\s*>/gi;
+
+export function richText(str) {
+  const frag = document.createDocumentFragment();
+  const src = String(str ?? "");
+  const stack = []; // currently-open allowlisted elements
+  const parent = () => (stack.length ? stack[stack.length - 1] : frag);
+  const pushText = (s) => { if (s) parent().append(document.createTextNode(s)); };
+
+  let last = 0;
+  let m;
+  RICH_TAG_RE.lastIndex = 0;
+  while ((m = RICH_TAG_RE.exec(src))) {
+    pushText(src.slice(last, m.index)); // text since the previous tag
+    last = RICH_TAG_RE.lastIndex;
+    const closing = m[1] === "/";
+    const tag = m[2].toLowerCase();
+    if (!closing) {
+      const el = document.createElement(tag);
+      if (tag === "mark" && m[3]) el.className = m[3];
+      parent().append(el);
+      stack.push(el);
+    } else {
+      // Close the nearest matching open element (and any unclosed inner ones).
+      // A stray close with no match degrades to literal text.
+      const idx = stack.map((e) => e.tagName.toLowerCase()).lastIndexOf(tag);
+      if (idx >= 0) stack.length = idx;
+      else pushText(m[0]);
+    }
+  }
+  pushText(src.slice(last)); // trailing text
+  return frag;
+}

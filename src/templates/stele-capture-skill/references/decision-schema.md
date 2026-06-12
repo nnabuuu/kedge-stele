@@ -84,6 +84,38 @@ If the choice was obvious enough that there was no real fork, pass
 `options: []`. The schema accepts this — it means "I asserted no real
 alternatives." DO NOT omit `detail` entirely; the schema rejects that.
 
+## Inline emphasis (rich text in the content fields)
+
+The free-text content fields render in the web UI with a small allowlist of
+inline HTML tags, so you can mark the crux of a decision instead of leaving a
+wall of grey prose. Use them in `detail.trigger`, `detail.constraint`,
+`detail.why[]`, each `option.desc` / `option.why`, `detail.locks.in` / `.out`,
+and the rolling `Feature.summary` you rewrite from `/stele:feature`.
+
+Allowed tags — **everything else is shown as literal text** (no other HTML, no
+attributes except the two on `<mark>`):
+
+- `<em>…</em>` — the crux / a key term (renders teal italic)
+- `<strong>…</strong>` or `<b>…</b>` — a hard fact (bold)
+- `<mark>…</mark>` — the thing to notice (warm highlight)
+- `<mark class="warn">…</mark>` — a risk or caveat (amber)
+- `<mark class="good">…</mark>` — a win / what got locked in (green)
+- `<code>…</code>` — an identifier, path, flag, or symbol
+
+Use them **sparingly** — one or two emphases per field, marking what matters,
+not decorating every clause. Examples:
+
+- `trigger`:    `user asked whether the <code>key</code> should live in the browser`
+- `constraint`: `must stay <em>zero-deps</em> — no <code>better-sqlite3</code>`
+- `why`:        `["<mark class=\"good\">Local-first by default</mark>; nothing to provision."]`
+- `option.desc`:`embedded, <strong>no server</strong>`
+- `locks.in`:   `<mark class=\"good\">single-file backups</mark>`
+- `locks.out`:  `<mark class=\"warn\">server-side fan-out</mark> gets expensive`
+
+The renderer is an allowlist that escapes anything else, so a stray `<` or an
+unknown tag is safe — it just shows as text. Write the tags as literal HTML in
+the JSON string (escape the inner quotes on `<mark class="…">` as `\"` per JSON).
+
 ## `Revisit` (for deferred / open)
 
 ```ts

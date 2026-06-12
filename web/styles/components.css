@@ -278,3 +278,25 @@
   cursor: pointer;
 }
 .resume-copy:hover { color: var(--t1); border-color: var(--t2); }
+
+/* ============================================================
+ * Inline emphasis in injected decision content (spec §4)
+ * ------------------------------------------------------------
+ * richText() (web/dom.js) renders an allowlist of inline tags into the
+ * Project (.main-in) and Trace (.canvas) content surfaces. These base rules
+ * live here (loaded before the per-page CSS) so the .dd-* block
+ * specializations in project.css / trace.css win by source order.
+ * Verbatim from design/Stele Project.html lines 119–123.
+ * ============================================================ */
+.main-in em, .canvas em { font-style: italic; font-weight: 500; color: var(--accent); }
+.main-in strong, .main-in b, .canvas strong, .canvas b { font-weight: 600; color: var(--t1); }
+.main-in mark, .canvas mark {
+  background: color-mix(in srgb, var(--warm) 34%, transparent);
+  color: var(--t1);
+  padding: 0 3px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+.main-in mark.warn, .canvas mark.warn { background: color-mix(in srgb, var(--amber) 24%, transparent); }
+.main-in mark.good, .canvas mark.good { background: color-mix(in srgb, var(--green) 18%, transparent); }
+.main-in code, .canvas code { font-family: var(--mono), ui-monospace, Menlo, monospace; }

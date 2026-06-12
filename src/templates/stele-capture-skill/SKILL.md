@@ -131,6 +131,10 @@ If the SessionStart context block injected a `主语言 / main language` line, w
 
 If no `主语言 / main language` line is present, use whatever language the conversation is in — same as before. The user controls this with `stele config set main_language <value>` (free-text; e.g. "中文", "English", "中文，专有名词保留英文").
 
+## Inline emphasis
+
+The decision content fields (`detail.trigger` / `constraint` / `why[]` / `option.desc` / `option.why` / `locks.in` / `.out`) and the rolling `Feature.summary` render with a small allowlist of inline HTML for emphasis — `<em>`, `<strong>`/`<b>`, `<mark>` (+ `class="warn"` / `"good"`), `<code>`. Use it **sparingly** to mark the crux; everything else shows as literal text. Allowlist + per-field examples in `references/decision-schema.md` (§ Inline emphasis).
+
 ## Read this BEFORE you draft
 
 - **`gotchas.md`** — the traps that bite fresh-context agents.

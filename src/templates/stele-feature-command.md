@@ -106,6 +106,10 @@ hook, write the summary AND every gap-capture title / context in that
 language — technical terms, ids, file paths, code identifiers stay
 verbatim. (Same rule the `stele-capture` skill applies.)
 
+You may use light inline emphasis in the summary — `<em>`, `<strong>`/`<b>`,
+`<mark>` (+ `class="warn"` / `"good"`), `<code>` — the same allowlist the
+`stele-capture` skill documents. Sparingly: mark the one thing that matters.
+
 The summary REPLACES whatever was there before — it is not an append.
 **Show the user the draft before writing.** If they correct, use their
 phrasing.
