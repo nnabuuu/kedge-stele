@@ -17,9 +17,9 @@
 
 import { apiGet, ensureCss, slugUrl } from "../api.js";
 import { renderResumeLauncher } from "../components/resume-launcher.js";
-import { h, escapeHtml } from "../dom.js";
+import { h, escapeHtml, richText } from "../dom.js";
 import { icon } from "../icons.js";
-import { t } from "../i18n.js";
+import { t, getLocale } from "../i18n.js";
 
 // -------------------------------------------------------------------
 // Static enums (cls stays static; labels come from t() at render time
@@ -44,9 +44,9 @@ function outcomeMeta(type) {
   return { cssVar: OUTCOME_VAR[key], label: t(`ui.projects.outcome.${key}`) };
 }
 
-// The decision chip colors/labels by derived nodeState, not raw type — a
-// resolved deferred (the central provenance act) must read 已解决/green, not
-// 推迟/amber. cls matches the .dchip-g.<cls> / .dchip-st.<cls> CSS.
+// The decision card's status label reads from derived nodeState, not raw
+// type — a resolved deferred (the central provenance act) must read 已解决/
+// green, not 推迟/amber. (The .fdec-st CSS class comes from effMockType.)
 const NODE_STATE_KEYS = ["decision", "deferred", "open", "resolved", "superseded"];
 function nodeStateCls(ns) { return NODE_STATE_KEYS.includes(ns) ? ns : "decision"; }
 function nodeStateLabel(ns) { return t(`ui.project.node_state.${nodeStateCls(ns)}`); }
@@ -54,15 +54,6 @@ function nodeStateOf(d) {
   if (d.supersededBy) return "superseded";
   if (d.status === "resolved") return "resolved";
   return d.type; // "decision" | "deferred" | "open"
-}
-
-// 0.4.0 — capture provenance pill (rendered in the decision chip footer).
-// "manual" gets no pill — the absence IS the marker for human-authored.
-const SOURCE_KEYS = { "agent-live": "agent_live", "session-extract": "session_extract" };
-function sourceMeta(src) {
-  const key = SOURCE_KEYS[src];
-  if (!key) return null;
-  return { label: t(`ui.project.source.${key}`), cls: src };
 }
 
 // -------------------------------------------------------------------
@@ -101,14 +92,6 @@ function fmtHM(iso) {
   const dt = new Date(iso);
   if (Number.isNaN(+dt)) return t("ui.projects.date.unknown");
   return `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
-}
-
-function fmtWhenShort(iso) {
-  if (!iso) return t("ui.projects.date.unknown");
-  const d = daysAgo(iso);
-  if (d <= 0) return `${t("ui.projects.date.today")} · ${fmtHM(iso)}`;
-  if (d === 1) return `${t("ui.projects.date.yesterday")} · ${fmtHM(iso)}`;
-  return `${fmtMD(iso)} · ${fmtHM(iso)}`;
 }
 
 function fmtDuration(startedAt, endedAt) {
@@ -301,36 +284,26 @@ function renderMain(featureDetail, onSourceFilter, railItem) {
   }
 
   const f = featureDetail.feature;
-  const allSessions = featureDetail.sessions; // [{session, decisions}]
+  const allSessions = featureDetail.sessions; // [{session, decisions}] oldest→newest
 
-  // 0.4.0 — apply the ?src= filter. Filter decisions inside each session,
-  // not the sessions themselves: a session that had a live capture AND a
-  // post-hoc capture stays visible under either filter, just narrowed
-  // to its matching decisions.
+  // 0.4.0 — apply the ?src= filter inside each session (not on the sessions
+  // themselves): a session that had a live AND a post-hoc capture stays
+  // visible under either filter, narrowed to its matching decisions.
   const srcFilter = getSourceFilter();
   const sessions = srcFilter
     ? allSessions.map((b) => ({
         ...b,
-        decisions: b.decisions.filter((d) => {
-          // 'manual' filter matches both explicit 'manual' and undefined
-          // (legacy rows had no source field at all).
-          if (srcFilter === "manual") {
-            return !d.source || d.source === "manual";
-          }
-          return d.source === srcFilter;
-        }),
+        decisions: b.decisions.filter((d) =>
+          srcFilter === "manual"
+            ? !d.source || d.source === "manual"
+            : d.source === srcFilter),
       }))
     : allSessions;
 
   const decCount = sessions.reduce((n, s) => n + s.decisions.length, 0);
   const totalDecCount = allSessions.reduce((n, s) => n + s.decisions.length, 0);
-
-  // Latest session for resume strip — always from the unfiltered list so
-  // the resume strip is stable as the filter toggles.
   const latest = allSessions[allSessions.length - 1] ?? null;
-
-  // Sessions ordered desc (newest first) for the timeline
-  const orderedSessions = [...sessions].reverse();
+  const lastIdx = sessions.length - 1;
 
   return h("main", { class: "main" },
     h("div", { class: "main-in", "data-fid": f.id },
@@ -339,35 +312,33 @@ function renderMain(featureDetail, onSourceFilter, railItem) {
       h("div", { class: "ms-head" },
         h("div", { class: "ms-titlerow" },
           h("h1", { class: "ms-title" }, f.name),
-          h("span", { class: `fe-state-pill ${f.state}` },
+          h("span", { class: `ms-state-pill ${ftStateCls(f.state)}` },
             h("span", { class: "dot" }),
             ftStateLabel(f.state),
           ),
         ),
-        f.about
-          ? h("p", { class: "ms-about" }, f.about)
-          : null,
+        f.about ? h("p", { class: "ms-about" }, richText(f.about)) : null,
         f.summary
           ? h("p", { class: "ms-summary" },
               h("span", { class: "lead" }, t("ui.project.main.rolling_summary_lead")),
-              f.summary)
+              richText(f.summary))
           : null,
         railItem?.tags?.length
           ? h("div", { class: "ms-tags" },
               ...railItem.tags.map((tag) =>
-                h("span", { class: "ms-tag", style: { "--tc": tag.color ?? "#9c9a92" } },
+                h("span", { class: "ms-tag tagchip", style: { "--tc": tag.color ?? "#9c9a92" } },
                   h("span", { class: "td" }),
                   tag.name)))
           : null,
         h("div", { class: "ms-stats" },
-          h("span", { class: "ms-stat" },
+          h("span", { class: "ms-stat" }, icon("msg", 14),
             h("b", {}, String(allSessions.length)),
             " ", t("ui.project.main.stat_sessions")),
-          h("span", { class: "ms-stat" },
+          h("span", { class: "ms-stat" }, icon("layers", 14),
             h("b", {}, srcFilter ? `${decCount} / ${totalDecCount}` : String(decCount)),
             " ", t("ui.project.main.stat_decisions")),
           latest?.session?.startedAt
-            ? h("span", { class: "ms-stat" },
+            ? h("span", { class: "ms-stat" }, icon("bell", 14),
                 t("ui.project.main.stat_last", { when: fmtAgo(latest.session.startedAt) }))
             : null,
         ),
@@ -376,24 +347,18 @@ function renderMain(featureDetail, onSourceFilter, railItem) {
       // 0.4.0 — source filter strip. Hidden when no filter is active.
       renderSourceFilterStrip(srcFilter, onSourceFilter),
 
-      // Resume strip
-      latest ? renderResumeStrip(latest, allSessions.length) : null,
-
-      // Timeline
-      h("div", { class: "tl-head" },
-        h("span", { class: "eyebrow" }, t("ui.project.timeline.eyebrow")),
-        h("span", { class: "tl-hint" },
-          t("ui.project.timeline.hint", { count: sessions.length })),
-      ),
-      h("p", { class: "tl-sub" }, t("ui.project.timeline.sub")),
+      // Conversation ledger — oldest→newest; each session's head + core pin
+      // to the top while its decisions scroll (pure CSS sticky).
       sessions.length === 0
         ? h("div", { class: "placeholder" },
             h("p", { class: "hint" }, t("ui.project.timeline.empty")))
-        : h("div", { class: "tl" },
-            ...orderedSessions.map((s, idx) =>
-              renderSessionCard(s, sessions.length - idx, s === latest),
-            ),
-          ),
+        : h("div", { class: "ledger" },
+            ...sessions.flatMap((s, idx) => {
+              const block = renderSessionBlock(s, idx + 1, idx === lastIdx);
+              return idx > 0
+                ? [h("div", { class: "sess-div" }, h("span", { class: "dot" })), block]
+                : [block];
+            })),
     ),
   );
 }
@@ -421,129 +386,245 @@ function renderSourceFilterStrip(srcFilter, onSourceFilter) {
   );
 }
 
-function renderResumeStrip(latestBucket, totalSessions) {
-  const s = latestBucket.session;
-  const summary = s.outcome?.summary ?? s.summary ?? t("ui.projects.date.unknown");
-  const when = fmtWhenShort(s.startedAt);
-  const ago = fmtAgo(s.startedAt);
+// ── SessionBlock + 3-bucket grouping (spec §6.5) ─────────────────
+// Each session: a sticky head + core anchor, then its decisions split into
+// three buckets (Decisions / Deferred / Open questions). Empty buckets skip.
+const SESS_BUCKETS = [
+  { key: "dec", bc: "var(--teal)",   en: "Decisions",      labelKey: "ui.project.bucket.dec" },
+  { key: "def", bc: "var(--amber)",  en: "Deferred",       labelKey: "ui.project.bucket.def" },
+  { key: "oq",  bc: "var(--purple)", en: "Open questions", labelKey: "ui.project.bucket.oq" },
+];
 
-  return h("div", { class: "resume" },
-    h("div", { class: "resume-rail" }),
-    h("div", { class: "resume-body" },
-      h("div", { class: "resume-top" },
-        h("span", { class: "eyebrow is-seal" }, t("ui.project.resume.eyebrow")),
-        h("span", { class: "resume-when" },
-          t("ui.project.resume.when", { n: totalSessions, when, ago })),
-      ),
-      h("div", { class: "resume-sum" },
-        h("span", { class: "lead" }, t("ui.project.resume.lead")),
-        summary),
-      h("div", { class: "resume-foot" },
-        s.id ? renderResumeLauncher({ sessionId: s.id }) : null,
-        h("span", { class: "resume-ccid" },
-          s.sourceSessionId
-            ? `cc · ${s.sourceSessionId.slice(0, 8)}…`
-            : t("ui.project.resume.no_ccid")),
-      ),
-    ),
-  );
+// Map the backend Decision shape onto the mock's effective type. The mock
+// uses "decided" (not "decision") and treats a resolved deferred/open as its
+// own "resolved" type (which buckets with Decisions and renders dimmed).
+function effMockType(d) {
+  if (d.status === "resolved") return "resolved";
+  if (d.type === "decision") return "decided";
+  return d.type; // deferred | open
+}
+function bucketKeyOf(d) {
+  const e = effMockType(d);
+  if (e === "deferred") return "def";
+  if (e === "open") return "oq";
+  return "dec"; // decided | resolved
+}
+// Overridden cards (resolved or superseded) collapse to a dimmed one-liner.
+function isOverridden(d) {
+  return effMockType(d) === "resolved" || !!d.supersededBy;
 }
 
-function renderSessionCard(bucket, sessionNum, isLatest) {
+const SCOPE_CLASSES = ["runtime", "backend", "design", "security"];
+function scopeClassOf(scope) {
+  if (!scope) return "";
+  const s = String(scope).toLowerCase();
+  return SCOPE_CLASSES.find((c) => s.includes(c)) ?? "";
+}
+
+// Collapse detail.artifact (+ legacy top-level artifacts[]) into {files,commit}.
+function artifactOf(d) {
+  const files = [];
+  const a = d.detail?.artifact;
+  if (a?.file) files.push({ label: null, path: a.file });
+  for (const art of d.artifacts ?? []) if (art?.file) files.push({ label: null, path: art.file });
+  const commit = a?.commit ?? d.artifacts?.find((x) => x?.commit)?.commit ?? null;
+  return { files, commit };
+}
+
+// Backend detail → the mock's DecisionDetail shape. Returns null when there's
+// no body worth rendering (e.g. a bare deferred with empty detail).
+const OPT_LETTERS = "ABCDEFGHIJKLMN";
+function mapDetail(d) {
+  const dt = d.detail;
+  if (!dt) return null;
+  // OPTION column is a short letter (the schema's `name` is often a long
+  // phrase, which doesn't fit the 54px column). APPROACH carries the content:
+  // the name (bold) + the one-line desc when present.
+  const options = (dt.options ?? []).map((o, i) => {
+    const name = o.name ?? "";
+    const desc = o.desc ?? "";
+    const ap = desc ? `<strong>${name}</strong> — ${desc}` : name;
+    return {
+      n: OPT_LETTERS[i] ?? String(i + 1),
+      ap,
+      vd: o.why ?? (o.verdict === "chosen" ? "✓" : "✗"),
+      chosen: o.chosen ?? o.verdict === "chosen",
+    };
+  });
+  const artifact = artifactOf(d);
+  const out = {
+    trigger: dt.trigger ?? null,
+    constraint: dt.constraint ?? null,
+    axis: dt.optionAxis ?? null,
+    options: options.length ? options : null,
+    why: dt.why?.length ? dt.why : null,
+    locks: dt.locks && (dt.locks.in || dt.locks.out) ? dt.locks : null,
+    artifact: artifact.files.length || artifact.commit ? artifact : null,
+  };
+  const hasBody = out.trigger || out.constraint || out.options || out.why || out.locks || out.artifact;
+  return hasBody ? out : null;
+}
+
+function traceHref(d) {
+  const parts = d.id.split("/");
+  return slugUrl(`/d/${encodeURIComponent(parts[0])}/${encodeURIComponent(parts.slice(1).join("/"))}`);
+}
+function renderTraceLink(d, short) {
+  return h("a", { class: "dchip-trace", href: traceHref(d), "data-route": "" },
+    icon("branch", 12),
+    short ? t("ui.project.dd.trace_link_short") : t("ui.project.dd.trace_link"),
+    icon("ext", 12));
+}
+
+function renderSessionBlock(bucket, n, isLatest) {
   const s = bucket.session;
   const oc = outcomeMeta(s.outcome?.type);
   const dur = fmtDuration(s.startedAt, s.endedAt);
-  const summary = s.outcome?.summary ?? s.summary ?? t("ui.projects.date.unknown");
+  const core = s.outcome?.summary ?? s.summary ?? "";
 
-  return h("div", {
-      class: `tl-row${isLatest ? " latest" : ""}`,
+  return h("section", {
+      class: `sess${isLatest ? " latest" : ""}`,
       style: { "--oc": `var(${oc.cssVar})` },
     },
-    h("div", { class: "tl-gut" },
-      h("div", { class: "tl-date" }, fmtMD(s.startedAt)),
-      h("div", { class: "tl-time" }, fmtHM(s.startedAt)),
-      (() => {
-        const octype = s.outcome?.type ?? "touched";
-        return h("div", { class: `tl-dot ${octype}` },
-          icon(octype === "resolved" ? "check" : "spark", octype === "resolved" ? 10 : 9));
-      })(),
-      h("div", { class: "tl-line" }),
-    ),
-    h("div", { class: "tl-card" },
-      h("div", { class: "tl-ctop" },
-        h("span", { class: "tl-n" }, t("ui.project.session.label", { n: sessionNum })),
-        h("span", { class: "tl-oc" },
-          h("span", { class: "d" }),
-          oc.label,
-        ),
-        h("span", { class: "tl-dur" },
-          fmtHM(s.startedAt),
-          dur ? ` · ${dur}` : "",
-        ),
-        isLatest ? h("span", { class: "tl-latest-badge" }, t("ui.project.session.latest_badge")) : null,
+    h("div", { class: "sess-stick" },
+      h("div", { class: "sess-head" },
+        h("span", { class: "sess-n" }, t("ui.project.session.block_label", { n })),
+        isLatest ? h("span", { class: "sess-latest-tag" }, t("ui.project.session.latest_tag")) : null,
+        h("span", { class: "sess-date" }, fmtMD(s.startedAt)),
+        h("span", { class: "sess-oc" }, h("span", { class: "d" }), oc.label),
+        h("span", { class: "sess-time" }, fmtHM(s.startedAt), dur ? ` · ${dur}` : ""),
+        h("span", { class: "sess-head-r" },
+          s.id ? renderResumeLauncher({ sessionId: s.id }) : null),
       ),
-      h("div", { class: "tl-sum" }, summary),
-      bucket.decisions.length > 0
-        ? renderDecisionsSection(bucket.decisions)
-        : null,
-      h("div", { class: "tl-foot" },
-        h("span", { class: "tl-ccid" },
-          s.sourceSessionId
-            ? `cc · ${s.sourceSessionId.slice(0, 8)}…`
-            : t("ui.projects.date.unknown")),
+      h("div", { class: "sess-core" },
+        h("div", { class: "sess-core-lbl" },
+          icon("spark", 11),
+          isLatest ? t("ui.project.session.core_latest") : t("ui.project.session.core_label")),
+        h("p", { class: "sess-core-t" },
+          core ? richText(core) : t("ui.projects.date.unknown")),
       ),
     ),
+    renderSessGroups(bucket.decisions),
   );
 }
 
-function renderDecisionsSection(decisions) {
-  return h("div", { class: "tl-dec" },
-    h("div", { class: "tl-dec-lbl" }, t("ui.project.decisions.label", { count: decisions.length })),
-    h("div", { class: "tl-dec-list" },
-      ...decisions.map(renderDecisionChip),
-    ),
+function renderSessGroups(decisions) {
+  const groups = SESS_BUCKETS
+    .map((b) => ({ b, items: decisions.filter((d) => bucketKeyOf(d) === b.key) }))
+    .filter((g) => g.items.length > 0);
+  if (groups.length === 0) return null;
+  const showEn = getLocale() !== "en"; // the Latin subtitle is a flourish; drop it on en
+  return h("div", { class: "sess-groups" },
+    ...groups.map(({ b, items }) =>
+      h("div", { class: "grp", style: { "--bc": b.bc } },
+        h("div", { class: "grp-h" },
+          h("span", { class: "grp-dot" }),
+          h("span", { class: "grp-lbl" }, t(b.labelKey)),
+          showEn ? h("span", { class: "grp-en" }, b.en) : null,
+          h("span", { class: "grp-n" }, String(items.length)),
+        ),
+        h("div", { class: "grp-cards" },
+          ...items.map((d) => renderFlatDecision(d, b.key)),
+        ),
+      )),
   );
 }
 
-function renderDecisionChip(d) {
-  const ns = nodeStateOf(d);
-  const nsCls = nodeStateCls(ns);
-  const title = d.detail?.title ?? d.title ?? d.id;
-  // Decision id is "<featureId>/<localId>"; Trace route is /<slug>/d/<f>/<id>
-  const parts = d.id.split("/");
-  const fid = parts[0];
-  const localId = parts.slice(1).join("/");
-  const href = slugUrl(`/d/${encodeURIComponent(fid)}/${encodeURIComponent(localId)}`);
+function renderFlatDecision(d, groupKey) {
+  const over = isOverridden(d);
+  const detail = mapDetail(d);
+  const scope = d.scope ?? d.detail?.scope ?? null;
+  const localId = d.id.split("/").slice(1).join("/") || d.id;
+  const traceShort = renderTraceLink(d, true);
 
-  // 0.4.0 — source pill. Only render when source is one of the machine
-  // values; 'manual' (or absent) → no pill, the absence IS the marker.
-  const sm = d.source ? sourceMeta(d.source) : null;
-  const confValue = (d.confidence != null && Number.isFinite(d.confidence))
-    ? ` · ${d.confidence.toFixed(2)}`
-    : "";
-  const titleConfSuffix = confValue
-    ? t("ui.project.decision.confidence_suffix", { conf: confValue })
-    : "";
+  let body;
+  if (over) {
+    body = [h("div", { class: "fdec-over-note" }, t("ui.project.dd.overridden"), traceShort)];
+  } else if (detail) {
+    body = [renderDecisionDetail(detail), h("div", { class: "fdec-foot" }, traceShort)];
+  } else {
+    body = [h("div", { class: "fdec-over-note" }, t("ui.project.dd.unarchived"), traceShort)];
+  }
 
-  return h("a", {
-      class: `dchip${sm ? ` src-${sm.cls}` : ""}`,
-      href,
-      "data-route": "",
-      onClick: (e) => e.stopPropagation(),
+  return h("div", {
+      class: `fdec g-${groupKey}${over ? " over" : ""}`,
+      style: { "--tc": d.tags?.[0]?.color ?? "var(--teal)" },
     },
-    h("span", { class: `dchip-g ${nsCls}` }, localId || d.id),
-    h("span", { class: "dchip-t" }, title),
-    d.tags?.[0]
-      ? h("span", { class: "dchip-tag", style: { "--tc": d.tags[0].color ?? "#9c9a92" } },
-          h("span", { class: "td" }),
-          d.tags[0].name)
-      : null,
-    sm ? h("span", {
-      class: `dchip-src ${sm.cls}`,
-      title: t("ui.project.decision.source_title", { label: sm.label, conf: titleConfSuffix }),
-    }, sm.label + confValue) : null,
-    h("span", { class: `dchip-st ${nsCls}` }, nodeStateLabel(ns)),
+    h("div", { class: "fdec-head" },
+      h("span", { class: "fdec-num" }, localId),
+      h("span", { class: "fdec-title" }, d.detail?.title ?? d.title ?? d.id),
+      scope ? h("span", { class: `d-scope ${scopeClassOf(scope)}` }, scope) : null,
+      h("span", { class: `fdec-st ${effMockType(d)}` }, nodeStateLabel(nodeStateOf(d))),
+    ),
+    ...body,
   );
+}
+
+function renderDecisionDetail(detail) {
+  const parts = [];
+
+  if (detail.trigger || detail.constraint) {
+    const frame = h("div", { class: "dd-frame" });
+    if (detail.trigger) {
+      frame.append(h("span", { class: "lbl" }, t("ui.project.dd.trigger")),
+        h("span", { class: "val" }, richText(detail.trigger)));
+    }
+    if (detail.constraint) {
+      frame.append(h("span", { class: "lbl" }, t("ui.project.dd.constraint")),
+        h("span", { class: "val" }, richText(detail.constraint)));
+    }
+    parts.push(frame);
+  }
+
+  if (detail.options) {
+    parts.push(h("div", {},
+      detail.axis
+        ? h("div", { class: "dd-axis" },
+            t("ui.project.dd.axis", { axis: detail.axis, count: detail.options.length }))
+        : null,
+      h("div", { class: "dd-options" },
+        h("div", { class: "dd-opt-h" },
+          h("span", {}, "Option"), h("span", {}, "Approach"), h("span", {}, "Verdict")),
+        ...detail.options.map((o) =>
+          h("div", { class: `dd-opt${o.chosen ? " chosen" : ""}` },
+            h("span", { class: "o-n" }, o.n),
+            h("span", { class: "o-ap" }, richText(o.ap)),
+            h("span", { class: "o-vd" }, o.vd),
+          )),
+      ),
+    ));
+  }
+
+  if (detail.why) {
+    parts.push(h("div", { class: "dd-why" },
+      h("div", { class: "dd-why-l" }, t("ui.project.dd.why")),
+      ...detail.why.map((w) => h("p", {}, richText(w))),
+    ));
+  }
+
+  if (detail.locks) {
+    parts.push(h("div", { class: "dd-locks" },
+      h("div", { class: "dd-lock in" },
+        h("div", { class: "k" }, t("ui.project.dd.lock_in")),
+        detail.locks.in ? h("span", {}, richText(detail.locks.in)) : null),
+      h("div", { class: "dd-lock out" },
+        h("div", { class: "k" }, t("ui.project.dd.lock_out")),
+        detail.locks.out ? h("span", {}, richText(detail.locks.out)) : null),
+    ));
+  }
+
+  if (detail.artifact) {
+    const art = h("div", { class: "dd-artifact" });
+    for (const file of detail.artifact.files) {
+      art.append(h("span", { class: "lbl" }, file.label || "file"), h("code", {}, file.path));
+    }
+    if (detail.artifact.commit) {
+      art.append(h("span", { class: "lbl" }, "commit"), h("code", {}, detail.artifact.commit));
+    }
+    parts.push(art);
+  }
+
+  return h("div", { class: "dd" }, ...parts);
 }
 
 // -------------------------------------------------------------------

@@ -249,11 +249,11 @@ export const LOCALES_ZH = {
   // ui.project.* — 单项目 Project 页面 (/<slug>/)
   // ---------------------------------------------------------------------------
 
-  "ui.project.node_state.decision": "已决",
-  "ui.project.node_state.deferred": "推迟",
+  "ui.project.node_state.decision": "已定",
+  "ui.project.node_state.deferred": "已推迟",
   "ui.project.node_state.open": "悬而未决",
   "ui.project.node_state.resolved": "已解决",
-  "ui.project.node_state.superseded": "已取代",
+  "ui.project.node_state.superseded": "被取代",
   "ui.project.source.agent_live": "agent · live",
   "ui.project.source.session_extract": "agent · post-hoc",
   "ui.project.source.manual": "manual",
@@ -273,7 +273,7 @@ export const LOCALES_ZH = {
   "ui.project.main.no_selection_hint":
     "在左边选一个,或者跑 /stele:feature 创建。",
   "ui.project.main.rolling_summary_lead": "rolling summary",
-  "ui.project.main.stat_sessions": "次对话累积",
+  "ui.project.main.stat_sessions": "次对话",
   "ui.project.main.stat_decisions": "个决定",
   "ui.project.main.stat_last": "最近 {when}",
   "ui.project.timeline.eyebrow": "对话时间线",
@@ -291,6 +291,23 @@ export const LOCALES_ZH = {
   "ui.project.resume.no_ccid": "no source session id",
   "ui.project.session.label": "第 {n} 次",
   "ui.project.session.latest_badge": "最近",
+  "ui.project.session.block_label": "第 {n} 次对话",
+  "ui.project.session.latest_tag": "最近一次",
+  "ui.project.session.core_latest": "上次聊到",
+  "ui.project.session.core_label": "这次聊定的核心",
+  "ui.project.bucket.dec": "决定",
+  "ui.project.bucket.def": "推迟",
+  "ui.project.bucket.oq": "待解的问题",
+  "ui.project.dd.trigger": "触发",
+  "ui.project.dd.constraint": "约束",
+  "ui.project.dd.axis": "沿「{axis}」权衡 · {count} 个方案",
+  "ui.project.dd.why": "为什么这么选",
+  "ui.project.dd.lock_in": "Locked in · 锁进了",
+  "ui.project.dd.lock_out": "Locked out · 锁出了",
+  "ui.project.dd.overridden": "已被后面的决定覆盖,详情从略。",
+  "ui.project.dd.unarchived": "这条决定的完整取舍还没归档。",
+  "ui.project.dd.trace_link": "在溯源图看它的来历",
+  "ui.project.dd.trace_link_short": "溯源图",
   "ui.project.decisions.label":
     "这次对话产出的决定 · {count}",
   "ui.project.decision.source_title":
