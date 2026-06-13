@@ -280,3 +280,53 @@ test("markFeatureComplete is idempotent + throws on unknown feature", () => {
   assert.equal(s.getFeature("F-01")!.state, "done");
   assert.throws(() => s.markFeatureComplete("NOPE"), /no such feature/);
 });
+
+// ---- reopenFeature (undo) -------------------------------------------------
+
+test("reopenFeature reverses a seal: hand-closed loops reopen, state → going", () => {
+  const s = new Store(":memory:");
+  const { projectId } = bootProject(s);
+  s.putFeature(mkFeature(projectId, "F-01", "feat", "going"));
+  s.putDecision(mkDec("F-01", "F-01/D-01", "decision"));
+  s.putDecision(mkDec("F-01", "F-01/DEF-01", "deferred", "open"));
+  s.putDecision(mkDec("F-01", "F-01/OQ-01", "open", "open"));
+
+  s.markFeatureComplete("F-01", { by: "test", reason: "shipped" });
+  const { reopened } = s.reopenFeature("F-01");
+  assert.deepEqual([...reopened].sort(), ["F-01/DEF-01", "F-01/OQ-01"]);
+
+  const f = s.getFeature("F-01")!;
+  assert.equal(f.state, "going");
+
+  for (const id of ["F-01/DEF-01", "F-01/OQ-01"]) {
+    const d = s.getDecision(id)!; // marker cleared, back to open
+    assert.equal(d.status, "open");
+    assert.equal(d.closedManually, undefined);
+  }
+
+  const dec = s.getDecision("F-01/D-01")!; // the decided one was never touched
+  assert.equal(dec.status, undefined);
+  assert.equal(dec.closedManually, undefined);
+});
+
+test("reopenFeature only touches hand-closed loops, not real resolutions", () => {
+  const s = new Store(":memory:");
+  const { projectId } = bootProject(s);
+  s.putFeature(mkFeature(projectId, "F-01", "feat", "going"));
+  // a deferred loop resolved by a real resolver (not a hand-close)
+  const resolved = mkDec("F-01", "F-01/DEF-01", "deferred", "resolved");
+  resolved.resolvedBy = "F-01/D-09";
+  s.putDecision(resolved);
+
+  const { reopened } = s.reopenFeature("F-01");
+  assert.deepEqual(reopened, []); // nothing hand-closed → nothing reopened
+
+  const d = s.getDecision("F-01/DEF-01")!;
+  assert.equal(d.status, "resolved"); // genuinely-resolved loop is left alone
+  assert.equal(d.resolvedBy, "F-01/D-09");
+});
+
+test("reopenFeature throws on unknown feature", () => {
+  const s = new Store(":memory:");
+  assert.throws(() => s.reopenFeature("NOPE"), /no such feature/);
+});

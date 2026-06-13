@@ -735,6 +735,14 @@ async function dispatchApi(
       const { closed } = store.markFeatureComplete(id, { by: "web", reason: body.reason });
       return json(res, 200, { ok: true, id, closed });
     }
+    // reopen a completed feature — undo: reopen the hand-closed loops + back to going
+    const mFeatureReopen = apiPath.match(/^\/api\/features\/([^/]+)\/reopen$/);
+    if (mFeatureReopen) {
+      const id = decodeURIComponent(mFeatureReopen[1]);
+      if (!store.getFeature(id)) return notFound(res);
+      const { reopened } = store.reopenFeature(id);
+      return json(res, 200, { ok: true, id, reopened });
+    }
     // 0.1.0 — project status
     const mProjectStatus = apiPath.match(/^\/api\/project\/status$/);
     if (mProjectStatus) return await handlePostProjectStatus(store, req, res);

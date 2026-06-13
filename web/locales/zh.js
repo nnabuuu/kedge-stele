@@ -254,6 +254,7 @@ export const LOCALES_ZH = {
   "ui.project.node_state.open": "悬而未决",
   "ui.project.node_state.resolved": "已解决",
   "ui.project.node_state.superseded": "被取代",
+  "ui.project.node_state.closed": "手动关闭",
   "ui.project.source.agent_live": "agent · live",
   "ui.project.source.session_extract": "agent · post-hoc",
   "ui.project.source.manual": "manual",
@@ -307,8 +308,20 @@ export const LOCALES_ZH = {
   "ui.project.dd.lock_out": "Locked out · 锁出了",
   "ui.project.dd.overridden": "已被后面的决定覆盖,详情从略。",
   "ui.project.dd.unarchived": "这条决定的完整取舍还没归档。",
+  "ui.project.dd.manually_closed": "手动关闭 · 随<b>线索完成</b>而关闭,未解决。",
   "ui.project.dd.trace_link": "在溯源图看它的来历",
   "ui.project.dd.trace_link_short": "溯源图",
+  "ui.project.complete.button": "标记此线索完成",
+  "ui.project.complete.hint": "将手动关闭 {count} 项推迟 / 待解问题",
+  "ui.project.complete.done_note": "线索已完成",
+  "ui.project.complete.done_closed_suffix": " · {count} 项未决已手动关闭",
+  "ui.project.complete.undo": "撤销完成",
+  "ui.project.complete.modal_eyebrow": "封碑 · SEAL THE RECORD",
+  "ui.project.complete.modal_title": "把「{name}」标记为完成",
+  "ui.project.complete.modal_lede":
+    "完成这条线索后，下列 <b>{count}</b> 项尚未了结的推迟 / 待解问题将被<b>手动关闭</b> —— 它们不算已解决，只是随线索封存。决定记录全部保留，可溯、可撤销。",
+  "ui.project.complete.modal_confirm": "封碑 · 标记完成",
+  "ui.project.complete.modal_cancel": "取消",
   "ui.project.decisions.label":
     "这次对话产出的决定 · {count}",
   "ui.project.decision.source_title":

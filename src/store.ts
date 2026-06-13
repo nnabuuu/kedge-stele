@@ -717,6 +717,37 @@ export class Store {
   }
 
   /**
+   * Reverse markFeatureComplete: reopen every hand-closed loop (a decision
+   * carrying `closedManually`) — clear the marker and set status back to 'open'
+   * — and move the Feature back to 'going'. Only touches decisions WE closed
+   * (the marker is the signal); decisions resolved by a real resolver are left
+   * alone. Returns the reopened ids. The pre-seal state isn't stored, so it
+   * restores to 'going'.
+   */
+  reopenFeature(id: FeatureId): { reopened: DecisionId[] } {
+    const reopened: DecisionId[] = [];
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const f = this.getFeature(id);
+      if (!f) throw new Error(`no such feature: ${id}`);
+      for (const d of this.decisionsInFeature(id)) {
+        if (d.closedManually) {
+          delete d.closedManually;
+          d.status = "open";
+          this.putDecision(d);
+          reopened.push(d.id);
+        }
+      }
+      this.setFeatureState(id, "going");
+      this.db.exec("COMMIT");
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
+    }
+    return { reopened };
+  }
+
+  /**
    * Mark a type='decision' as superseded by another decision.
    * Used by addEdge(supersedes). See setDecisionResolved for the
    * concurrency rationale.

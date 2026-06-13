@@ -15,7 +15,7 @@
 //   GET /<slug>/api/features/<id>                 selected-feature detail with
 //                                                 sessions + per-session decisions
 
-import { apiGet, ensureCss, slugUrl } from "../api.js";
+import { apiGet, apiPost, ensureCss, slugUrl } from "../api.js";
 import { renderResumeLauncher } from "../components/resume-launcher.js";
 import { h, escapeHtml, richText } from "../dom.js";
 import { mapDetail, renderDecisionDetail } from "../decision-detail.js";
@@ -290,7 +290,7 @@ function renderFeatureRow(f, isSelected, onSelect) {
 // Main (selected feature)
 // -------------------------------------------------------------------
 
-function renderMain(featureDetail, onSourceFilter, railItem) {
+function renderMain(featureDetail, onSourceFilter, railItem, onComplete, onReopen) {
   if (!featureDetail) {
     return h("main", { class: "main" },
       h("div", { class: "main-in" },
@@ -326,6 +326,15 @@ function renderMain(featureDetail, onSourceFilter, railItem) {
   // Derived "done" display when all loops are settled — uses the rail item's
   // openLoops/decisionCount (the full-feature counts, unaffected by ?src=).
   const headState = railItem ? displayFtState(railItem) : f.state;
+
+  // Mark-complete data (full feature, unaffected by ?src=): the open loops a
+  // seal would hand-close, and how many were already closed manually.
+  const allDecisions = allSessions.flatMap((b) => b.decisions);
+  const openLoopDecisions = allDecisions.filter((d) => {
+    const ns = nodeStateOf(d);
+    return ns === "open" || ns === "deferred";
+  });
+  const closedCount = allDecisions.filter((d) => d.closedManually).length;
 
   return h("main", { class: "main" },
     h("div", { class: "main-in", "data-fid": f.id },
@@ -364,6 +373,7 @@ function renderMain(featureDetail, onSourceFilter, railItem) {
                 t("ui.project.main.stat_last", { when: fmtAgo(latest.session.startedAt) }))
             : null,
         ),
+        renderMsComplete(f, openLoopDecisions, closedCount, onComplete, onReopen),
       ),
 
       // 0.4.0 — source filter strip. Hidden when no filter is active.
@@ -383,6 +393,71 @@ function renderMain(featureDetail, onSourceFilter, railItem) {
             })),
     ),
   );
+}
+
+// ── 封碑 / mark complete (design §ms-complete) ───────────────────
+// Driven by the STORED state: a sealed feature (state==='done') shows the
+// "线索已完成" note + an undo; an active one (going/winding/paused) shows the
+// seal button. Hidden for drafts.
+function renderMsComplete(f, openLoopDecisions, closedCount, onComplete, onReopen) {
+  if (f.state === "draft") return null;
+  if (f.state === "done") {
+    return h("div", { class: "ms-complete done" },
+      h("span", { class: "msc-note" },
+        icon("check", 14),
+        t("ui.project.complete.done_note"),
+        closedCount > 0 ? t("ui.project.complete.done_closed_suffix", { count: closedCount }) : ""),
+      h("button", { class: "msc-undo", type: "button", onClick: () => onReopen(f.id) },
+        t("ui.project.complete.undo")),
+    );
+  }
+  return h("div", { class: "ms-complete" },
+    h("button", { class: "msc-btn", type: "button",
+        onClick: () => openCompleteModal(f, openLoopDecisions, onComplete) },
+      icon("check", 14), t("ui.project.complete.button")),
+    openLoopDecisions.length > 0
+      ? h("span", { class: "msc-hint" }, t("ui.project.complete.hint", { count: openLoopDecisions.length }))
+      : null,
+  );
+}
+
+// The confirmation sheet: lists the open loops that will be hand-closed, then
+// commits on confirm. Mounted on <body>; ESC / backdrop / cancel dismiss it.
+function openCompleteModal(f, openLoopDecisions, onComplete) {
+  const modal = h("div", { class: "msc-modal" });
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const close = () => { modal.remove(); document.removeEventListener("keydown", onKey); };
+
+  const list = openLoopDecisions.length > 0
+    ? h("ul", { class: "msc-list" },
+        ...openLoopDecisions.map((d) => {
+          const ns = nodeStateOf(d);
+          const localId = d.id.split("/").slice(1).join("/") || d.id;
+          return h("li", {},
+            h("span", { class: `dchip-g ${ns}` }, localId),
+            h("span", { class: "lt" }, d.detail?.title ?? d.title ?? d.id),
+            h("span", { class: `dchip-st ${ns}` }, nodeStateLabel(ns)),
+          );
+        }))
+    : null;
+
+  const sheet = h("div", { class: "msc-sheet", role: "dialog", "aria-modal": "true" },
+    h("div", { class: "msc-eb" }, t("ui.project.complete.modal_eyebrow")),
+    h("h3", { class: "msc-title" }, t("ui.project.complete.modal_title", { name: f.name })),
+    h("p", { class: "msc-lede" }, richText(t("ui.project.complete.modal_lede", { count: openLoopDecisions.length }))),
+    list,
+    h("div", { class: "msc-act" },
+      h("button", { class: "msc-cancel", type: "button", onClick: close }, t("ui.project.complete.modal_cancel")),
+      h("button", { class: "msc-confirm", type: "button",
+          onClick: () => { close(); onComplete(f.id); } },
+        icon("check", 14), t("ui.project.complete.modal_confirm")),
+    ),
+  );
+  sheet.addEventListener("click", (e) => e.stopPropagation());
+  modal.addEventListener("click", close); // backdrop click
+  modal.append(h("div", { class: "msc-back" }), sheet);
+  document.addEventListener("keydown", onKey);
+  document.body.append(modal);
 }
 
 /**
@@ -521,14 +596,18 @@ function renderSessGroups(decisions) {
 }
 
 function renderFlatDecision(d, groupKey) {
-  const over = isOverridden(d);
+  const manualClosed = !!d.closedManually; // hand-closed when its feature was sealed
+  const over = isOverridden(d); // already true for manualClosed (status==='resolved')
   const detail = mapDetail(d);
   const scope = d.scope ?? d.detail?.scope ?? null;
   const localId = d.id.split("/").slice(1).join("/") || d.id;
   const traceShort = renderTraceLink(d, true);
 
   let body;
-  if (over) {
+  if (manualClosed) {
+    body = [h("div", { class: "fdec-over-note closed" },
+      richText(t("ui.project.dd.manually_closed")), traceShort)];
+  } else if (over) {
     body = [h("div", { class: "fdec-over-note" }, t("ui.project.dd.overridden"), traceShort)];
   } else if (detail) {
     body = [renderDecisionDetail(detail), h("div", { class: "fdec-foot" }, traceShort)];
@@ -544,7 +623,9 @@ function renderFlatDecision(d, groupKey) {
       h("span", { class: "fdec-num" }, localId),
       h("span", { class: "fdec-title" }, d.detail?.title ?? d.title ?? d.id),
       scope ? h("span", { class: `d-scope ${scopeClassOf(scope)}` }, scope) : null,
-      h("span", { class: `fdec-st ${effMockType(d)}` }, nodeStateLabel(nodeStateOf(d))),
+      manualClosed
+        ? h("span", { class: "fdec-st closed" }, t("ui.project.node_state.closed"))
+        : h("span", { class: `fdec-st ${effMockType(d)}` }, nodeStateLabel(nodeStateOf(d))),
     ),
     ...body,
   );
@@ -642,6 +723,38 @@ async function renderShell(root, ctx, projectInfo, rail, selectedFid) {
     renderShell(root, ctx, projectInfo, rail, selectedFid);
   };
 
+  // After a 封碑/撤销 mutation the rail (openLoops + state) and the selected
+  // feature's decisions are both stale — re-fetch the rail and drop the cached
+  // detail so renderShell re-pulls it, then recurse into the same render path.
+  const refresh = async () => {
+    let newRail = rail;
+    try {
+      newRail = await apiGet("/features");
+    } catch (err) {
+      console.error(`[stele] rail refresh failed:`, err);
+    }
+    detailCache.delete(selectedFid);
+    await renderShell(root, ctx, projectInfo, newRail, selectedFid);
+  };
+  const onComplete = async (fid) => {
+    try {
+      await apiPost(`/features/${encodeURIComponent(fid)}/complete`, {});
+    } catch (err) {
+      console.error(`[stele] feature complete failed:`, err);
+      return;
+    }
+    await refresh();
+  };
+  const onReopen = async (fid) => {
+    try {
+      await apiPost(`/features/${encodeURIComponent(fid)}/reopen`, {});
+    } catch (err) {
+      console.error(`[stele] feature reopen failed:`, err);
+      return;
+    }
+    await refresh();
+  };
+
   // Build then swap atomically — no blank-during-await, no double-append race.
   const frag = document.createDocumentFragment();
   const project = projectInfo?.project;
@@ -649,7 +762,7 @@ async function renderShell(root, ctx, projectInfo, rail, selectedFid) {
   frag.append(
     h("div", { class: "body" },
       renderRail(rail, selectedFid, onSelect, onToggleTag, onClearTags),
-      renderMain(detail, onSourceFilter, findFeatureInRail(rail, selectedFid)),
+      renderMain(detail, onSourceFilter, findFeatureInRail(rail, selectedFid), onComplete, onReopen),
     ),
   );
   root.replaceChildren(frag);

@@ -266,6 +266,7 @@ export const LOCALES_EN = {
   "ui.project.node_state.open": "open",
   "ui.project.node_state.resolved": "resolved",
   "ui.project.node_state.superseded": "superseded",
+  "ui.project.node_state.closed": "manually closed",
   "ui.project.source.agent_live": "agent · live",
   "ui.project.source.session_extract": "agent · post-hoc",
   "ui.project.source.manual": "manual",
@@ -320,8 +321,20 @@ export const LOCALES_EN = {
   "ui.project.dd.lock_out": "Locked out",
   "ui.project.dd.overridden": "Superseded by a later decision; details omitted.",
   "ui.project.dd.unarchived": "The full trade-off for this decision isn't archived yet.",
+  "ui.project.dd.manually_closed": "Manually closed · sealed when the <b>feature was completed</b>, not resolved.",
   "ui.project.dd.trace_link": "see its provenance in Trace",
   "ui.project.dd.trace_link_short": "Trace",
+  "ui.project.complete.button": "Mark this feature complete",
+  "ui.project.complete.hint": "Will hand-close {count} deferred / open items",
+  "ui.project.complete.done_note": "Feature complete",
+  "ui.project.complete.done_closed_suffix": " · {count} loose ends hand-closed",
+  "ui.project.complete.undo": "Undo",
+  "ui.project.complete.modal_eyebrow": "封碑 · SEAL THE RECORD",
+  "ui.project.complete.modal_title": "Mark “{name}” complete",
+  "ui.project.complete.modal_lede":
+    "Once this feature is complete, the <b>{count}</b> unresolved deferrals / open questions below will be <b>hand-closed</b> — not marked resolved, just sealed along with the feature. Every decision record is kept, traceable and reversible.",
+  "ui.project.complete.modal_confirm": "Seal · mark complete",
+  "ui.project.complete.modal_cancel": "Cancel",
   "ui.project.decisions.label":
     "decisions from this conversation · {count}",
   "ui.project.decision.source_title":
