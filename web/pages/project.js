@@ -424,6 +424,9 @@ function renderMsComplete(f, openLoopDecisions, closedCount, onComplete, onReope
 // The confirmation sheet: lists the open loops that will be hand-closed, then
 // commits on confirm. Mounted on <body>; ESC / backdrop / cancel dismiss it.
 function openCompleteModal(f, openLoopDecisions, onComplete) {
+  // Singleton: a rapid double-click would otherwise mount a second sheet +
+  // a second document keydown listener (backdrop-click then closes only one).
+  if (document.querySelector(".msc-modal")) return;
   const modal = h("div", { class: "msc-modal" });
   const onKey = (e) => { if (e.key === "Escape") close(); };
   const close = () => { modal.remove(); document.removeEventListener("keydown", onKey); };
@@ -726,33 +729,42 @@ async function renderShell(root, ctx, projectInfo, rail, selectedFid) {
   // After a 封碑/撤销 mutation the rail (openLoops + state) and the selected
   // feature's decisions are both stale — re-fetch the rail and drop the cached
   // detail so renderShell re-pulls it, then recurse into the same render path.
-  const refresh = async () => {
+  // `gen` is the renderGen this handler belongs to; any newer renderShell
+  // (navigation, tag/source filter) advances renderGen, so if the user moved
+  // on during an await we bail instead of clobbering their current view with
+  // this handler's stale selectedFid.
+  const refresh = async (gen) => {
     let newRail = rail;
     try {
       newRail = await apiGet("/features");
     } catch (err) {
       console.error(`[stele] rail refresh failed:`, err);
     }
+    if (gen !== renderGen) return; // user navigated during the fetch
     detailCache.delete(selectedFid);
     await renderShell(root, ctx, projectInfo, newRail, selectedFid);
   };
   const onComplete = async (fid) => {
+    const gen = renderGen;
     try {
       await apiPost(`/features/${encodeURIComponent(fid)}/complete`, {});
     } catch (err) {
       console.error(`[stele] feature complete failed:`, err);
       return;
     }
-    await refresh();
+    if (gen !== renderGen) return; // user navigated during the POST
+    await refresh(gen);
   };
   const onReopen = async (fid) => {
+    const gen = renderGen;
     try {
       await apiPost(`/features/${encodeURIComponent(fid)}/reopen`, {});
     } catch (err) {
       console.error(`[stele] feature reopen failed:`, err);
       return;
     }
-    await refresh();
+    if (gen !== renderGen) return; // user navigated during the POST
+    await refresh(gen);
   };
 
   // Build then swap atomically — no blank-during-await, no double-append race.

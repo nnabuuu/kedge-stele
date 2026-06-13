@@ -421,7 +421,11 @@ export class Store {
     const f = this.getFeature(id);
     if (!f) throw new Error(`no such feature: ${id}`);
     f.state = state;
+    // Keep the invariant completedAt ⟺ state==='done': stamp on entry, clear
+    // on departure (so a reopened/un-completed feature doesn't carry a stale
+    // completion date the CLI / summary projection would still display).
     if (state === "done") f.completedAt = f.completedAt ?? new Date().toISOString();
+    else delete f.completedAt;
     this.putFeature(f);
   }
 
@@ -719,10 +723,12 @@ export class Store {
   /**
    * Reverse markFeatureComplete: reopen every hand-closed loop (a decision
    * carrying `closedManually`) — clear the marker and set status back to 'open'
-   * — and move the Feature back to 'going'. Only touches decisions WE closed
-   * (the marker is the signal); decisions resolved by a real resolver are left
-   * alone. Returns the reopened ids. The pre-seal state isn't stored, so it
-   * restores to 'going'.
+   * — and un-complete the Feature. Only touches decisions WE closed (the marker
+   * is the signal); decisions resolved by a real resolver are left alone. The
+   * state flip is guarded on `done` so calling reopen on a never-sealed feature
+   * (e.g. a 'winding' / 'paused' one) doesn't clobber its state — it only
+   * reopens loops. The pre-seal state isn't stored, so a sealed feature
+   * restores to 'going'. Returns the reopened ids.
    */
   reopenFeature(id: FeatureId): { reopened: DecisionId[] } {
     const reopened: DecisionId[] = [];
@@ -738,7 +744,7 @@ export class Store {
           reopened.push(d.id);
         }
       }
-      this.setFeatureState(id, "going");
+      if (f.state === "done") this.setFeatureState(id, "going");
       this.db.exec("COMMIT");
     } catch (e) {
       this.db.exec("ROLLBACK");

@@ -292,11 +292,13 @@ test("reopenFeature reverses a seal: hand-closed loops reopen, state → going",
   s.putDecision(mkDec("F-01", "F-01/OQ-01", "open", "open"));
 
   s.markFeatureComplete("F-01", { by: "test", reason: "shipped" });
+  assert.ok(s.getFeature("F-01")!.completedAt); // sealed → stamped
   const { reopened } = s.reopenFeature("F-01");
   assert.deepEqual([...reopened].sort(), ["F-01/DEF-01", "F-01/OQ-01"]);
 
   const f = s.getFeature("F-01")!;
   assert.equal(f.state, "going");
+  assert.equal(f.completedAt, undefined); // un-completed → completion stamp cleared
 
   for (const id of ["F-01/DEF-01", "F-01/OQ-01"]) {
     const d = s.getDecision(id)!; // marker cleared, back to open
@@ -307,6 +309,41 @@ test("reopenFeature reverses a seal: hand-closed loops reopen, state → going",
   const dec = s.getDecision("F-01/D-01")!; // the decided one was never touched
   assert.equal(dec.status, undefined);
   assert.equal(dec.closedManually, undefined);
+});
+
+test("reopenFeature on a never-sealed feature is a no-op on state (no clobber)", () => {
+  const s = new Store(":memory:");
+  const { projectId } = bootProject(s);
+  // a 'winding' feature that was never sealed (no closedManually loops)
+  s.putFeature(mkFeature(projectId, "F-01", "feat", "winding"));
+  s.putDecision(mkDec("F-01", "F-01/OQ-01", "open", "open"));
+
+  const { reopened } = s.reopenFeature("F-01");
+  assert.deepEqual(reopened, []);
+  assert.equal(s.getFeature("F-01")!.state, "winding"); // NOT flipped to 'going'
+  assert.equal(s.getDecision("F-01/OQ-01")!.status, "open"); // open loop untouched
+});
+
+test("seal → reopen → seal round-trips: the same loops re-close cleanly", () => {
+  const s = new Store(":memory:");
+  const { projectId } = bootProject(s);
+  s.putFeature(mkFeature(projectId, "F-01", "feat", "going"));
+  s.putDecision(mkDec("F-01", "F-01/DEF-01", "deferred", "open"));
+  s.putDecision(mkDec("F-01", "F-01/OQ-01", "open", "open"));
+
+  s.markFeatureComplete("F-01");
+  s.reopenFeature("F-01");
+  const { closed } = s.markFeatureComplete("F-01"); // second seal closes the same loops
+  assert.deepEqual([...closed].sort(), ["F-01/DEF-01", "F-01/OQ-01"]);
+
+  const f = s.getFeature("F-01")!;
+  assert.equal(f.state, "done");
+  assert.ok(f.completedAt);
+  for (const id of ["F-01/DEF-01", "F-01/OQ-01"]) {
+    const d = s.getDecision(id)!;
+    assert.equal(d.status, "resolved");
+    assert.ok(d.closedManually);
+  }
 });
 
 test("reopenFeature only touches hand-closed loops, not real resolutions", () => {
